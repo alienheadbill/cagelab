@@ -450,6 +450,19 @@ export default function CageLab() {
   const progressDenominator = careerState && careerState.finished ? Math.max(1, careerState.totalFightCount) : estimatedTotalFights;
   const progressPct = careerState ? Math.min(100, Math.round((fightsCompleted / progressDenominator) * 100)) : 0;
 
+  // The champion is whoever is flagged isChampion -- never the fighter that
+  // happens to sit at array position 0. When the player holds the belt,
+  // nobody in the roster is flagged and this is null (the player's own
+  // "C" row covers it). The ranked pool is the top 15 non-champion
+  // fighters, so the numbering shifts correctly whether or not a division
+  // member currently holds the title.
+  const divisionChampion = careerState && careerState.divisionRoster
+    ? careerState.divisionRoster.find((f) => f.isChampion)
+    : null;
+  const rankedPool = careerState && careerState.divisionRoster
+    ? careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE)
+    : [];
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -800,22 +813,32 @@ export default function CageLab() {
                     <span className="rank-rec mono">{careerState.record.w}-{careerState.record.l}</span>
                   </div>
                 )}
-                {careerState.divisionRoster.slice(0, DIVISION_SIZE + 1).map((f, i) => (
-                  <React.Fragment key={f.id}>
-                    {careerState.playerRank === i && careerState.playerRank !== 0 && (
-                      <div className="ranking-row you">
-                        <span className="rank-num mono">#{i}</span>
-                        <span className="rank-name">{name}</span>
-                        <span className="rank-rec mono">{careerState.record.w}-{careerState.record.l}</span>
+                {careerState.playerRank !== 0 && divisionChampion && (
+                  <div className="ranking-row champ" key={divisionChampion.id}>
+                    <span className="rank-num mono">C</span>
+                    <span className="rank-name">{divisionChampion.name}</span>
+                    <span className="rank-rec mono">{divisionChampion.record.w}-{divisionChampion.record.l}</span>
+                  </div>
+                )}
+                {rankedPool.map((f, i) => {
+                  const rankNum = i + 1;
+                  return (
+                    <React.Fragment key={f.id}>
+                      {careerState.playerRank === rankNum && (
+                        <div className="ranking-row you">
+                          <span className="rank-num mono">#{rankNum}</span>
+                          <span className="rank-name">{name}</span>
+                          <span className="rank-rec mono">{careerState.record.w}-{careerState.record.l}</span>
+                        </div>
+                      )}
+                      <div className="ranking-row">
+                        <span className="rank-num mono">#{rankNum}</span>
+                        <span className="rank-name">{f.name}</span>
+                        <span className="rank-rec mono">{f.record.w}-{f.record.l}</span>
                       </div>
-                    )}
-                    <div className={`ranking-row ${i === 0 ? "champ" : ""}`}>
-                      <span className="rank-num mono">{i === 0 ? "C" : `#${i}`}</span>
-                      <span className="rank-name">{f.name}</span>
-                      <span className="rank-rec mono">{f.record.w}-{f.record.l}</span>
-                    </div>
-                  </React.Fragment>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
                 {careerState.playerRank == null && (
                   <div className="ranking-row you unranked">
                     <span className="rank-num mono">—</span>
@@ -984,7 +1007,7 @@ export default function CageLab() {
                 {!careerState.champion && careerState.rankPoints >= 85 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
                 )}
-                {!careerState.champion && (
+                {!careerState.champion && careerState.rankPoints >= 65 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>

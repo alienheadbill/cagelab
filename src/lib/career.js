@@ -443,9 +443,15 @@ function buildDivision() {
 function simulateDivisionRound(division) {
   const d = division.map((f) => ({ ...f, record: { ...f.record } }));
 
-  // A title fight happens roughly every other round.
-  if (Math.random() < 0.5 && d.length > 1) {
-    const champ = d[0], challenger = d[1];
+  // A title fight happens roughly every other round -- but only when the
+  // belt actually lives inside this division. When the player holds it,
+  // nobody in the roster is flagged isChampion, and the background sim must
+  // not invent a new NPC champion behind the player's back; the ranked pool
+  // just keeps fighting for position underneath them instead.
+  const champIdx = d.findIndex((f) => f.isChampion);
+  if (champIdx !== -1 && Math.random() < 0.5 && d.length > 1) {
+    const challengerIdx = champIdx === 0 ? 1 : 0;
+    const champ = d[champIdx], challenger = d[challengerIdx];
     const champWins = Math.random() < 0.5 + (champ.overall - challenger.overall) / 60;
     if (champWins) {
       champ.record.w += 1;
@@ -455,16 +461,20 @@ function simulateDivisionRound(division) {
       champ.record.l += 1;
       champ.isChampion = false;
       challenger.isChampion = true;
-      d[0] = challenger;
-      d[1] = champ;
+      d[champIdx] = challenger;
+      d[challengerIdx] = champ;
     }
   }
 
   // Two contender bouts between neighbouring RANKED fighters. The unranked
-  // tier below doesn't affect the standings.
+  // tier below doesn't affect the standings. Normally index 0 is reserved
+  // for the champion and sits out of this pool; while the belt is vacant
+  // from this division's point of view (the player holds it), index 0 is
+  // just the #1 contender and needs to keep fighting like everyone else.
+  const rankedStart = champIdx === -1 ? 0 : 1;
   const rankedEnd = Math.min(DIVISION_SIZE, d.length - 1);
   for (let n = 0; n < 2; n++) {
-    const i = 1 + Math.floor(Math.random() * Math.max(1, rankedEnd - 1));
+    const i = rankedStart + Math.floor(Math.random() * Math.max(1, rankedEnd - rankedStart));
     const j = i + 1;
     if (j > rankedEnd) continue;
     const aWins = Math.random() < 0.5 + (d[i].overall - d[j].overall) / 60;
@@ -483,17 +493,36 @@ function simulateDivisionRound(division) {
 // Picks who you fight next out of the real division, based on where you stand.
 // Higher rank = you face people nearer the top.
 function selectDivisionOpponent(division, playerRankPoints, forTitle) {
-  if (forTitle) return { fighter: division[0], rank: 0 };
+  if (forTitle) {
+    // Always resolve the title fight off the isChampion flag, never off
+    // array position -- once the player has held the belt, the old champ no
+    // longer sits at a reserved "index 0 = champion" slot, they're just the
+    // top of the ranked pool. If nobody in the division is flagged (the
+    // player already holds the title, or it's vacant), the opponent is the
+    // #1 ranked contender instead, which is exactly who a champion should
+    // be defending against.
+    const champIdx = division.findIndex((f) => f.isChampion);
+    const idx = champIdx === -1 ? 0 : champIdx;
+    return { fighter: division[idx], rank: idx };
+  }
   // Map rank points onto a slot in the ladder. Low-ranked fighters draw from
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   const centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
   const target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
+  // The displayed Top 15 numbering excludes whoever is flagged champion.
+  // Normally that's index 0, so array index and display rank line up
+  // (target itself never dips into index 0 here). But during a vacant title
+  // -- nobody in the division flagged, belt held by the player or open
+  // after an interim -- there's no entry to exclude, so every displayed
+  // rank sits one higher than its raw array index.
+  const hasDivisionChampion = division.some((f) => f.isChampion);
+  const displayRank = hasDivisionChampion ? target : target + 1;
   return {
     fighter: division[target],
     // Anything past DIVISION_SIZE is unranked -- report null so the UI shows
     // "unranked" rather than a fake #27 ranking.
-    rank: target <= DIVISION_SIZE ? target : null,
+    rank: displayRank <= DIVISION_SIZE ? displayRank : null,
   };
 }
 
@@ -784,9 +813,17 @@ function runFight(state, choiceTag) {
     s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
   }
   if (isTitleShot && result.win) {
-    // You took the belt -- the old champion drops to #1 contender.
-    nextDivision = nextDivision.map((f) => ({ ...f, isChampion: false }));
+    // You took the belt -- clear isChampion off the old champ (found by
+    // flag, not position) so they fall back into the ranked pool as a
+    // normal contender with their real record intact. The player's own
+    // champion status lives on career state (s.champion), never as a
+    // divisionRoster entry, so rankings render must check that flag first.
+    nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
     s.playerRank = 0;
+  } else if (isTitleDefense && !result.win) {
+    // You lost the belt -- the opponent who just beat you becomes champion.
+    // (s.playerRank already moved to 1 above, same as any other title loss.)
+    nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
   }
   s.divisionRoster = simulateDivisionRound(nextDivision);
 
