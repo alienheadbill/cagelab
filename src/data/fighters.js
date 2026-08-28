@@ -31,19 +31,25 @@ const OPP_NICK = [
 ];
 
 // Draws a set of unique fighter names. Roughly a third get a nickname.
+//
+// Independently random first/last draws (the old approach) let the same
+// first name or the same last name land on multiple fighters in one
+// division -- two "Marcus"es or two "Webb"s in the same 40-fighter roster
+// read as confusingly similar over a whole career. Instead, shuffle each
+// pool once and pair them off index-by-index, so every fighter in a given
+// division has both a unique first AND a unique last name.
 function generateOpponentNames(count, rng = Math.random) {
-  const used = new Set();
+  const firsts = shuffle(OPP_FIRST, rng);
+  const lasts = shuffle(OPP_LAST, rng);
   const out = [];
-  let guard = 0;
-  while (out.length < count && guard < count * 40) {
-    guard++;
-    const first = OPP_FIRST[Math.floor(rng() * OPP_FIRST.length)];
-    const last = OPP_LAST[Math.floor(rng() * OPP_LAST.length)];
-    const key = `${first} ${last}`;
-    if (used.has(key)) continue;
-    used.add(key);
+  for (let i = 0; i < count; i++) {
+    const first = firsts[i % firsts.length];
+    // Only relevant if count ever exceeds a pool's size: stagger the wrap
+    // so a repeat cycle doesn't immediately re-pair the same first+last.
+    const lastIdx = (i + Math.floor(i / lasts.length)) % lasts.length;
+    const last = lasts[lastIdx];
     const nick = rng() < 0.33 ? OPP_NICK[Math.floor(rng() * OPP_NICK.length)] : null;
-    out.push(nick ? `${first} ‘${nick}’ ${last}` : key);
+    out.push(nick ? `${first} ‘${nick}’ ${last}` : `${first} ${last}`);
   }
   return out;
 }
