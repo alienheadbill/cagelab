@@ -26,6 +26,30 @@ function HelpScreen({ onBack }) {
           <div className="help-text">{text}</div>
         </div>
       ))}
+
+      <div className="disclaimer-block">
+        <div className="disclaimer-title">About This Project</div>
+        <p>
+          CageLab is an unofficial fan project. It is not affiliated with, endorsed by, or
+          associated with the UFC, Zuffa, TKO Group, or any fighter, promotion, or organization.
+          All trademarks belong to their respective owners.
+        </p>
+        <p>
+          Fighter names and physical measurements (height, reach) are real and drawn from public
+          records. The eight skill ratings are <b>not</b> official numbers from any published
+          source &mdash; they are derived from public UFC fight statistics as percentile ranks
+          within the fighter population. Striking, Grappling, Wrestling, Cardio, Chin and Power
+          come from real per-fight data; Speed and Fight IQ are indirect inferences from accuracy
+          and defensive statistics, not direct measurements.
+        </p>
+        <p>
+          Career Mode opponents, records, rankings and events are entirely fictional and
+          procedurally generated. No real fighter&apos;s record is ever affected or represented.
+        </p>
+        <p className="disclaimer-credit">
+          Fight statistics derived from publicly available data via UFC-DataLab (MIT licensed).
+        </p>
+      </div>
     </div>
   );
 }
