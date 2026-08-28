@@ -249,10 +249,13 @@ function rankLabel(rankPoints, champion) {
 // CLF = CageLab Fights, the in-game promotion. Tiers are derived purely from
 // rankPoints, so a bad losing stretch can send you back down -- getting cut
 // from the main roster is meant to sting as much as promotion feels good.
+// Contender Series sits directly below PREMIER, not down with Regional/
+// National -- like its real-world namesake, it's the last-look tryout card
+// that feeds straight into the main roster, not an early developmental rung.
 const CLF_TIERS = [
-  { name: "CLF Contender Series", short: "CONTENDER SERIES", blurb: "Proving grounds. Win here and someone finally notices." },
   { name: "CLF Regional", short: "REGIONAL", blurb: "Small halls, real fights, no cameras yet." },
   { name: "CLF National", short: "NATIONAL", blurb: "Televised cards. The division knows your name now." },
+  { name: "CLF Contender Series", short: "CONTENDER SERIES", blurb: "Proving grounds. Win here and someone finally notices." },
   { name: "CLF PREMIER", short: "PREMIER", blurb: "The main roster. Champions are made here." },
 ];
 
@@ -262,9 +265,9 @@ const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0]
 
 function circuitTierFor(rankPoints, champion) {
   if (champion || rankPoints >= 55) return "CLF PREMIER";
-  if (rankPoints >= 25) return "CLF National";
-  if (rankPoints >= 8) return "CLF Regional";
-  return "CLF Contender Series";
+  if (rankPoints >= 25) return "CLF Contender Series";
+  if (rankPoints >= 8) return "CLF National";
+  return "CLF Regional";
 }
 
 // A plausible W-L record for a generated opponent, scaled by how far into the
@@ -272,9 +275,24 @@ function circuitTierFor(rankPoints, champion) {
 // Not a persistent identity across rematches (the engine regenerates
 // opponents fresh each fight) -- treat it as "their record coming in," same
 // as a broadcast would show for someone you've never fought before.
-function generateOpponentRecord(overall, fightIndexContext) {
+//
+// tier sets the win-rate floor: being ranked in the division (let alone
+// holding the belt) is itself evidence of a winning record -- the old flat
+// formula bottomed out below 50% for anyone with a merely average overall,
+// which meant the bottom of a freshly-built Top 15 could show a losing
+// record on day one. Unranked prospects are the only ones who can plausibly
+// be below .500 -- they're still trying to break in.
+// These same floors also bound how far the background sim (below) can let a
+// ranked-pool record drift once the career is underway.
+const CHAMPION_WIN_FLOOR = 0.68;
+const RANKED_WIN_FLOOR = 0.55;
+
+function generateOpponentRecord(overall, fightIndexContext, tier) {
   const experience = clamp(Math.round(fightIndexContext * 0.6 + (overall - 50) * 0.3), 3, 40);
-  const winRate = clamp(0.4 + (overall - 60) / 120, 0.35, 0.9);
+  let winRate;
+  if (tier === "champion") winRate = clamp(0.72 + (overall - 85) / 200, CHAMPION_WIN_FLOOR, 0.92);
+  else if (tier === "ranked") winRate = clamp(0.58 + (overall - 70) / 150, RANKED_WIN_FLOOR, 0.85);
+  else winRate = clamp(0.4 + (overall - 60) / 120, 0.3, 0.75);
   const wins = Math.round(experience * winRate);
   const losses = Math.max(0, experience - wins);
   return { w: wins, l: losses };
@@ -404,7 +422,7 @@ const DIVISION_SIZE = 15;      // how many are RANKED (plus the champion at inde
 
 const UNRANKED_COUNT = 24;     // prospects below the rankings you fight on the way up
 
-function createDivisionFighter(name, baseRating, seedIndex) {
+function createDivisionFighter(name, baseRating, seedIndex, tier) {
   const profile = generateOpponentProfile(baseRating);
   return {
     id: `div-${seedIndex}-${slugify(name)}`,
@@ -413,7 +431,7 @@ function createDivisionFighter(name, baseRating, seedIndex) {
     overall: profile.overall,
     archetype: profile.archetype,
     traits: profile.traits,
-    record: generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12)),
+    record: generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12), tier),
     isChampion: false,
   };
 }
@@ -426,15 +444,31 @@ function buildDivision() {
   const roster = names.map((name, i) => {
     // Champion is strongest; strength tapers through the rankings and keeps
     // falling through the unranked tier below them.
+    const tier = i === 0 ? "champion" : i <= DIVISION_SIZE ? "ranked" : "unranked";
     const baseRating = i === 0
       ? 92
       : i <= DIVISION_SIZE
         ? clamp(Math.round(90 - i * 2.1 + (Math.random() * 6 - 3)), 58, 91)
         : clamp(Math.round(60 - (i - DIVISION_SIZE) * 0.5 + (Math.random() * 8 - 4)), 45, 62);
-    return createDivisionFighter(name, baseRating, i);
+    return createDivisionFighter(name, baseRating, i, tier);
   });
   roster[0].isChampion = true;
   return roster;
+}
+
+// Records a round loss for a division fighter, but never lets it push a
+// ranked-pool member (or the champion) below the win-rate floor their tier
+// was seeded with. Every fighter simulateDivisionRound touches is already
+// in the champion/ranked pool -- the unranked tier below never fights here
+// -- so a plain loss would otherwise let a career's worth of coin-flip
+// background rounds erode a legitimately-ranked record into something that
+// reads as mediocre (a "12-10" for a Top 15 fighter). Below the floor, nights
+// like that just don't stick to the official record.
+function applyRoundLoss(fighter) {
+  const floor = fighter.isChampion ? CHAMPION_WIN_FLOOR : RANKED_WIN_FLOOR;
+  const total = fighter.record.w + fighter.record.l + 1;
+  if (fighter.record.w / total < floor) return;
+  fighter.record.l += 1;
 }
 
 // Simulates the fights you weren't part of. Adjacent ranks meet, the winner
@@ -455,10 +489,10 @@ function simulateDivisionRound(division) {
     const champWins = Math.random() < 0.5 + (champ.overall - challenger.overall) / 60;
     if (champWins) {
       champ.record.w += 1;
-      challenger.record.l += 1;
+      applyRoundLoss(challenger);
     } else {
       challenger.record.w += 1;
-      champ.record.l += 1;
+      applyRoundLoss(champ);
       champ.isChampion = false;
       challenger.isChampion = true;
       d[champIdx] = challenger;
@@ -480,10 +514,10 @@ function simulateDivisionRound(division) {
     const aWins = Math.random() < 0.5 + (d[i].overall - d[j].overall) / 60;
     if (aWins) {
       d[i].record.w += 1;
-      d[j].record.l += 1;
+      applyRoundLoss(d[j]);
     } else {
       d[j].record.w += 1;
-      d[i].record.l += 1;
+      applyRoundLoss(d[i]);
       const tmp = d[i]; d[i] = d[j]; d[j] = tmp; // upset moves them up the ladder
     }
   }
@@ -547,7 +581,7 @@ function initCareer(picks, options) {
     playerRank: null,
     record: { w: 0, l: 0 }, finishes: { ko: 0, sub: 0, dec: 0 },
     rankPoints: 0, peakRankPoints: 0, rankedFightCount: 0,
-    circuitTier: "CLF Contender Series",
+    circuitTier: circuitTierFor(0, false),
     careerStyle: (options && options.careerStyle) || "Balanced",
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
