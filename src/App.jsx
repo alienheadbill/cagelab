@@ -28,7 +28,7 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, rankLabel, clfTier, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, rankLabel, clfTier, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, runFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, rankToTierCls, ARCHETYPE_TAGLINES, calculateLegacy, verdictFor,
@@ -463,6 +463,12 @@ export default function CageLab() {
     ? careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE)
     : [];
 
+  // Purely presentational: maps a circuit tier name onto its rung on the CLF
+  // ladder (CLF_TIERS is already ordered Regional -> National -> Contender
+  // Series -> PREMIER) so the tier-color ramp in CSS can step from muted to
+  // full gold as the tier climbs, instead of every tier looking the same.
+  const tierRampCls = (tierName) => `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -791,7 +797,7 @@ export default function CageLab() {
           </div>
           {careerState.careerStyle && (
             <div className="sim-status-row">
-              <span className="fight-tier-tag">{careerState.circuitTier}</span>
+              <span className={`fight-tier-tag ${tierRampCls(careerState.circuitTier)}`}>{careerState.circuitTier}</span>
               <span className={`fight-tier-tag ${careerState.styleIsNaturalFit ? "on-style" : careerState.careerStyle === "Balanced" ? "" : "off-style"}`}>
                 {careerState.careerStyle}{careerState.styleIsNaturalFit ? " (Natural Fit)" : careerState.careerStyle !== "Balanced" ? " (Off-Style)" : ""}
               </span>
@@ -932,7 +938,7 @@ export default function CageLab() {
                     {e.promoted ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
                     {e.promoted ? "SIGNED — MOVING UP" : "RELEASED — MOVING DOWN"}
                   </div>
-                  <div className="promotion-tier display">{t.short}</div>
+                  <div className={`promotion-tier display ${tierRampCls(e.to)}`}>{t.short}</div>
                   <div className="promotion-blurb">{t.blurb}</div>
                   <div className="promotion-from mono">{e.from} → {e.to}</div>
                 </div>

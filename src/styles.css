@@ -1,20 +1,50 @@
 /* CageLab styles — extracted from the monolith */
         @import url('https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+        /* ==========================================================
+           TOKENS — prizefight broadcast, not lifestyle-app cream.
+           One direction (a dark arena canvas), two brightness levels --
+           not a conventional light/dark inversion. The subject (weigh-in
+           posters, judges' scorecards, circuit tiers) doesn't have a
+           "daytime" register, so the toggle moves between "under the
+           lights" (default) and "main event, lights down" (.dark)
+           rather than between dark and pale.
+
+           --brass  = the ONE signature accent (championship gold). Full
+                      saturation is reserved for hero moments (GOAT
+                      reveal, a win, the champion tag, Elite/Legendary
+                      build, a title strap, the legacy score). At low
+                      opacity it also does double duty tinting routine
+                      "selected/active" UI states -- one hue at two
+                      intensities, never competing with...
+           --blood  = crimson, reserved ONLY for danger/loss/bad states.
+                      Never used for a neutral "this is selected" state --
+                      that would read as an error.
+           --ember  = burnt amber, the one deliberate exception: rivalry
+                      framing only, a third state distinct from win/loss
+                      the brief itself asks to be visually distinguishable.
+           ========================================================== */
         .app-root {
-          --canvas: #EDE6D6; --ink: #16130F; --blood: #8C1D18; --blood-bright: #B0281F;
-          --brass: #B08D3F; --slate: #4A4640; --bone: #F7F3E9; --card-bg: #ffffff;
+          --canvas: #1E1A14; --ink: #EDE6D8; --blood: #D6362B; --ember: #CC6A2E;
+          --brass: #E0AC3A; --slate: #9A8F7D; --bone: #28231C; --card-bg: #332C22;
+          --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+          --space-5: 20px; --space-6: 24px; --space-7: 32px;
           font-family: 'Work Sans', sans-serif;
           background: var(--canvas);
-          background-image: radial-gradient(circle at 20% 10%, rgba(140,29,24,0.04), transparent 40%),
-            radial-gradient(circle at 90% 80%, rgba(176,141,63,0.06), transparent 45%);
-          color: var(--ink); min-height: 100vh; padding: 20px 16px 48px;
+          background-image: radial-gradient(circle at 50% -10%, rgba(224,172,58,0.07), transparent 45%),
+            radial-gradient(circle at 92% 100%, rgba(214,54,43,0.05), transparent 50%);
+          color: var(--ink); min-height: 100vh;
+          /* Safe-area fix: without viewport-fit=cover (set in index.html) these
+             env() calls resolve to 0 and this is just the flat padding -- with
+             it, content clears the iOS status bar / notch / home indicator on
+             every screen, because this wrapper is what everything renders inside. */
+          padding: calc(20px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
           transition: background 0.2s ease, color 0.2s ease;
         }
         .app-root.dark {
-          --canvas: #17140F; --ink: #F5EEDF; --bone: #241F19; --slate: #C2B6A3; --card-bg: #2A241D;
-          background-image: radial-gradient(circle at 20% 10%, rgba(176,141,63,0.06), transparent 40%),
-            radial-gradient(circle at 90% 80%, rgba(140,29,24,0.1), transparent 45%);
+          --canvas: #100E0A; --ink: #F2ECDD; --slate: #A99E8C; --bone: #1A1712; --card-bg: #211D16;
+          background-image: radial-gradient(circle at 50% -10%, rgba(224,172,58,0.05), transparent 45%),
+            radial-gradient(circle at 92% 100%, rgba(214,54,43,0.04), transparent 50%);
         }
         .app-root.reduced-motion *, .app-root.reduced-motion *::before, .app-root.reduced-motion *::after {
           animation: none !important; transition: none !important;
@@ -22,22 +52,28 @@
         @media (prefers-reduced-motion: reduce) { .app-root * { animation: none !important; transition: none !important; } }
 
         .display { font-family: 'Anton', sans-serif; letter-spacing: 0.02em; }
-        .mono { font-family: 'IBM Plex Mono', monospace; }
+        .mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+        /* Visible, on-brand keyboard focus everywhere -- the near-black canvas
+           swallows a default outline, so this is not optional polish. */
+        .app-root :focus-visible {
+          outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 4px;
+        }
 
         .header-wrap { max-width: 560px; margin: 0 auto 18px; }
         .header-top-row { display: flex; justify-content: space-between; align-items: flex-start; }
         .brand { font-size: 34px; line-height: 1; color: var(--ink); }
-        .brand span { color: var(--blood); }
+        .brand span { color: var(--brass); }
         .tagline { font-size: 12.5px; color: var(--slate); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
         .brass-rule { height: 3px; background: linear-gradient(90deg, var(--brass), transparent); margin-top: 12px; border-radius: 2px; }
         .top-icons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-        .icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg);
+        .icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1.5px solid rgba(154,143,125,0.3); background: var(--card-bg);
           color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; touch-action: manipulation; }
         .icon-btn:active { transform: scale(0.94); }
         .icon-btn.active-toggle { border-color: var(--brass); color: var(--brass); }
 
-        .panel { max-width: 560px; margin: 0 auto 16px; background: var(--bone); border: 1px solid rgba(140,120,90,0.22);
-          border-radius: 10px; padding: 18px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 6px 16px rgba(22,19,15,0.08); }
+        .panel { max-width: 560px; margin: 0 auto 16px; background: var(--bone); border: 1px solid rgba(154,143,125,0.18);
+          border-radius: 10px; padding: 18px; box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 6px 18px rgba(0,0,0,0.35); }
 
         .home-hero { text-align: center; margin-bottom: 18px; }
         .home-hero-title { font-size: 30px; letter-spacing: 0.03em; }
@@ -45,23 +81,23 @@
         .rank-badge { margin-top: 10px; display: inline-flex; }
 
         .daily-hero { width: 100%; text-align: left; border: 2px solid var(--brass); border-radius: 12px; cursor: pointer; touch-action: manipulation;
-          padding: 16px; margin-bottom: 12px; background: linear-gradient(160deg, rgba(176,141,63,0.16), var(--card-bg) 70%);
-          box-shadow: 0 4px 18px rgba(176,141,63,0.15); }
+          padding: 16px; margin-bottom: 12px; background: linear-gradient(160deg, rgba(224,172,58,0.14), var(--card-bg) 70%);
+          box-shadow: 0 4px 18px rgba(224,172,58,0.12); }
         .daily-hero:active { transform: scale(0.985); }
         .daily-hero-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .daily-hero-eyebrow { font-size: 10.5px; letter-spacing: 0.1em; color: var(--brass); display: flex; align-items: center; gap: 5px; font-weight: 700; }
-        .daily-hero-streak { font-size: 10.5px; color: var(--blood); display: flex; align-items: center; gap: 4px; font-weight: 700; }
+        .daily-hero-streak { font-size: 10.5px; color: var(--brass); display: flex; align-items: center; gap: 4px; font-weight: 700; }
         .daily-hero-main { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-        .daily-hero-score { font-family: 'Anton', sans-serif; font-size: 42px; color: var(--blood); line-height: 1; }
-        .daily-hero-cta { font-family: 'Anton', sans-serif; font-size: 28px; color: var(--blood); letter-spacing: 0.03em; }
+        .daily-hero-score { font-family: 'Anton', sans-serif; font-size: 42px; color: var(--brass); line-height: 1; }
+        .daily-hero-cta { font-family: 'Anton', sans-serif; font-size: 28px; color: var(--brass); letter-spacing: 0.03em; }
         .daily-hero-status { font-size: 11.5px; color: var(--slate); max-width: 200px; }
-        .daily-hero-stats { display: flex; gap: 18px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(176,141,63,0.3); }
+        .daily-hero-stats { display: flex; gap: 18px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(224,172,58,0.25); }
         .daily-hero-stats > div { font-size: 10px; color: var(--slate); display: flex; flex-direction: column; gap: 2px; }
         .daily-hero-stats b { font-family: 'IBM Plex Mono', monospace; font-size: 15px; color: var(--ink); }
 
         .section-divider { font-size: 10px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; margin: 4px 0 8px; }
         .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-        .mode-card { width: 100%; text-align: left; border: 1.5px solid rgba(140,120,90,0.25); border-radius: 10px; background: var(--card-bg);
+        .mode-card { width: 100%; text-align: left; border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; background: var(--card-bg);
           padding: 14px; margin-bottom: 10px; cursor: pointer; touch-action: manipulation; }
         .mode-card:active { transform: scale(0.98); }
         .mode-card.compact { margin-bottom: 0; padding: 12px; }
@@ -71,30 +107,30 @@
         .home-footer-row { display: flex; gap: 10px; margin-top: 6px; }
         .mode-chip { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 5px; margin-left: 8px; }
 
-        .challenge-block { border: 1.5px dashed rgba(176,141,63,0.4); border-radius: 10px; padding: 14px; margin-bottom: 14px; background: rgba(176,141,63,0.05); }
+        .challenge-block { border: 1.5px dashed rgba(154,143,125,0.35); border-radius: 10px; padding: 14px; margin-bottom: 14px; background: rgba(154,143,125,0.05); }
         .challenge-join-row { display: flex; gap: 8px; margin-top: 10px; }
-        .challenge-input { flex: 1; font-size: 14px; padding: 10px 12px; border-radius: 7px; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg); color: var(--ink); letter-spacing: 0.08em; }
+        .challenge-input { flex: 1; font-size: 14px; padding: 10px 12px; border-radius: 7px; border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); color: var(--ink); letter-spacing: 0.08em; }
         .join-error { font-size: 11px; color: var(--blood); margin-top: 6px; }
 
         .display-name-row { margin-bottom: 14px; }
-        .display-name-input { width: 100%; font-size: 12px; padding: 10px 12px; border-radius: 7px; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg); color: var(--ink); letter-spacing: 0.05em; }
-        .leaderboard-box { border: 1.5px solid rgba(140,120,90,0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; background: rgba(140,120,90,0.04); }
+        .display-name-input { width: 100%; font-size: 12px; padding: 10px 12px; border-radius: 7px; border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); color: var(--ink); letter-spacing: 0.05em; }
+        .leaderboard-box { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; background: rgba(154,143,125,0.04); }
         .leaderboard-title { font-size: 10px; letter-spacing: 0.08em; color: var(--slate); text-transform: uppercase; display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
         .leaderboard-status { font-size: 11.5px; color: var(--slate); display: flex; align-items: center; gap: 6px; padding: 4px 0; }
         .leaderboard-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-        .leaderboard-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-top: 1px dashed rgba(140,120,90,0.15); }
+        .leaderboard-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-top: 1px dashed rgba(154,143,125,0.15); }
         .leaderboard-row:first-child { border-top: none; }
         .leaderboard-rank { width: 26px; color: var(--brass); font-weight: 600; font-size: 11px; }
         .leaderboard-name { flex: 1; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .leaderboard-score { font-size: 12.5px; font-weight: 700; color: var(--blood); }
+        .leaderboard-score { font-size: 12.5px; font-weight: 700; color: var(--ink); }
         .spin-icon { animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .section-head-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-        .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1.5px solid rgba(140,120,90,0.2); overflow-x: auto; }
+        .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1.5px solid rgba(154,143,125,0.2); overflow-x: auto; }
         .tab-btn { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; white-space: nowrap;
           background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 6px; color: var(--slate); cursor: pointer; touch-action: manipulation; }
-        .tab-btn.active { color: var(--blood); border-bottom-color: var(--blood); }
+        .tab-btn.active { color: var(--ink); border-bottom-color: var(--brass); }
         .help-block { margin-bottom: 14px; }
         .help-title { font-family: 'Anton', sans-serif; font-size: 14px; margin-bottom: 3px; }
         .help-text { font-size: 12.5px; color: var(--slate); line-height: 1.5; }
@@ -102,37 +138,37 @@
         .collection-block { margin-bottom: 18px; }
         .collection-block-title { font-family: 'Anton', sans-serif; font-size: 14px; margin-bottom: 8px; }
         .collection-block-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .text-btn { background: none; border: none; color: var(--blood); font-size: 11px; font-family: 'IBM Plex Mono', monospace; cursor: pointer; }
+        .text-btn { background: none; border: none; color: var(--brass); font-size: 11px; font-family: 'IBM Plex Mono', monospace; cursor: pointer; }
         .daily-stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .collection-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px dashed rgba(140,120,90,0.2); gap: 10px; }
-        .saved-build-card { padding: 8px 0; border-top: 1px dashed rgba(140,120,90,0.2); }
+        .collection-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px dashed rgba(154,143,125,0.18); gap: 10px; }
+        .saved-build-card { padding: 8px 0; border-top: 1px dashed rgba(154,143,125,0.18); }
         .saved-build-card:first-child { border-top: none; }
         .saved-build-actions { display: flex; gap: 14px; margin-top: 2px; }
         .collection-row:first-child { border-top: none; }
         .collection-row-title { font-weight: 600; font-size: 13.5px; }
         .collection-row-sub { font-size: 11px; color: var(--slate); margin-top: 1px; }
-        .empty-txt { font-size: 12px; color: var(--slate); font-style: italic; }
+        .empty-txt { font-size: 12px; color: var(--slate); }
 
         .tape-card { padding: 13px 15px; }
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }
         .tape-sub-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
         .tape-sub { font-size: 10px; color: var(--slate); letter-spacing: 0.1em; display: flex; align-items: center; }
-        .live-goat { display: flex; align-items: baseline; gap: 3px; background: rgba(140,29,24,0.08); border: 1px solid rgba(140,29,24,0.25);
+        .live-goat { display: flex; align-items: baseline; gap: 3px; background: rgba(154,143,125,0.1); border: 1px solid rgba(154,143,125,0.28);
           border-radius: 6px; padding: 2px 7px; }
-        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--blood); }
-        .live-goat.hidden-value { background: rgba(140,120,90,0.12); border-color: rgba(140,120,90,0.3); }
+        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .live-goat.hidden-value { background: rgba(154,143,125,0.08); border-color: rgba(154,143,125,0.22); }
         .live-goat.hidden-value .live-goat-num, .live-goat.hidden-value .live-goat-lbl { color: var(--slate); }
-        .live-goat-lbl { font-size: 8px; letter-spacing: 0.05em; color: var(--blood); opacity: 0.75; }
+        .live-goat-lbl { font-size: 8px; letter-spacing: 0.05em; color: var(--slate); }
 
         .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .slot-box { border: 1.5px solid rgba(140,120,90,0.22); border-radius: 6px; padding: 6px 8px; background: rgba(140,120,90,0.04); min-width: 0; }
-        .slot-box.filled { border-color: var(--blood); background: rgba(140,29,24,0.06); animation: popIn 0.25s ease; }
+        .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0; }
+        .slot-box.filled { border-color: rgba(224,172,58,0.55); background: rgba(224,172,58,0.07); animation: popIn 0.25s ease; }
         .slot-box-label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
-        .slot-box-open { font-size: 10px; color: rgba(140,120,90,0.55); font-weight: 700; letter-spacing: 0.04em; }
+        .slot-box-open { font-size: 10px; color: rgba(154,143,125,0.55); font-weight: 700; letter-spacing: 0.04em; }
         .slot-box-value { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
         .slot-box-name { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .slot-box-rating { font-size: 12.5px; font-weight: 700; color: var(--blood); flex-shrink: 0; }
+        .slot-box-rating { font-size: 12.5px; font-weight: 700; color: var(--ink); flex-shrink: 0; }
 
         @keyframes popIn { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -140,27 +176,29 @@
 
         .name-input-inline { width: 100%; border: none; border-bottom: 2px solid var(--ink); background: transparent;
           font-family: 'Anton', sans-serif; font-size: 20px; padding: 3px 2px 5px; color: var(--ink); outline: none; }
-        .name-input-inline::placeholder { color: rgba(140,120,90,0.5); }
+        .name-input-inline::placeholder { color: rgba(154,143,125,0.5); }
 
         .draft-round-panel { padding: 14px; }
         .round-attr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
         .round-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); flex-shrink: 0; }
         .attr-badge { display: flex; align-items: center; gap: 8px; min-width: 0; }
-        .attr-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--blood); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        /* Just a "current category" tag, not a good/bad signal -- neutral slate,
+           not crimson (which stays reserved for danger/loss states). */
+        .attr-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--slate); color: var(--canvas); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .attr-name { font-family: 'Anton', sans-serif; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .context-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-        .context-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; background: rgba(140,120,90,0.12); border-radius: 6px; padding: 4px 8px; display: flex; align-items: center; gap: 5px; color: var(--slate); }
-        .context-chip.locked { background: rgba(140,29,24,0.12); color: var(--blood); font-weight: 700; border: 1px solid rgba(140,29,24,0.3); }
+        .context-chip { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; background: rgba(154,143,125,0.1); border-radius: 6px; padding: 4px 8px; display: flex; align-items: center; gap: 5px; color: var(--slate); }
+        .context-chip.locked { background: rgba(224,172,58,0.12); color: var(--brass); font-weight: 700; border: 1px solid rgba(224,172,58,0.3); }
         .division-note b { color: var(--ink); }
 
         .daily-note { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--brass); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-        .code-pill { background: rgba(176,141,63,0.15); border: 1px solid var(--brass); border-radius: 5px; padding: 2px 8px; font-weight: 600; }
+        .code-pill { background: rgba(224,172,58,0.14); border: 1px solid var(--brass); border-radius: 5px; padding: 2px 8px; font-weight: 600; }
 
         .respin-row { display: flex; gap: 6px; margin-bottom: 8px; }
         .respin-btn { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; border: 1.5px solid var(--ink); background: transparent;
           border-radius: 7px; padding: 6px 4px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px; cursor: pointer; color: var(--ink); touch-action: manipulation; }
-        .respin-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: rgba(140,120,90,0.25); }
+        .respin-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: rgba(154,143,125,0.25); }
         .respin-btn:active:not(:disabled) { transform: scale(0.96); }
         .small-btn { padding: 10px 12px !important; font-size: 12px !important; width: auto !important; }
 
@@ -174,33 +212,38 @@
         }
 
         .build-board { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0 16px;
-          border-bottom: 1px dashed rgba(140,120,90,0.2); margin-bottom: 14px; }
+          border-bottom: 1px dashed rgba(154,143,125,0.18); margin-bottom: 14px; }
         .build-board.compact { flex-direction: row; justify-content: center; padding: 6px 4px; gap: 6px; margin-bottom: 10px; }
-        .silhouette-svg { fill: var(--brass); opacity: 0.5; }
-        .radar-ring { fill: none; stroke: rgba(140,120,90,0.18); stroke-width: 1; }
-        .radar-spoke { stroke: rgba(140,120,90,0.18); stroke-width: 1; }
-        .radar-benchmark { fill: none; stroke: var(--brass); stroke-width: 1.5; stroke-dasharray: 3 3; opacity: 0.7; }
-        .radar-build { fill: rgba(140,29,24,0.28); stroke: var(--blood); stroke-width: 2; }
+        .silhouette-svg { fill: var(--brass); opacity: 0.45; }
+        .radar-ring { fill: none; stroke: rgba(154,143,125,0.18); stroke-width: 1; }
+        .radar-spoke { stroke: rgba(154,143,125,0.18); stroke-width: 1; }
+        .radar-benchmark { fill: none; stroke: var(--brass); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0.7; animation: radarDraw 0.9s ease; }
+        .radar-build { fill: rgba(224,172,58,0.22); stroke: var(--ember); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 0; animation: radarDraw 0.9s ease 0.15s backwards; }
+        /* The draw-in "hidden" state lives only inside the keyframe, not as a
+           static rule -- with .reduced-motion cancelling the animation
+           (animation: none !important), the shape falls back to the plain
+           stroke-dashoffset:0 above and renders fully drawn, not stuck invisible. */
+        @keyframes radarDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
         .radar-label { fill: var(--slate); font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700; }
         .radar-legend { display: flex; justify-content: center; gap: 16px; margin-top: 6px; font-size: 10px; color: var(--slate); }
         .radar-legend span { display: inline-flex; align-items: center; gap: 5px; }
         .radar-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-        .radar-swatch.build { background: var(--blood); }
+        .radar-swatch.build { background: var(--ember); }
         .radar-swatch.benchmark { border: 1.5px dashed var(--brass); }
         .build-board-caption { font-size: 10.5px; letter-spacing: 0.06em; color: var(--slate); text-align: center; text-transform: uppercase; }
         .build-board.compact .build-board-caption { font-size: 10px; }
 
         .pick-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
-        .pick-card { border: 1.5px solid rgba(140,120,90,0.25); border-radius: 8px; background: var(--card-bg); overflow: hidden; min-width: 0;
+        .pick-card { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; background: var(--card-bg); overflow: hidden; min-width: 0;
           cursor: pointer; transition: transform 0.1s ease, border-color 0.1s ease; touch-action: manipulation; }
-        .pick-card:active { transform: scale(0.98); border-color: var(--blood-bright); }
+        .pick-card:active { transform: scale(0.98); border-color: var(--brass); }
         .pick-card-header { display: flex; align-items: center; gap: 6px; padding: 5px 9px; color: #fff; }
         /* Header color is driven by rating tier, not arbitrary rotation -- muted/cool for
            weak stats, vivid/warm for elite ones, so quality reads at a glance. */
-        .pick-card.pc-bronze .pick-card-header { background: #5C5145; color: #F5EEDF; }
-        .pick-card.pc-silver .pick-card-header { background: #7A6A4E; color: #FFFDF7; }
+        .pick-card.pc-bronze .pick-card-header { background: #5C5145; color: #E4DACB; }
+        .pick-card.pc-silver .pick-card-header { background: #6D6252; color: #F5EFE4; }
         .pick-card.pc-gold .pick-card-header { background: var(--brass); color: #241A05; }
-        .pick-card.pc-legend .pick-card-header { background: linear-gradient(90deg, #8C1D18, #B0281F); color: #fff; }
+        .pick-card.pc-legend .pick-card-header { background: linear-gradient(90deg, var(--ember), var(--brass)); color: #211505; }
         .pick-card.pc-blind .pick-card-header { background: #3A362E; color: #D8D0C2; }
         .pick-card-abbr { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; opacity: 0.85; flex-shrink: 0; }
         .pick-card-num { font-family: 'Anton', sans-serif; font-size: 19px; flex: 1; text-align: right; letter-spacing: 0.01em; }
@@ -213,19 +256,22 @@
         .pick-mini-bar-row { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--slate); }
         .pick-mini-bar-row span:first-child { width: 22px; font-weight: 700; flex-shrink: 0; }
         .pick-mini-bar-row span:last-child { width: 18px; text-align: right; flex-shrink: 0; color: var(--ink); }
-        .pick-mini-bar-track { flex: 1; height: 3px; border-radius: 2px; background: rgba(140,120,90,0.15); overflow: hidden; }
-        .pick-mini-bar-fill { height: 100%; background: var(--brass); border-radius: 2px; }
+        .pick-mini-bar-track { flex: 1; height: 3px; border-radius: 2px; background: rgba(154,143,125,0.15); overflow: hidden; }
+        .pick-mini-bar-fill { height: 100%; background: var(--slate); border-radius: 2px; }
 
         @keyframes rollFlicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         .attr-badge.rolling, .context-chip.rolling { animation: rollFlicker 0.14s linear infinite; }
         .rolling-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 22px 0; color: var(--brass); }
         .rolling-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
         @keyframes selectPop {
-          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(140,29,24,0); }
-          40% { transform: scale(1.035); box-shadow: 0 0 0 6px rgba(140,29,24,0.22); }
-          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(140,29,24,0); }
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
+          40% { transform: scale(1.035); box-shadow: 0 0 0 6px rgba(224,172,58,0.28); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
         }
-        .pick-card.selected { animation: selectPop 0.3s ease; border-color: var(--blood-bright); z-index: 1; position: relative; }
+        /* A pick is a routine, frequent action (ten rounds a draft) -- it gets the
+           muted/selected register of the signature gold, not a full-strength
+           flash, which stays reserved for the handful of true hero moments. */
+        .pick-card.selected { animation: selectPop 0.3s ease; border-color: var(--brass); z-index: 1; position: relative; }
         .pick-card.dimmed { opacity: 0.35; pointer-events: none; }
 
         .btn { font-family: 'Anton', sans-serif; letter-spacing: 0.03em; border: none; border-radius: 8px; padding: 14px 18px; font-size: 16px;
@@ -233,29 +279,34 @@
           touch-action: manipulation; min-height: 46px; }
         .btn:active { transform: scale(0.97); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-primary { background: var(--blood); color: #fff; }
-        .btn-dark { background: var(--ink); color: var(--bone); }
-        .btn-ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
+        .btn-primary { background: var(--brass); color: #201603; }
+        /* "Dark" meant a dark-toned button against the old cream page -- now
+           that the page itself is dark, that's the surface tone instead, not
+           a literal swap of --ink/--canvas (which would invert into a pale
+           cream button and undo the whole palette). */
+        .btn-dark { background: var(--card-bg); color: var(--ink); border: 1.5px solid rgba(154,143,125,0.3); }
+        .btn-ghost { background: transparent; color: var(--ink); border: 1.5px solid rgba(154,143,125,0.4); }
 
         .tier-badge { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; padding: 3px 8px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
-        .tier-bronze { background: #DDC7A8; color: #5C3E1B; }
-        .tier-silver { background: #D7D9DC; color: #3A3E45; }
-        .tier-gold { background: #EFCF6E; color: #5A3E00; }
-        .tier-legend { background: linear-gradient(90deg, #8C1D18, #B08D3F); color: #fff; }
+        .tier-bronze { background: #4A4133; color: #D8C7A6; }
+        .tier-silver { background: #4A4A4E; color: #E4E4E8; }
+        .tier-gold { background: var(--brass); color: #241A05; }
+        .tier-legend { background: linear-gradient(90deg, var(--ember), var(--brass)); color: #211505; }
 
-        .good-text { color: #6B4E12; }
+        .good-text { color: var(--brass); }
         .bad-text { color: var(--blood); }
 
-        /* ---- Result screen hero: the GOAT Score dominates, everything else is secondary ---- */
-        .result-hero-panel { text-align: center; padding: 26px 20px 22px; background: radial-gradient(circle at 50% 0%, rgba(140,29,24,0.08), transparent 60%); }
+        /* ---- Result screen hero: "the Belt Reveal" -- the GOAT Score dominates
+           in the signature gold, everything else is secondary ---- */
+        .result-hero-panel { text-align: center; padding: 26px 20px 22px; background: radial-gradient(circle at 50% 0%, rgba(224,172,58,0.1), transparent 62%); }
         .result-eyebrow { font-size: 10px; letter-spacing: 0.16em; color: var(--slate); text-transform: uppercase; }
         .result-fighter-name { font-size: 20px; margin-top: 4px; color: var(--ink); }
-        .result-goat-num { font-size: 68px; line-height: 1; color: var(--blood); margin-top: 10px; text-shadow: 0 2px 18px rgba(140,29,24,0.25); }
+        .result-goat-num { font-size: 68px; line-height: 1; color: var(--brass); margin-top: 10px; text-shadow: 0 2px 22px rgba(224,172,58,0.35); }
         .result-goat-lbl { font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-top: 2px; }
         .result-tier-badge { margin-top: 12px; display: inline-flex; font-size: 11.5px; padding: 5px 12px; }
-        .result-identity { margin-top: 20px; padding-top: 18px; border-top: 1px dashed rgba(140,120,90,0.25); }
+        .result-identity { margin-top: 20px; padding-top: 18px; border-top: 1px dashed rgba(154,143,125,0.22); }
         .result-archetype-name { font-size: 22px; color: var(--ink); }
-        .result-archetype-tagline { font-size: 12.5px; color: var(--slate); font-style: italic; margin-top: 4px; max-width: 340px; margin-left: auto; margin-right: auto; }
+        .result-archetype-tagline { font-size: 12.5px; color: var(--slate); margin-top: 4px; max-width: 340px; margin-left: auto; margin-right: auto; }
         .result-weapon-row { display: flex; justify-content: center; gap: 22px; margin-top: 16px; flex-wrap: wrap; }
         .result-weapon-row > div { display: flex; flex-direction: column; gap: 2px; }
         .result-weapon-row span { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); }
@@ -277,42 +328,44 @@
 
         /* ---- Premium sorted attribute bars (replaces the plain strengths/weaknesses list) ---- */
         .attr-bar-list { display: flex; flex-direction: column; gap: 10px; }
-        .attr-bar-row.best .attr-bar-fill { background: linear-gradient(90deg, var(--brass), #E7C25F); }
-        .attr-bar-row.worst .attr-bar-fill { background: var(--blood); opacity: 0.7; }
+        .attr-bar-row.best .attr-bar-fill { background: linear-gradient(90deg, var(--brass), #F0C868); }
+        .attr-bar-row.worst .attr-bar-fill { background: var(--blood); opacity: 0.75; }
         .attr-bar-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
         .attr-bar-label { font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
         .attr-marker { font-size: 8px; font-weight: 700; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 3px; }
-        .best-marker { background: rgba(176,141,63,0.25); color: #6B4E12; }
-        .worst-marker { background: rgba(140,29,24,0.15); color: var(--blood); }
+        .best-marker { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .worst-marker { background: rgba(214,54,43,0.16); color: var(--blood); }
         .attr-bar-value { font-size: 13px; font-weight: 700; }
-        .attr-bar-track { height: 7px; border-radius: 4px; background: rgba(140,120,90,0.12); overflow: hidden; }
+        .attr-bar-track { height: 7px; border-radius: 4px; background: rgba(154,143,125,0.14); overflow: hidden; }
         @keyframes barGrow { from { width: 0%; } }
-        .attr-bar-fill { height: 100%; width: var(--pct); border-radius: 4px; background: linear-gradient(90deg, var(--brass), var(--blood)); animation: barGrow 0.7s ease; }
+        /* Default bars stay neutral -- gold/crimson are reserved for the best/worst
+           overrides above, not smeared across every ordinary stat. */
+        .attr-bar-fill { height: 100%; width: var(--pct); border-radius: 4px; background: var(--slate); animation: barGrow 0.7s ease; }
         .attr-bar-fighter { font-size: 9.5px; color: var(--slate); margin-top: 2px; }
 
         .synergy-block { margin-top: 4px; }
-        .synergy-chip { font-size: 12px; color: var(--ink); background: rgba(176,141,63,0.1); border: 1px solid rgba(176,141,63,0.35); border-radius: 8px;
+        .synergy-chip { font-size: 12px; color: var(--ink); background: rgba(224,172,58,0.08); border: 1px solid rgba(224,172,58,0.3); border-radius: 8px;
           padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: flex-start; gap: 6px; line-height: 1.5; }
 
         /* ---- Score breakdown demoted to a disclosure -- the math is available, not foregrounded ---- */
-        .score-breakdown-details { margin-top: 16px; border-top: 1px dashed rgba(140,120,90,0.2); padding-top: 10px; }
+        .score-breakdown-details { margin-top: 16px; border-top: 1px dashed rgba(154,143,125,0.18); padding-top: 10px; }
         .score-breakdown-details summary { cursor: pointer; font-size: 11.5px; color: var(--slate); font-weight: 600; touch-action: manipulation; }
         .score-breakdown { padding-top: 8px; }
         .breakdown-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate); padding: 3px 0; }
         .breakdown-row b { font-family: 'IBM Plex Mono', monospace; color: var(--ink); }
         .breakdown-row.bad-text b { color: var(--blood); }
-        .breakdown-final { border-top: 1px solid rgba(140,120,90,0.25); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+        .breakdown-final { border-top: 1px solid rgba(154,143,125,0.22); margin-top: 4px; padding-top: 6px; font-weight: 700; }
         .breakdown-final span, .breakdown-final b { color: var(--ink); font-size: 13px; }
 
         /* ---- Matchup profile as a scouting report, not a data table ---- */
         .scouting-report { display: flex; flex-direction: column; }
-        .scout-row { padding: 12px 0; border-top: 1px dashed rgba(140,120,90,0.15); }
+        .scout-row { padding: 12px 0; border-top: 1px dashed rgba(154,143,125,0.14); }
         .scout-row:first-child { border-top: none; padding-top: 0; }
         .scout-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
         .scout-opp-name { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; }
         .scout-verdict { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; }
-        .scout-favorable { color: #6B4E12; }
-        .scout-slight-edge { color: var(--brass); }
+        .scout-favorable { color: var(--brass); }
+        .scout-slight-edge { color: var(--brass); opacity: 0.75; }
         .scout-even { color: var(--slate); }
         .scout-dangerous { color: var(--blood); opacity: 0.85; }
         .scout-nightmare { color: var(--blood); }
@@ -322,7 +375,7 @@
         .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
         .action-grid .btn { padding: 12px 10px; font-size: 13px; }
 
-        .daily-result-box { border: 1.5px solid var(--brass); border-radius: 8px; padding: 12px 14px; margin: 16px 0; background: rgba(176,141,63,0.06); }
+        .daily-result-box { border: 1.5px solid var(--brass); border-radius: 8px; padding: 12px 14px; margin: 16px 0; background: rgba(224,172,58,0.06); }
         .daily-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
         .daily-result-grid > div { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate); }
         .daily-result-grid > div b { font-family: 'IBM Plex Mono', monospace; color: var(--ink); font-size: 13px; }
@@ -330,68 +383,73 @@
         .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
         .profile-line { font-size: 12px; color: var(--slate); padding: 4px 0; }
         .profile-line b { color: var(--ink); }
-        .progression-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px dashed rgba(140,120,90,0.2); }
+        .progression-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px dashed rgba(154,143,125,0.18); }
         .progression-item { text-align: center; }
-        .progression-num { font-family: 'Anton', sans-serif; font-size: 18px; color: var(--blood); }
+        .progression-num { font-family: 'Anton', sans-serif; font-size: 18px; color: var(--ink); }
         .progression-lbl { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); margin-top: 2px; }
 
-        .scorecard-pre { background: rgba(140,120,90,0.08); border-radius: 8px; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace;
+        .scorecard-pre { background: rgba(154,143,125,0.06); border-radius: 8px; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace;
           font-size: 11px; line-height: 1.6; white-space: pre-wrap; margin: 14px 0; color: var(--ink); }
 
         .sim-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .sim-rank { font-size: 11px; color: var(--brass); font-weight: 600; margin-top: 2px; }
         .sim-progress { font-size: 10px; color: var(--slate); margin-top: 2px; }
         .legacy-box { text-align: right; }
-        .legacy-num { font-family: 'Anton', sans-serif; font-size: 26px; color: var(--blood); animation: pulseScale 0.4s ease; }
+        .legacy-num { font-family: 'Anton', sans-serif; font-size: 26px; color: var(--brass); animation: pulseScale 0.4s ease; }
         .legacy-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate); }
-        .progress-bar-track { height: 5px; border-radius: 3px; background: rgba(140,120,90,0.15); overflow: hidden; margin: 10px 0 4px; }
-        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--brass), var(--blood)); border-radius: 3px; transition: width 0.4s ease; }
+        .progress-bar-track { height: 5px; border-radius: 3px; background: rgba(154,143,125,0.15); overflow: hidden; margin: 10px 0 4px; }
+        .progress-bar-fill { height: 100%; background: var(--brass); border-radius: 3px; transition: width 0.4s ease; }
 
         .year-divider { text-align: center; margin: 16px 0 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
           letter-spacing: 0.16em; color: var(--brass); text-transform: uppercase; animation: cardIn 0.3s ease; }
 
-        .decision-panel { border: 2px solid var(--brass); border-radius: 10px; padding: 16px; margin-bottom: 14px; background: linear-gradient(180deg, rgba(176,141,63,0.1), var(--card-bg) 55%); animation: cardIn 0.3s ease; }
+        /* Decision panels are routine chrome -- they appear at every camp and
+           every fight choice, so the border stays neutral rather than
+           spending the signature gold on something this frequent. */
+        .decision-panel { border: 1.5px solid rgba(154,143,125,0.3); border-radius: 10px; padding: 16px; margin-bottom: 14px; background: var(--card-bg); animation: cardIn 0.3s ease; }
         .decision-title { display: flex; align-items: center; gap: 6px; font-family: 'Anton', sans-serif; font-size: 16px; margin-bottom: 4px; }
         .decision-sub { font-size: 11.5px; color: var(--slate); margin-bottom: 12px; }
         .decision-group-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); margin: 10px 0 6px; }
-        .camp-snapshot { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--slate); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(140,120,90,0.2); }
+        .camp-snapshot { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--slate); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(154,143,125,0.18); }
         .camp-snapshot b { font-size: 12px; }
-        .camp-snapshot .good-text { color: #6B4E12; }
+        .camp-snapshot .good-text { color: var(--brass); }
         .camp-snapshot .bad-text { color: var(--blood); }
         .camp-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 4px; }
-        .camp-stat { position: relative; font-size: 11.5px; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg);
+        .camp-stat { position: relative; font-size: 11.5px; border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone);
           border-radius: 7px; padding: 8px 9px; display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--ink); touch-action: manipulation; }
-        .camp-stat.focused { border-color: var(--blood); background: rgba(140,29,24,0.08); }
+        .camp-stat.focused { border-color: var(--brass); background: rgba(224,172,58,0.1); }
         .camp-stat-label { flex: 1; font-weight: 600; }
         .camp-stat-val { font-size: 12.5px; font-weight: 700; }
-        .camp-boost { position: absolute; top: -6px; right: -6px; background: var(--blood); color: #fff; font-family: 'IBM Plex Mono', monospace;
+        .camp-boost { position: absolute; top: -6px; right: -6px; background: var(--brass); color: #201603; font-family: 'IBM Plex Mono', monospace;
           font-size: 9px; font-weight: 700; border-radius: 999px; padding: 1px 5px; }
         .choice-row { display: flex; gap: 8px; }
         .choice-row.three button { flex: 1; }
         .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .choice-btn { flex: 1; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg); border-radius: 8px; padding: 10px 8px;
+        .choice-btn { flex: 1; border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px; padding: 10px 8px;
           font-size: 12.5px; font-weight: 600; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; gap: 2px; touch-action: manipulation; }
         .choice-btn span { font-size: 9.5px; font-weight: 400; color: var(--slate); }
-        .choice-btn.active { border-color: var(--blood); background: rgba(140,29,24,0.08); }
+        .choice-btn.active { border-color: var(--brass); background: rgba(224,172,58,0.1); }
         .choice-btn.full { width: 100%; flex-direction: row; align-items: center; justify-content: center; gap: 8px; }
-        .choice-btn.danger { border-color: var(--blood); background: rgba(140,29,24,0.06); grid-column: 1 / -1; }
+        .choice-btn.danger { border-color: var(--blood); background: rgba(214,54,43,0.07); grid-column: 1 / -1; }
         .choice-btn.danger span { color: var(--blood); }
 
+        /* ---- Title strap: solid gold, no crimson mixed in -- the belt itself,
+           the single most "meaningful moment" label in the app ---- */
         .title-ribbon { display: flex; align-items: center; gap: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--brass); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 6px; }
-        .fight-win { background: rgba(176,141,63,0.22); color: #6B4E12; }
-        .fight-loss { background: rgba(140,29,24,0.14); color: var(--blood); }
-        .matchup-line { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--slate); margin: 0 12px; padding: 8px 0; border-top: 1px dashed rgba(140,120,90,0.18); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .fight-win { background: rgba(224,172,58,0.2); color: var(--brass); }
+        .fight-loss { background: rgba(214,54,43,0.14); color: var(--blood); }
+        .matchup-line { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--slate); margin: 0 12px; padding: 8px 0; border-top: 1px dashed rgba(154,143,125,0.16); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
         .matchup-line.warn { color: var(--blood); font-weight: 600; }
-        .fight-narrative { font-size: 11.5px; color: var(--ink); line-height: 1.5; margin: 0 12px 8px; font-style: italic; }
+        .fight-narrative { font-size: 11.5px; color: var(--ink); line-height: 1.5; margin: 0 12px 8px; }
         .fight-narrative div { margin-bottom: 2px; }
         .fight-bottom-row { display: flex; justify-content: flex-end; align-items: center; padding: 0 12px 10px; }
         .fight-tags { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-        .fight-tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 6px; border-radius: 4px; background: rgba(140,120,90,0.12); color: var(--slate); }
-        .fight-tag.rivalry { background: rgba(140,29,24,0.15); color: var(--blood); }
-        .fight-tag.statement { background: rgba(176,141,63,0.25); color: #6B4E12; }
-        .fight-tag.trait { background: rgba(140,120,90,0.15); color: var(--ink); font-weight: 600; }
+        .fight-tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 6px; border-radius: 4px; background: rgba(154,143,125,0.12); color: var(--slate); }
+        .fight-tag.rivalry { background: rgba(204,106,46,0.18); color: var(--ember); }
+        .fight-tag.statement { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .fight-tag.trait { background: rgba(154,143,125,0.14); color: var(--ink); font-weight: 600; }
 
-        .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(140,120,90,0.2); }
+        .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.18); }
         .scorecard-row span:last-child { color: var(--ink); font-weight: 600; }
         .stat-compare-grid { display: flex; flex-direction: column; gap: 3px; }
         .stat-compare-header { display: grid; grid-template-columns: 1fr 1.4fr 1fr; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate); margin-bottom: 2px; }
@@ -403,34 +461,37 @@
         .stat-compare-row b:last-child { text-align: right; }
         .stat-compare-row span { text-align: center; color: var(--slate); font-size: 10.5px; }
 
-        .event-card { border: 1.5px dashed rgba(140,120,90,0.35); border-radius: 8px; padding: 10px 14px; margin-bottom: 9px;
-          background: rgba(140,120,90,0.05); display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink); animation: cardIn 0.3s ease; }
-        .event-card.bad { border-color: rgba(140,29,24,0.4); background: rgba(140,29,24,0.06); color: var(--blood); }
-        .event-card.good { border-color: rgba(176,141,63,0.45); background: rgba(176,141,63,0.08); color: #6B4E12; }
-        .event-card.rival { border-color: var(--blood); border-style: solid; background: rgba(140,29,24,0.06); color: var(--blood); font-weight: 600; }
+        /* ---- Event-card states: good / bad / rival read as three genuinely
+           distinct colors (gold / crimson / ember), not just different labels
+           on the same tint ---- */
+        .event-card { border: 1.5px dashed rgba(154,143,125,0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 9px;
+          background: rgba(154,143,125,0.04); display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink); animation: cardIn 0.3s ease; }
+        .event-card.bad { border-color: rgba(214,54,43,0.4); background: rgba(214,54,43,0.06); color: var(--blood); }
+        .event-card.good { border-color: rgba(224,172,58,0.4); background: rgba(224,172,58,0.07); color: var(--brass); }
+        .event-card.rival { border-color: var(--ember); border-style: solid; background: rgba(204,106,46,0.08); color: var(--ember); font-weight: 600; }
         .event-card.circuit-move { font-weight: 700; }
 
         .setup-block { margin-bottom: 16px; }
         .setup-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate); margin-bottom: 6px; font-weight: 700; }
         .setup-select, .setup-input { width: 100%; font-size: 13px; padding: 10px 12px; border-radius: 7px;
-          border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg); color: var(--ink); }
+          border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); color: var(--ink); }
         .setup-input { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; }
         .setup-hint { font-size: 10.5px; color: var(--slate); margin-top: 6px; line-height: 1.45; }
         .setup-hint b { color: var(--ink); }
-        .setup-range { width: 100%; accent-color: var(--blood); margin: 2px 0; }
+        .setup-range { width: 100%; accent-color: var(--brass); margin: 2px 0; }
         .era-row { display: flex; gap: 8px; }
-        .style-option.active { border-color: var(--blood); background: rgba(140,29,24,0.08); }
+        .style-option.active { border-color: var(--brass); background: rgba(224,172,58,0.1); }
 
         .division-roll-panel { text-align: center; padding: 34px 20px; }
         .division-roll-name { font-size: 30px; line-height: 1.1; margin: 10px 0 6px; letter-spacing: 0.02em; }
         .division-roll-name.rolling { color: var(--slate); opacity: 0.75; animation: rollFlicker 0.12s linear infinite; }
-        .division-roll-name.settled { color: var(--blood); animation: pulseScale 0.5s ease; }
+        .division-roll-name.settled { color: var(--brass); animation: pulseScale 0.5s ease; }
         .division-roll-meta { font-size: 10.5px; color: var(--slate); letter-spacing: 0.04em; }
         .division-roll-sub { font-size: 12px; color: var(--slate); margin-top: 14px; padding-top: 12px;
-          border-top: 1px dashed rgba(140,120,90,0.22); max-width: 300px; margin-left: auto; margin-right: auto; }
+          border-top: 1px dashed rgba(154,143,125,0.2); max-width: 300px; margin-left: auto; margin-right: auto; }
 
         .style-option-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-        .style-option { text-align: left; border: 1.5px solid rgba(140,120,90,0.3); background: var(--card-bg); border-radius: 8px;
+        .style-option { text-align: left; border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); border-radius: 8px;
           padding: 10px 12px; cursor: pointer; touch-action: manipulation; }
         .style-option:active { transform: scale(0.98); }
         .style-option-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
@@ -439,20 +500,20 @@
         .style-option-desc { font-size: 11px; color: var(--slate); line-height: 1.4; }
 
         /* ---- CLF event card: every fight is a card on a numbered event ---- */
-        .event-card-wrap { border: 1.5px solid rgba(140,120,90,0.25); border-radius: 10px; margin-bottom: 12px; overflow: hidden;
+        .event-card-wrap { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; margin-bottom: 12px; overflow: hidden;
           background: var(--card-bg); animation: cardIn 0.3s ease; }
         .event-card-wrap.won { border-left: 3px solid var(--brass); }
-        .event-card-wrap.lost { border-left: 3px solid rgba(140,29,24,0.55); }
-        .event-card-wrap.title-event { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 14px rgba(176,141,63,0.18); }
+        .event-card-wrap.lost { border-left: 3px solid rgba(214,54,43,0.6); }
+        .event-card-wrap.title-event { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 16px rgba(224,172,58,0.15); }
         .event-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px;
-          background: rgba(22,19,15,0.06); border-bottom: 1px solid rgba(140,120,90,0.18); }
-        .app-root.dark .event-header { background: rgba(0,0,0,0.25); }
+          background: rgba(0,0,0,0.18); border-bottom: 1px solid rgba(154,143,125,0.16); }
+        .app-root.dark .event-header { background: rgba(0,0,0,0.32); }
         .event-name { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--brass); }
         .event-position { font-size: 8.5px; letter-spacing: 0.1em; color: var(--slate); }
-        .event-position.headline { color: var(--blood); font-weight: 700; }
+        .event-position.headline { color: var(--brass); font-weight: 700; }
         .event-title-strap { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px;
-          background: linear-gradient(90deg, rgba(176,141,63,0.2), rgba(140,29,24,0.2));
-          font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--brass); }
+          background: linear-gradient(90deg, rgba(224,172,58,0.35), rgba(224,172,58,0.5));
+          font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #241A05; }
 
         .event-matchup { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 12px; }
         .event-corner { min-width: 0; }
@@ -470,65 +531,78 @@
 
         .scorecards-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
         .scorecard-label { font-size: 8px; letter-spacing: 0.08em; color: var(--slate); }
-        .scorecard-chip { font-size: 10px; font-weight: 700; background: rgba(140,120,90,0.14); border-radius: 4px; padding: 2px 7px; }
+        .scorecard-chip { font-size: 10px; font-weight: 700; background: rgba(154,143,125,0.12); border-radius: 4px; padding: 2px 7px; }
 
         /* ---- Promotion / relegation: a real moment, not a one-liner ---- */
         .promotion-card { border-radius: 10px; padding: 18px 16px; margin-bottom: 12px; text-align: center;
           animation: cardIn 0.45s ease; }
         .promotion-card.up { border: 2px solid var(--brass);
-          background: linear-gradient(160deg, rgba(176,141,63,0.22), var(--card-bg) 72%);
-          box-shadow: 0 4px 20px rgba(176,141,63,0.2); }
-        .promotion-card.down { border: 2px solid rgba(140,29,24,0.5);
-          background: linear-gradient(160deg, rgba(140,29,24,0.16), var(--card-bg) 72%); }
+          background: linear-gradient(160deg, rgba(224,172,58,0.18), var(--card-bg) 72%);
+          box-shadow: 0 4px 20px rgba(224,172,58,0.16); }
+        .promotion-card.down { border: 2px solid rgba(214,54,43,0.5);
+          background: linear-gradient(160deg, rgba(214,54,43,0.14), var(--card-bg) 72%); }
         .promotion-eyebrow { display: flex; align-items: center; justify-content: center; gap: 6px;
           font-size: 9.5px; letter-spacing: 0.14em; font-weight: 700; }
         .promotion-card.up .promotion-eyebrow { color: var(--brass); }
         .promotion-card.down .promotion-eyebrow { color: var(--blood); }
-        .promotion-tier { font-size: 30px; line-height: 1.05; margin: 8px 0 6px; color: var(--ink); letter-spacing: 0.03em; }
-        .promotion-blurb { font-size: 12px; color: var(--slate); font-style: italic; max-width: 320px; margin: 0 auto; }
+        .promotion-tier { font-size: 30px; line-height: 1.05; margin: 8px 0 6px; letter-spacing: 0.03em; }
+        .promotion-blurb { font-size: 12px; color: var(--slate); max-width: 320px; margin: 0 auto; }
         .promotion-from { font-size: 9.5px; color: var(--slate); margin-top: 10px; opacity: 0.8; }
 
+        /* ---- Circuit tier ramp: four saturation steps of the SAME gold, not
+           four competing hues -- Regional (dimmest) through PREMIER (full
+           --brass), so climbing the ladder visibly means "closer to gold." ---- */
         .fight-tier-tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
-          background: rgba(140,120,90,0.15); color: var(--slate); }
-        .fight-tier-tag.on-style { background: rgba(176,141,63,0.22); color: #6B4E12; }
-        .fight-tier-tag.off-style { background: rgba(140,29,24,0.12); color: var(--blood); }
-        .rankings-details { margin: 10px 0 14px; border: 1.5px solid rgba(140,120,90,0.25); border-radius: 8px; padding: 10px 12px; background: rgba(140,120,90,0.04); }
+          background: rgba(154,143,125,0.14); color: var(--slate); }
+        .fight-tier-tag.tier-ramp-0 { background: rgba(154,143,125,0.12); color: #ADA290; }
+        .fight-tier-tag.tier-ramp-1 { background: rgba(180,146,74,0.16); color: #C4A05C; }
+        .fight-tier-tag.tier-ramp-2 { background: rgba(212,168,66,0.2); color: #DBB259; }
+        .fight-tier-tag.tier-ramp-3 { background: rgba(224,172,58,0.26); color: var(--brass); font-weight: 800; }
+        .promotion-tier.tier-ramp-0 { color: #ADA290; }
+        .promotion-tier.tier-ramp-1 { color: #C4A05C; }
+        .promotion-tier.tier-ramp-2 { color: #DBB259; }
+        .promotion-tier.tier-ramp-3 { color: var(--brass); }
+        .fight-tier-tag.on-style { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .fight-tier-tag.off-style { background: rgba(214,54,43,0.12); color: var(--blood); }
+        .rankings-details { margin: 10px 0 14px; border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; padding: 10px 12px; background: rgba(154,143,125,0.04); }
         .rankings-details summary { cursor: pointer; font-family: 'Anton', sans-serif; font-size: 13px; letter-spacing: 0.02em; }
         .rankings-list { margin-top: 8px; max-height: 260px; overflow-y: auto; }
-        .ranking-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px dashed rgba(140,120,90,0.15); font-size: 12px; }
+        .ranking-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px dashed rgba(154,143,125,0.14); font-size: 12px; }
         .ranking-row:first-child { border-top: none; }
         .ranking-row.champ { color: var(--brass); font-weight: 700; }
-        .ranking-row.you { background: rgba(140,29,24,0.1); border-radius: 4px; padding-left: 4px; padding-right: 4px; font-weight: 700; color: var(--blood); }
+        /* Your own row gets the same signature accent as "you're notable here" --
+           not crimson, which would misleadingly read as an error on your own line. */
+        .ranking-row.you { background: rgba(224,172,58,0.1); border-radius: 4px; padding-left: 4px; padding-right: 4px; font-weight: 700; color: var(--brass); }
         .rank-num { width: 26px; flex-shrink: 0; font-size: 10.5px; }
         .rank-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .rank-rec { font-size: 10.5px; color: var(--slate); flex-shrink: 0; }
-        .ranking-row.you .rank-rec { color: var(--blood); }
+        .ranking-row.you .rank-rec { color: var(--brass); }
 
         .sim-status-row { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
         .leap-note { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--brass); margin-top: 4px; }
 
-        .year-end-card { border: 1.5px solid rgba(140,120,90,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 9px;
-          background: rgba(140,120,90,0.05); animation: cardIn 0.3s ease; }
+        .year-end-card { border: 1.5px solid rgba(154,143,125,0.26); border-radius: 8px; padding: 12px 14px; margin-bottom: 9px;
+          background: rgba(154,143,125,0.04); animation: cardIn 0.3s ease; }
         .year-end-title { font-family: 'Anton', sans-serif; font-size: 13px; margin-bottom: 6px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; }
 
         .retirement-card { border: 1.5px solid var(--brass); border-radius: 10px; padding: 18px 16px; margin-bottom: 9px; text-align: center;
-          background: linear-gradient(180deg, rgba(176,141,63,0.14), var(--card-bg) 70%); animation: cardIn 0.4s ease; }
+          background: linear-gradient(180deg, rgba(224,172,58,0.12), var(--card-bg) 70%); animation: cardIn 0.4s ease; }
         .retirement-line { font-family: 'Anton', sans-serif; font-size: 15px; line-height: 1.4; margin-top: 8px; color: var(--ink); }
 
-        .summary-card { border: 1.5px solid var(--brass); border-radius: 8px; padding: 14px; margin-bottom: 9px; background: linear-gradient(180deg, rgba(176,141,63,0.12), var(--card-bg) 60%); animation: cardIn 0.3s ease; }
+        .summary-card { border: 1.5px solid var(--brass); border-radius: 8px; padding: 14px; margin-bottom: 9px; background: linear-gradient(180deg, rgba(224,172,58,0.1), var(--card-bg) 60%); animation: cardIn 0.3s ease; }
         .summary-title { font-family: 'Anton', sans-serif; font-size: 15px; margin-bottom: 8px; }
         .summary-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; color: var(--slate); }
         .summary-row b { color: var(--ink); font-family: 'IBM Plex Mono', monospace; }
 
         .btn-row { display: flex; gap: 10px; margin-top: 12px; }
         .note-txt { font-size: 10.5px; color: var(--slate); text-align: center; margin-top: 10px; line-height: 1.4; }
-        .whatif-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(140,120,90,0.25); }
+        .whatif-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(154,143,125,0.22); }
 
         .verdict-panel { text-align: center; padding: 26px 18px; }
         .verdict-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; }
-        .verdict-title { font-family: 'Anton', sans-serif; font-size: 28px; margin: 8px 0 4px; color: var(--blood); line-height: 1.1; }
+        .verdict-title { font-family: 'Anton', sans-serif; font-size: 28px; margin: 8px 0 4px; color: var(--brass); line-height: 1.1; }
         .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
-        .stat-box { background: rgba(140,120,90,0.08); border-radius: 8px; padding: 10px 6px; }
+        .stat-box { background: rgba(154,143,125,0.07); border-radius: 8px; padding: 10px 6px; }
         .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
         .stat-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); margin-top: 2px; }
 

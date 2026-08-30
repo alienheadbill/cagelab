@@ -27,8 +27,11 @@ function RadarChart({ picks, size = 220 }) {
         const [x, y] = pointFor(i, 99);
         return <line key={i} x1={cx} y1={cy} x2={x} y2={y} className="radar-spoke" />;
       })}
-      <polygon points={toPoly(benchmarkValues)} className="radar-benchmark" />
-      <polygon points={toPoly(buildValues)} className="radar-build" />
+      {/* pathLength="1" normalizes the polygon's length to 1 regardless of its
+          actual perimeter, so the CSS draw-in animation (stroke-dasharray/
+          stroke-dashoffset) doesn't need to know the real geometry. */}
+      <polygon points={toPoly(benchmarkValues)} pathLength="1" className="radar-benchmark" />
+      <polygon points={toPoly(buildValues)} pathLength="1" className="radar-build" />
       {keys.map((k, i) => {
         const ang = angleFor(i);
         const lx = cx + (r + 16) * Math.cos(ang);
