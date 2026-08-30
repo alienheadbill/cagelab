@@ -6,7 +6,7 @@ import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
 import LeaderboardList from "./LeaderboardList.jsx";
 
-function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile }) {
+function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile }) {
   const [dailyNotice, setDailyNotice] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
@@ -151,7 +151,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onHelp, 
       </div>
 
       <div className="home-footer-row">
-        <button className="btn btn-ghost small-btn" onClick={onCareer}><Swords size={14} /> Career</button>
+        <button className="btn btn-ghost small-btn" onClick={onCareer}><Swords size={14} /> {hasActiveCareer ? "Continue Career" : "Career"}</button>
         <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> Trophy Case</button>
         <button className="btn btn-ghost small-btn" onClick={onHelp}><HelpCircle size={14} /> How to Play</button>
       </div>

@@ -31,11 +31,20 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {/* The tale of the tape -- you vs them, with the result between */}
+      {/* The tale of the tape -- you vs them, with the result between.
+          Both corners mirror the same shape: name is the anchor, a short
+          label above it (rank/status), then record + OVR (+ archetype for
+          the opponent) as secondary metadata underneath -- not stacked
+          above the name, where it used to read as clutter. */}
       <div className="event-matchup">
         <div className="event-corner you">
           <div className="corner-label mono">{e.onStyle === false ? "OFF-STYLE" : "YOU"}</div>
           <div className="corner-name">{playerName}</div>
+          {e.playerRecord && (
+            <div className="corner-sub mono">
+              {e.playerRecord.w}-{e.playerRecord.l}{e.playerOverall != null ? ` · ${e.playerOverall} OVR` : ""}
+            </div>
+          )}
         </div>
         <div className="event-verdict">
           <div className={`event-wl ${e.win ? "win" : "loss"}`}>{e.win ? "W" : "L"}</div>
@@ -44,11 +53,11 @@ function FightResultCard({ e, playerName }) {
         </div>
         <div className="event-corner opp">
           <div className="corner-label mono">
-            {e.oppRank === 0 ? "CHAMPION" : e.oppRank ? `#${e.oppRank} · ${e.archetype}` : `UNRANKED · ${e.archetype}`}
+            {e.oppRank === 0 ? "CHAMPION" : e.oppRank ? `#${e.oppRank}` : "UNRANKED"}
           </div>
           <div className="corner-name">{e.opp}</div>
           <div className="corner-sub mono">
-            {e.oppRecord ? `${e.oppRecord.w}-${e.oppRecord.l}` : ""} &middot; {e.oppRating} OVR
+            {e.oppRecord ? `${e.oppRecord.w}-${e.oppRecord.l} · ` : ""}{e.oppRating} OVR{e.archetype ? ` · ${e.archetype}` : ""}
           </div>
         </div>
       </div>

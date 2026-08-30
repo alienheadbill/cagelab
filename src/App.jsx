@@ -9,7 +9,7 @@ import {
 import "./styles.css";
 
 import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
-import { MASTER_FIGHTERS, BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass } from "./data/fighters.js";
+import { MASTER_FIGHTERS, BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
 import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, decodeSeed, shuffle } from "./lib/rng.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
@@ -278,6 +278,11 @@ export default function CageLab() {
       if (isFinalRound) {
         const score = computeGoatScore(nextPicks);
         setGoatScore(score);
+        // A blank name would otherwise carry the placeholder "The Prospect"
+        // through the whole career -- auto-generate a real one from the same
+        // pool that names every NPC, so a skipped field still feels like a
+        // fighter rather than a stand-in.
+        if (!fighterName.trim()) setFighterName(generateOpponentNames(1)[0]);
         if (mode === "daily") recordDailyCompletion(score);
         if (mode === "challenge" && challengeSeed != null) {
           submitChallengeScore(encodeSeed(challengeSeed), score, loadJSON(LS_DISPLAY_NAME, ""));
@@ -368,8 +373,13 @@ export default function CageLab() {
 
   // "Start Career" routes through the setup screen rather than launching
   // straight in -- division, physicals, era and style all get chosen there.
+  // Reachable from the draftDone screen even while a career is already
+  // running (draft a fresh build from Home without leaving the active
+  // career) -- same guard as Home's Career button, for the same reason:
+  // launching from setup always calls initCareer() fresh and would
+  // silently overwrite the in-progress one.
   function beginCareer() {
-    setPhase("careerSetup");
+    setPhase(careerState && !careerState.finished ? "sim" : "careerSetup");
   }
 
   function launchCareer(opts) {
@@ -497,7 +507,13 @@ export default function CageLab() {
           onStart={startDraft}
           onJoinChallenge={(seed) => startDraft("challenge", seed)}
           onCollection={() => setPhase("collection")}
-          onCareer={() => setPhase("careerSetup")}
+          // A career already in progress resumes straight into it instead of
+          // re-entering Career Setup -- that screen's height/reach sliders
+          // are for creating a NEW career, and launching from there always
+          // calls initCareer() fresh, which would silently overwrite (and
+          // lose) whatever career is already running.
+          onCareer={() => setPhase(careerState && !careerState.finished ? "sim" : "careerSetup")}
+          hasActiveCareer={!!(careerState && !careerState.finished)}
           onHelp={() => setPhase("help")}
           dailyStats={dailyStats}
           preferredMode={preferredMode}
