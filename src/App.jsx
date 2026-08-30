@@ -3,7 +3,7 @@ import {
   Trophy, ChevronRight, Lock, RotateCw, Shuffle, Users, MapPin, AlertTriangle,
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, ArrowLeft, Download, Volume2, VolumeX, Link2, Repeat, HelpCircle,
-  Target, Megaphone, Award, Globe, Loader2, Swords, Eye,
+  Target, Megaphone, Award, Globe, Loader2, Swords, Eye, BarChart3, ListOrdered, Dumbbell,
 } from "lucide-react";
 
 import "./styles.css";
@@ -63,6 +63,10 @@ export default function CageLab() {
   const [respinsUsed, setRespinsUsed] = useState({ era: false, stat: false });
   const [picks, setPicks] = useState({});
   const [careerState, setCareerState] = useState(null);
+  // Bottom tab nav, career mode only. "career" is the default hub/next-fight
+  // view; camp planning specifically lives under "camp" (see the auto-switch
+  // effect below), rather than sharing the hub with fight-related decisions.
+  const [careerTab, setCareerTab] = useState("career");
   const [goatScore, setGoatScore] = useState(null);
   const [statOrderOverride, setStatOrderOverride] = useState(null);
   const [buildSaved, setBuildSaved] = useState(false);
@@ -107,6 +111,16 @@ export default function CageLab() {
       return () => { cancelled = true; };
     }
   }, [phase, mode]);
+
+  // Auto-switch to whichever tab a newly-pending decision actually lives on,
+  // so it's never missed just because the player was parked on Rankings or
+  // Stats -- camp planning has its own tab (with a badge as backup below),
+  // everything else surfaces on the main Career hub.
+  useEffect(() => {
+    if (!careerState || !careerState.pendingDecision) return;
+    setCareerTab(careerState.pendingDecision.type === "campPlanning" ? "camp" : "career");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [careerState && careerState.pendingDecision && careerState.pendingDecision.type, careerState && careerState.timeline.length]);
 
   const order = statOrderOverride || attributeOrder;
   const currentAttrKey = order[round - 1];
@@ -353,7 +367,15 @@ export default function CageLab() {
     setShowShareBlock(false);
     setChallengeSeed(null);
     setWhatIf(null);
-    setCareerState(null);
+    // Deliberately NOT clearing careerState here. "Load into Career" is
+    // reachable from Trophy Case at any time, including with a career
+    // already in progress -- nulling it out unconditionally silently
+    // discarded the active career (and, as a side effect, reopened its
+    // locked height/reach sliders once the player reached Career Setup
+    // with no career on record to protect). Leaving an active career's
+    // state alone here means beginCareer()'s existing guard below still
+    // sees it and routes back to resuming it instead of launching a new
+    // one for whatever build was just loaded.
     setRound(ATTRS.length);
     setPhase("draftDone");
   }
@@ -394,6 +416,7 @@ export default function CageLab() {
       actualReach: opts.actualReach,
     }));
     setWhatIf(null);
+    setCareerTab("career");
     setPhase("sim");
   }
 
