@@ -9,7 +9,7 @@ import {
 import "./styles.css";
 
 import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
-import { MASTER_FIGHTERS, BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass } from "./data/fighters.js";
+import { MASTER_FIGHTERS, BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
 import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, decodeSeed, shuffle } from "./lib/rng.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
@@ -278,6 +278,11 @@ export default function CageLab() {
       if (isFinalRound) {
         const score = computeGoatScore(nextPicks);
         setGoatScore(score);
+        // A blank name would otherwise carry the placeholder "The Prospect"
+        // through the whole career -- auto-generate a real one from the same
+        // pool that names every NPC, so a skipped field still feels like a
+        // fighter rather than a stand-in.
+        if (!fighterName.trim()) setFighterName(generateOpponentNames(1)[0]);
         if (mode === "daily") recordDailyCompletion(score);
         if (mode === "challenge" && challengeSeed != null) {
           submitChallengeScore(encodeSeed(challengeSeed), score, loadJSON(LS_DISPLAY_NAME, ""));
@@ -368,8 +373,13 @@ export default function CageLab() {
 
   // "Start Career" routes through the setup screen rather than launching
   // straight in -- division, physicals, era and style all get chosen there.
+  // Reachable from the draftDone screen even while a career is already
+  // running (draft a fresh build from Home without leaving the active
+  // career) -- same guard as Home's Career button, for the same reason:
+  // launching from setup always calls initCareer() fresh and would
+  // silently overwrite the in-progress one.
   function beginCareer() {
-    setPhase("careerSetup");
+    setPhase(careerState && !careerState.finished ? "sim" : "careerSetup");
   }
 
   function launchCareer(opts) {
@@ -469,6 +479,13 @@ export default function CageLab() {
   // full gold as the tier climbs, instead of every tier looking the same.
   const tierRampCls = (tierName) => `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
 
+  // Last few results at a glance, oldest-to-newest so the strip reads like a
+  // trend -- part of the decision-first career hub, so "how am I doing"
+  // doesn't require scrolling the full history.
+  const recentForm = careerState
+    ? careerState.timeline.filter((e) => e.type === "fight").slice(-5)
+    : [];
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -497,7 +514,13 @@ export default function CageLab() {
           onStart={startDraft}
           onJoinChallenge={(seed) => startDraft("challenge", seed)}
           onCollection={() => setPhase("collection")}
-          onCareer={() => setPhase("careerSetup")}
+          // A career already in progress resumes straight into it instead of
+          // re-entering Career Setup -- that screen's height/reach sliders
+          // are for creating a NEW career, and launching from there always
+          // calls initCareer() fresh, which would silently overwrite (and
+          // lose) whatever career is already running.
+          onCareer={() => setPhase(careerState && !careerState.finished ? "sim" : "careerSetup")}
+          hasActiveCareer={!!(careerState && !careerState.finished)}
           onHelp={() => setPhase("help")}
           dailyStats={dailyStats}
           preferredMode={preferredMode}
@@ -808,6 +831,87 @@ export default function CageLab() {
           </div>
           <div className="sim-progress mono">Year {careerState.year} of {careerState.totalYears}</div>
 
+          {/* Decision-first hub: what you need to act on lives right here,
+              under the status header -- not at the bottom of a scroll past
+              the whole career's history. */}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" && (
+            <CampPlanningPanel
+              onConfirm={handleCampConfirm}
+              year={careerState.year}
+              isFinalYear={careerState.year === careerState.totalYears}
+              currentStats={applyAging(careerState.base, careerState.year, careerState.wear)}
+            />
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
+            <div className="decision-panel">
+              <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
+              <div className="decision-sub">The promotion offers you a choice for the next booking.</div>
+              <div className="choice-grid">
+                <button className="choice-btn" onClick={() => handleFightChoice("easy")}>Easy Fight<span>Lower opponent, lower risk &amp; reward</span></button>
+                <button className="choice-btn" onClick={() => handleFightChoice("ranked")}>Ranked Fight<span>Moderate risk, better ranking reward</span></button>
+                <button className="choice-btn" onClick={() => handleFightChoice("stepUp")}>Step-Up Fight<span>Very tough, major reward</span></button>
+                {!careerState.champion && careerState.rankPoints >= 85 && (
+                  <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
+                )}
+                {!careerState.champion && careerState.rankPoints >= 65 && (
+                  <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
+                )}
+              </div>
+            </div>
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "trainingEvent" && (
+            <div className="decision-panel">
+              <div className="decision-title"><Target size={15} /> Training Camp</div>
+              <div className="decision-sub">Your coaches see a real weakness in {ATTR_BY_KEY[careerState.pendingDecision.attr].label}.</div>
+              <div className="choice-row">
+                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, this camp's focus</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>No change, no risk</span></button>
+              </div>
+            </div>
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "mediaEvent" && (
+            <div className="decision-panel">
+              <div className="decision-title"><Megaphone size={15} /> Fight Week Media</div>
+              <div className="decision-sub">Your opponent has been talking trash all week.</div>
+              <div className="choice-row">
+                <button className="choice-btn" onClick={() => handleMediaEvent(true)}>Fire Back<span>+Power for this fight only</span></button>
+                <button className="choice-btn" onClick={() => handleMediaEvent(false)}>Stay Professional<span>+Fight IQ for this fight only</span></button>
+              </div>
+            </div>
+          )}
+          {!careerState.pendingDecision && (
+            <div className="btn-row">
+              {!careerState.finished ? (
+                <>
+                  <button className="btn btn-primary" onClick={handleAdvance}>
+                    Next <ChevronRight size={16} />
+                  </button>
+                  <button className="btn btn-ghost" onClick={handleFastForward} style={{ flex: "0 0 auto", width: "auto", padding: "13px 16px" }}>
+                    <FastForward size={16} />
+                  </button>
+                </>
+              ) : (
+                <button className="btn btn-dark" onClick={() => setPhase("result")}>
+                  <Trophy size={16} /> See Career Verdict
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Recent form: last few results at a glance, no scrolling required. */}
+          {recentForm.length > 0 && (
+            <div className="recent-form-block">
+              <div className="setup-label" style={{ marginBottom: 6 }}>Recent Form</div>
+              <div className="recent-form-row">
+                {recentForm.map((f) => (
+                  <div className={`form-pill ${f.win ? "win" : "loss"}`} key={f.id} title={`${f.win ? "W" : "L"} vs ${f.opp} (${f.method})`}>
+                    {f.win ? "W" : "L"}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {careerState.divisionRoster && (
             <details className="rankings-details">
               <summary>{careerState.division || "Division"} Rankings</summary>
@@ -856,6 +960,7 @@ export default function CageLab() {
             </details>
           )}
 
+          <div className="section-divider" style={{ marginTop: 6 }}>Career History</div>
           {careerState.timeline.map((e) => {
             if (e.type === "year") return <div className="year-divider" key={e.id}>Year {e.year}</div>;
             if (e.type === "campPlan") {
@@ -993,93 +1098,37 @@ export default function CageLab() {
             }
             return <FightResultCard e={e} playerName={name} key={e.id} />;
           })}
-
-          {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" && (
-            <CampPlanningPanel
-              onConfirm={handleCampConfirm}
-              year={careerState.year}
-              isFinalYear={careerState.year === careerState.totalYears}
-              currentStats={applyAging(careerState.base, careerState.year, careerState.wear)}
-            />
-          )}
-          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
-            <div className="decision-panel">
-              <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
-              <div className="decision-sub">The promotion offers you a choice for the next booking.</div>
-              <div className="choice-grid">
-                <button className="choice-btn" onClick={() => handleFightChoice("easy")}>Easy Fight<span>Lower opponent, lower risk &amp; reward</span></button>
-                <button className="choice-btn" onClick={() => handleFightChoice("ranked")}>Ranked Fight<span>Moderate risk, better ranking reward</span></button>
-                <button className="choice-btn" onClick={() => handleFightChoice("stepUp")}>Step-Up Fight<span>Very tough, major reward</span></button>
-                {!careerState.champion && careerState.rankPoints >= 85 && (
-                  <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
-                )}
-                {!careerState.champion && careerState.rankPoints >= 65 && (
-                  <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
-                )}
-              </div>
-            </div>
-          )}
-          {careerState.pendingDecision && careerState.pendingDecision.type === "trainingEvent" && (
-            <div className="decision-panel">
-              <div className="decision-title"><Target size={15} /> Training Camp</div>
-              <div className="decision-sub">Your coaches see a real weakness in {ATTR_BY_KEY[careerState.pendingDecision.attr].label}.</div>
-              <div className="choice-row">
-                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, this camp's focus</span></button>
-                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>No change, no risk</span></button>
-              </div>
-            </div>
-          )}
-          {careerState.pendingDecision && careerState.pendingDecision.type === "mediaEvent" && (
-            <div className="decision-panel">
-              <div className="decision-title"><Megaphone size={15} /> Fight Week Media</div>
-              <div className="decision-sub">Your opponent has been talking trash all week.</div>
-              <div className="choice-row">
-                <button className="choice-btn" onClick={() => handleMediaEvent(true)}>Fire Back<span>+Power for this fight only</span></button>
-                <button className="choice-btn" onClick={() => handleMediaEvent(false)}>Stay Professional<span>+Fight IQ for this fight only</span></button>
-              </div>
-            </div>
-          )}
-
-          {!careerState.pendingDecision && (
-            <div className="btn-row">
-              {!careerState.finished ? (
-                <>
-                  <button className="btn btn-primary" onClick={handleAdvance}>
-                    Next <ChevronRight size={16} />
-                  </button>
-                  <button className="btn btn-ghost" onClick={handleFastForward} style={{ flex: "0 0 auto", width: "auto", padding: "13px 16px" }}>
-                    <FastForward size={16} />
-                  </button>
-                </>
-              ) : (
-                <button className="btn btn-dark" onClick={() => setPhase("result")}>
-                  <Trophy size={16} /> See Career Verdict
-                </button>
-              )}
-            </div>
-          )}
         </div>
       )}
 
       {phase === "result" && careerState && careerState.finished && (
         <div className="panel verdict-panel">
           <Award size={30} color="var(--brass)" />
-          <div className="verdict-eyebrow mono">{name} &middot; {careerState.displayOverall} OVR &middot; GOAT {goatScore}</div>
-          <div className="verdict-title">{careerState.verdict}</div>
-          <div className="mono" style={{ fontSize: 13, color: "var(--slate)" }}>
-            {careerState.record.w}-{careerState.record.l} &middot; Legacy Score {careerState.legacyScore}
+          <div className="verdict-eyebrow mono reveal-stagger reveal-delay-1">{name} &middot; {careerState.displayOverall} OVR &middot; GOAT {goatScore}</div>
+          <div className="verdict-title reveal-stagger reveal-delay-1">{careerState.verdict}</div>
+          <div className="mono reveal-stagger reveal-delay-2" style={{ fontSize: 13, color: "var(--slate)" }}>
+            {careerState.record.w}-{careerState.record.l} &middot; Legacy Score <AnimatedGoatScore score={careerState.legacyScore} reducedMotion={reducedMotion} />
           </div>
 
+          {/* Badges drop in one at a time rather than all appearing at once,
+              matching the GOAT-reveal treatment on the draft result screen. */}
           <div className="stat-grid">
-            <div className="stat-box"><div className="stat-num">{careerState.finishes.ko}</div><div className="stat-lbl">KO/TKO</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.finishes.sub}</div><div className="stat-lbl">Submissions</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.titleReigns}</div><div className="stat-lbl">Title Reigns</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.titleDefenses}</div><div className="stat-lbl">Title Defenses</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.longestStreak}</div><div className="stat-lbl">Best Streak</div></div>
-            <div className="stat-box"><div className="stat-num">{rankLabel(careerState.peakRankPoints, false)}</div><div className="stat-lbl">Peak Ranking</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.statementWins}</div><div className="stat-lbl">Statement Wins</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.rivalryWins}</div><div className="stat-lbl">Rivalries Won</div></div>
-            <div className="stat-box"><div className="stat-num">{careerState.record.w}-{careerState.record.l}</div><div className="stat-lbl">Record</div></div>
+            {[
+              { num: careerState.finishes.ko, lbl: "KO/TKO" },
+              { num: careerState.finishes.sub, lbl: "Submissions" },
+              { num: careerState.titleReigns, lbl: "Title Reigns" },
+              { num: careerState.titleDefenses, lbl: "Title Defenses" },
+              { num: careerState.longestStreak, lbl: "Best Streak" },
+              { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+              { num: careerState.statementWins, lbl: "Statement Wins" },
+              { num: careerState.rivalryWins, lbl: "Rivalries Won" },
+              { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
+            ].map((s, i) => (
+              <div className="stat-box reveal-stagger" style={reducedMotion ? undefined : { animationDelay: `${0.5 + i * 0.08}s` }} key={s.lbl}>
+                <div className="stat-num">{s.num}</div>
+                <div className="stat-lbl">{s.lbl}</div>
+              </div>
+            ))}
           </div>
 
           {careerState.definingLoss && (

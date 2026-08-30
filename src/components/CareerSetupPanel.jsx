@@ -3,6 +3,7 @@ import { ArrowLeft, Trophy } from "lucide-react";
 import { SKILL_KEYS, WEIGHT_CLASSES, CLASS_PHYSICALS } from "../data/attrs.js";
 import { ARCHETYPES, bestFitArchetypeFlat, STYLE_DESCRIPTIONS } from "../lib/career.js";
 import { archetypeFor } from "../lib/scoring.js";
+import { generateOpponentNames } from "../data/fighters.js";
 import { formatHeight, formatReach } from "../lib/utils.js";
 import { sfx } from "../lib/audio.js";
 
@@ -136,7 +137,10 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, onLaunch, on
         style={{ marginTop: 8 }}
         onClick={() => onLaunch({
           picks: resolved.picks,
-          name: (name || resolved.name || "The Prospect").trim(),
+          // A blank name here shouldn't fall back to a fixed placeholder
+          // that then carries through the whole career -- generate a real
+          // one from the same pool that names every NPC.
+          name: (name || resolved.name || "").trim() || generateOpponentNames(1)[0],
           division, debutEra,
           careerStyle: style || "Balanced",
           actualHeight: heightIn, actualReach: reachIn,

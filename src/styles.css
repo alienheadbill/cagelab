@@ -581,6 +581,13 @@
         .sim-status-row { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
         .leap-note { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--brass); margin-top: 4px; }
 
+        .recent-form-block { margin: 12px 0; }
+        .recent-form-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .form-pill { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center;
+          justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 12px; cursor: default; }
+        .form-pill.win { background: rgba(224,172,58,0.18); color: var(--brass); }
+        .form-pill.loss { background: rgba(214,54,43,0.14); color: var(--blood); }
+
         .year-end-card { border: 1.5px solid rgba(154,143,125,0.26); border-radius: 8px; padding: 12px 14px; margin-bottom: 9px;
           background: rgba(154,143,125,0.04); animation: cardIn 0.3s ease; }
         .year-end-title { font-family: 'Anton', sans-serif; font-size: 13px; margin-bottom: 6px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; }

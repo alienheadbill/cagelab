@@ -526,7 +526,11 @@ function simulateDivisionRound(division) {
 
 // Picks who you fight next out of the real division, based on where you stand.
 // Higher rank = you face people nearer the top.
-function selectDivisionOpponent(division, playerRankPoints, forTitle) {
+// avoidIds (optional): opponent ids faced in the last few fights -- reroll a
+// handful of times to dodge landing on the same person back-to-back by pure
+// chance. Bounded, so a thin division can't spin forever, and never applies
+// to the title-fight path (that's resolved by flag, not by this draw).
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -543,7 +547,21 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle) {
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   const centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
-  const target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
+  const avoid = avoidIds || [];
+  let target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
+  if (avoid.includes(division[target].id)) {
+    // Re-sampling the same +-3 jitter and re-clamping doesn't reliably
+    // dodge the avoid list -- near either end of the rank range, most of
+    // the jitter offsets clamp down to the same one or two edge indices,
+    // so a plain reroll keeps landing back on exactly the fighter being
+    // avoided. Instead, pick uniformly from whichever fighters in the
+    // window are actually free; only accept the repeat if none are.
+    const windowLo = clamp(centre - 3, 1, span);
+    const windowHi = clamp(centre + 3, 1, span);
+    const free = [];
+    for (let i = windowLo; i <= windowHi; i++) { if (!avoid.includes(division[i].id)) free.push(i); }
+    if (free.length) target = free[Math.floor(Math.random() * free.length)];
+  }
   // The displayed Top 15 numbering excludes whoever is flagged champion.
   // Normally that's index 0, so array index and display rank line up
   // (target itself never dips into index 0 here). But during a vacant title
@@ -558,6 +576,35 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle) {
     // "unranked" rather than a fake #27 ranking.
     rank: displayRank <= DIVISION_SIZE ? displayRank : null,
   };
+}
+
+// ---- Rivals ---------------------------------------------------------------
+// A rivalry is earned, not assigned: 2+ meetings against the same division
+// fighter, with at least one of them genuinely competitive -- a decision, or
+// a finish the engine itself rated close to a coin flip. Two lopsided
+// blowouts never create one. Multiple rivals can be active at once (a list,
+// not a single rivalName), and each is re-validated every fight against the
+// player's CURRENT overall -- the same "persisted + re-validated, not
+// inferred from something incidental" fix as the champion-flag bug. Without
+// that re-validation, a rival met back in the Regional days keeps getting
+// rebooked forever regardless of how far the player has outgrown them.
+const RIVAL_MIN_MEETINGS = 2;
+const RIVAL_CLOSE_WINPROB_BAND = 0.12; // winProb within .38-.62 counts as competitive
+const RIVAL_OVR_DORMANCY_GAP = 18;     // outgrow a rival by more than this and they go dormant
+
+function isCloseFight(method, winProb) {
+  return method.startsWith("Decision") || Math.abs(winProb - 0.5) <= RIVAL_CLOSE_WINPROB_BAND;
+}
+
+// Recomputes each rival's `active` flag against the player's current overall.
+// History (meetings/record) is untouched -- dormant just means "not eligible
+// for a rival-redraw right now," not "forgotten."
+function refreshRivalActivity(rivals, playerOverall, division) {
+  return rivals.map((r) => {
+    const entry = division.find((f) => f.id === r.id);
+    if (!entry) return { ...r, active: false };
+    return { ...r, active: Math.abs(entry.overall - playerOverall) <= RIVAL_OVR_DORMANCY_GAP };
+  });
 }
 
 function initCareer(picks, options) {
@@ -591,7 +638,7 @@ function initCareer(picks, options) {
     streak: 0, longestStreak: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
-    rivalryCounts: {}, rivalName: null, definingLoss: null,
+    rivals: [], recentOpponentIds: [], definingLoss: null,
     yearFocusAttr: null, yearStance: "balanced", campQuality: "full", mediaBuff: null,
     wonTitleAsUnderdog: false,
     timeline: [
@@ -749,27 +796,42 @@ function runFight(state, choiceTag) {
   const isTitleFight = isTitleShot || isTitleDefense;
 
   // Draw the opponent from the persistent division: a real fighter with a
-  // standing record, not a throwaway profile. A rival, once established, is
-  // that same division fighter every time you meet -- which is what makes
-  // rematch records consistent across a rivalry.
-  const rivalEntry = s.rivalName ? s.divisionRoster.find((f) => f.name === s.rivalName) : null;
-  const drawRival = rivalEntry && !isTitleFight && Math.random() < 0.4;
+  // standing record, not a throwaway profile. An active rival can be drawn
+  // for a rematch -- but only an ACTIVE one: re-validate every rival against
+  // the player's current strength before considering a redraw, so a rival
+  // from years-outgrown tiers stops being reachable instead of getting
+  // rebooked against a PREMIER-tier fighter forever.
+  const agedNow = applyAging(s.base, s.year, s.wear);
+  const playerOverallNow = Math.round(SKILL_KEYS.reduce((sum, k) => sum + agedNow[k], 0) / SKILL_KEYS.length);
+  s.rivals = refreshRivalActivity(s.rivals || [], playerOverallNow, s.divisionRoster);
+  // Only actual EARNED rivals are eligible for a redraw -- s.rivals also
+  // holds one-meeting entries that haven't crossed the isRival threshold
+  // yet, and those must never get the 40%-redraw shortcut (that's exactly
+  // how a random one-off opponent turns into an immediate, unearned rematch).
+  const activeRivals = s.rivals.filter((r) => r.active && r.isRival);
+  const rivalEntry = activeRivals.length && !isTitleFight
+    ? s.divisionRoster.find((f) => f.id === activeRivals[Math.floor(Math.random() * activeRivals.length)].id)
+    : null;
+  const drawRival = rivalEntry && Math.random() < 0.4;
   const picked = drawRival
     ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-    : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight);
+    : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds);
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
   const oppRank = picked.rank;
   const opp = { attrs: oppEntry.attrs, overall: oppEntry.overall, archetype: oppEntry.archetype, traits: oppEntry.traits };
   const oppRecord = oppEntry.record;
-  const isRivalFight = s.rivalName != null && oppName === s.rivalName;
+  const existingRival = s.rivals.find((r) => r.id === oppEntry.id);
+  const isRivalFight = !!(existingRival && existingRival.isRival);
 
   let hype = null;
   if ((isTitleFight || isRivalFight) && Math.random() < 0.4) {
     hype = rollHypeEvent(s.base.IQ, isTitleFight, isRivalFight);
   }
 
-  let effective = applyAging(s.base, s.year, s.wear);
+  // Reuse the aging pass already computed above for the rival-dormancy check
+  // instead of recomputing the identical thing.
+  let effective = agedNow;
   if (s.yearFocusAttr) {
     // Focusing one attribute costs mat time elsewhere: +4 to the focus, -1 to
     // the two weakest OTHER attributes. Without a cost, taking the focus every
@@ -861,10 +923,38 @@ function runFight(state, choiceTag) {
   }
   s.divisionRoster = simulateDivisionRound(nextDivision);
 
-  s.rivalryCounts = { ...s.rivalryCounts, [oppName]: (s.rivalryCounts[oppName] || 0) + 1 };
-  const rivalryJustBorn = !s.rivalName && s.rivalryCounts[oppName] >= 2;
-  if (rivalryJustBorn) s.rivalName = oppName;
-  const isRivalry = oppName === s.rivalName;
+  // A rivalry is earned: 2+ meetings, at least one of them genuinely
+  // competitive. Tracked as a proper record per opponent (id-keyed, not
+  // name equality) so multiple rivals can be active at once, each with
+  // their own meeting count and head-to-head record.
+  const fightWasClose = isCloseFight(result.method, result.winProb);
+  const rivalIdx = s.rivals.findIndex((r) => r.id === oppEntry.id);
+  let rivalryJustBorn = false;
+  if (rivalIdx === -1) {
+    s.rivals = [...s.rivals, {
+      id: oppEntry.id, name: oppName, meetings: 1,
+      wins: result.win ? 1 : 0, losses: result.win ? 0 : 1,
+      active: true, everClose: fightWasClose, isRival: false,
+    }];
+  } else {
+    const r = s.rivals[rivalIdx];
+    const meetings = r.meetings + 1;
+    const everClose = r.everClose || fightWasClose;
+    const isRival = r.isRival || (meetings >= RIVAL_MIN_MEETINGS && everClose);
+    rivalryJustBorn = isRival && !r.isRival;
+    s.rivals = s.rivals.map((x, i) => (i === rivalIdx ? {
+      ...x, meetings, everClose, isRival,
+      wins: x.wins + (result.win ? 1 : 0), losses: x.losses + (result.win ? 0 : 1),
+    } : x));
+  }
+  // Also require `active`: normal (non-redraw) matchmaking has no idea who's
+  // an old rival, so it can still coincidentally land on one. If the player
+  // has outgrown them since, the meeting still counts toward their history,
+  // but the fight itself shouldn't wear a RIVALRY tag for a matchup that's
+  // really just a dormant former rival turning up by chance.
+  const rivalRecord = s.rivals.find((r) => r.id === oppEntry.id);
+  const isRivalry = !!(rivalRecord && rivalRecord.isRival && rivalRecord.active);
+  s.recentOpponentIds = [oppEntry.id, ...(s.recentOpponentIds || [])].slice(0, 2);
   const isStatement = result.win && opp.overall >= 88;
   if (isStatement) s.statementWins += 1;
   if (isRivalry && result.win) s.rivalryWins += 1;
@@ -913,6 +1003,10 @@ function runFight(state, choiceTag) {
   timeline.push({
     type: "fight", id: `f-${s.fightGlobalIndex}`, index: s.fightGlobalIndex,
     opp: oppName, oppRating: opp.overall, oppRecord, oppRank, archetype: opp.archetype,
+    // Player's own overall/record entering this fight, snapshotted the same
+    // way oppRecord is -- mirrors the opponent corner so the fight card can
+    // show name -> rank/archetype -> OVR+record consistently on both sides.
+    playerOverall: playerOverallNow, playerRecord: state.record,
     circuitTier: s.circuitTier, eventNumber, cardPosition,
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
