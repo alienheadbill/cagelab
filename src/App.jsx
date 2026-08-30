@@ -509,6 +509,12 @@ export default function CageLab() {
     ? careerState.timeline.filter((e) => e.type === "fight").slice(-5)
     : [];
 
+  // Idle-state view for the Camp tab: the last plan made, so the tab isn't
+  // just blank between camps.
+  const lastCampPlan = careerState
+    ? [...careerState.timeline].reverse().find((e) => e.type === "campPlan")
+    : null;
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -829,7 +835,8 @@ export default function CageLab() {
       )}
 
       {phase === "sim" && careerState && (
-        <div className="panel">
+        <>
+        <div className="panel sim-panel">
           <div className="sim-head">
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
@@ -854,17 +861,14 @@ export default function CageLab() {
           </div>
           <div className="sim-progress mono">Year {careerState.year} of {careerState.totalYears}</div>
 
-          {/* Decision-first hub: what you need to act on lives right here,
-              under the status header -- not at the bottom of a scroll past
-              the whole career's history. */}
-          {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" && (
-            <CampPlanningPanel
-              onConfirm={handleCampConfirm}
-              year={careerState.year}
-              isFinalYear={careerState.year === careerState.totalYears}
-              currentStats={applyAging(careerState.base, careerState.year, careerState.wear)}
-            />
-          )}
+          {/* Bottom tab nav (see the fixed bar below) splits the sim screen
+              into four views. Decision-first still holds within each: a
+              fight-week decision surfaces right on the Career hub, and camp
+              planning gets its own tab instead of sharing this one -- an
+              auto-switch effect (and a badge on the tab button) makes sure
+              neither is ever missed just because the player was elsewhere. */}
+          {careerTab === "career" && (
+          <>
           {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
@@ -1121,7 +1125,129 @@ export default function CageLab() {
             }
             return <FightResultCard e={e} playerName={name} key={e.id} />;
           })}
+          </>
+          )}
+
+          {careerTab === "rankings" && careerState.divisionRoster && (
+            <div className="rankings-list rankings-list-tab">
+              {careerState.playerRank === 0 && (
+                <div className="ranking-row you champ">
+                  <span className="rank-num mono">C</span>
+                  <span className="rank-name">{name}</span>
+                  <span className="rank-rec mono">{careerState.record.w}-{careerState.record.l}</span>
+                </div>
+              )}
+              {careerState.playerRank !== 0 && divisionChampion && (
+                <div className="ranking-row champ" key={divisionChampion.id}>
+                  <span className="rank-num mono">C</span>
+                  <span className="rank-name">{divisionChampion.name}</span>
+                  <span className="rank-rec mono">{divisionChampion.record.w}-{divisionChampion.record.l}</span>
+                </div>
+              )}
+              {rankedPool.map((f, i) => {
+                const rankNum = i + 1;
+                return (
+                  <React.Fragment key={f.id}>
+                    {careerState.playerRank === rankNum && (
+                      <div className="ranking-row you">
+                        <span className="rank-num mono">#{rankNum}</span>
+                        <span className="rank-name">{name}</span>
+                        <span className="rank-rec mono">{careerState.record.w}-{careerState.record.l}</span>
+                      </div>
+                    )}
+                    <div className="ranking-row">
+                      <span className="rank-num mono">#{rankNum}</span>
+                      <span className="rank-name">{f.name}</span>
+                      <span className="rank-rec mono">{f.record.w}-{f.record.l}</span>
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+              {careerState.playerRank == null && (
+                <div className="ranking-row you unranked">
+                  <span className="rank-num mono">—</span>
+                  <span className="rank-name">{name}</span>
+                  <span className="rank-rec mono">Unranked</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {careerTab === "stats" && (
+            <div className="stat-grid" style={{ marginTop: 4 }}>
+              {[
+                { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
+                { num: careerState.streak > 0 ? `W${careerState.streak}` : careerState.streak < 0 ? `L${-careerState.streak}` : "—", lbl: "Current Streak" },
+                { num: careerState.longestStreak, lbl: "Best Streak" },
+                { num: careerState.finishes.ko, lbl: "KO/TKO" },
+                { num: careerState.finishes.sub, lbl: "Submissions" },
+                { num: careerState.finishes.dec, lbl: "Decisions" },
+                { num: careerState.titleReigns, lbl: "Title Reigns" },
+                { num: careerState.titleDefenses, lbl: "Title Defenses" },
+                { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+                { num: careerState.statementWins, lbl: "Statement Wins" },
+                { num: careerState.rivalryWins, lbl: "Rivalries Won" },
+                { num: careerState.runningLegacy, lbl: "Legacy Score" },
+              ].map((s) => (
+                <div className="stat-box" key={s.lbl}>
+                  <div className="stat-num">{s.num}</div>
+                  <div className="stat-lbl">{s.lbl}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {careerTab === "camp" && (
+            careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" ? (
+              <CampPlanningPanel
+                onConfirm={handleCampConfirm}
+                year={careerState.year}
+                isFinalYear={careerState.year === careerState.totalYears}
+                currentStats={applyAging(careerState.base, careerState.year, careerState.wear)}
+              />
+            ) : (
+              <div className="camp-idle-view">
+                {lastCampPlan ? (
+                  <div className="event-card" style={{ alignItems: "flex-start" }}>
+                    <Sparkles size={15} style={{ marginTop: 2 }} />
+                    <div>
+                      Last camp: {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {lastCampPlan.stance === "standup" ? "Stand-Up" : lastCampPlan.stance === "ground" ? "Ground" : "Balanced"} gameplan
+                      {lastCampPlan.focusAttr ? ` · focused on ${ATTR_BY_KEY[lastCampPlan.focusAttr].label}` : ""}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-txt">No camp planned yet — the next one opens up as your career moves forward.</div>
+                )}
+              </div>
+            )
+          )}
         </div>
+
+        <div className="tab-bar-fixed">
+          {[
+            { id: "career", label: "Career", icon: Swords },
+            { id: "rankings", label: "Rankings", icon: ListOrdered },
+            { id: "stats", label: "Stats", icon: BarChart3 },
+            { id: "camp", label: "Camp", icon: Dumbbell },
+          ].map((t) => {
+            const Icon = t.icon;
+            const pendingHere = careerState.pendingDecision && (
+              t.id === "camp"
+                ? careerState.pendingDecision.type === "campPlanning"
+                : t.id === "career" && careerState.pendingDecision.type !== "campPlanning"
+            );
+            return (
+              <button key={t.id} className={`tab-bar-btn ${careerTab === t.id ? "active" : ""}`} onClick={() => setCareerTab(t.id)}>
+                <span className="tab-bar-icon-wrap">
+                  <Icon size={18} />
+                  {pendingHere && careerTab !== t.id && <span className="tab-bar-badge" />}
+                </span>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        </>
       )}
 
       {phase === "result" && careerState && careerState.finished && (
