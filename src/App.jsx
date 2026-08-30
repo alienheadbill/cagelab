@@ -1250,14 +1250,28 @@ export default function CageLab() {
         </>
       )}
 
-      {phase === "result" && careerState && careerState.finished && (
+      {phase === "result" && careerState && careerState.finished && (() => {
+        const retirementBeat = careerState.timeline.find((e) => e.type === "retirement");
+        const summary = careerState.timeline.find((e) => e.type === "summary");
+        return (
         <div className="panel verdict-panel">
           <Award size={30} color="var(--brass)" />
           <div className="verdict-eyebrow mono reveal-stagger reveal-delay-1">{name} &middot; {careerState.displayOverall} OVR &middot; GOAT {goatScore}</div>
           <div className="verdict-title reveal-stagger reveal-delay-1">{careerState.verdict}</div>
-          <div className="mono reveal-stagger reveal-delay-2" style={{ fontSize: 13, color: "var(--slate)" }}>
+          {retirementBeat && (
+            <div className="retirement-beat reveal-stagger reveal-delay-2">{retirementBeat.line}</div>
+          )}
+          <div className="mono reveal-stagger reveal-delay-3" style={{ fontSize: 13, color: "var(--slate)" }}>
             {careerState.record.w}-{careerState.record.l} &middot; Legacy Score <AnimatedGoatScore score={careerState.legacyScore} reducedMotion={reducedMotion} />
           </div>
+          {/* Legacy Score is the whole career, uneven years and all -- Best
+              Year is tracked and shown separately so a career that peaked
+              early (or late) doesn't get flattened into one number. */}
+          {summary && (
+            <div className="mono reveal-stagger reveal-delay-3" style={{ fontSize: 11, color: "var(--slate)", marginTop: 2 }}>
+              Best Year <b style={{ color: "var(--brass)" }}>{summary.peakYearLegacy}</b> &middot; {summary.yearsActive} {summary.yearsActive === 1 ? "Year" : "Years"} Active
+            </div>
+          )}
 
           {/* Badges drop in one at a time rather than all appearing at once,
               matching the GOAT-reveal treatment on the draft result screen. */}
@@ -1273,12 +1287,27 @@ export default function CageLab() {
               { num: careerState.rivalryWins, lbl: "Rivalries Won" },
               { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
             ].map((s, i) => (
-              <div className="stat-box reveal-stagger" style={reducedMotion ? undefined : { animationDelay: `${0.5 + i * 0.08}s` }} key={s.lbl}>
+              <div className="stat-box reveal-stagger" style={reducedMotion ? undefined : { animationDelay: `${0.65 + i * 0.08}s` }} key={s.lbl}>
                 <div className="stat-num">{s.num}</div>
                 <div className="stat-lbl">{s.lbl}</div>
               </div>
             ))}
           </div>
+
+          {/* Broadcast-style signature wins -- the actual names beat, not
+              just a count (statementWins above already covers the count). */}
+          {summary && summary.topWins && summary.topWins.length > 0 && (
+            <div className="signature-wins-block reveal-stagger reveal-delay-5">
+              <div className="setup-label" style={{ marginBottom: 6 }}>Signature Wins</div>
+              {summary.topWins.map((w, i) => (
+                <div className="signature-win-row" key={i}>
+                  {(w.titleShot || w.titleDefense) && <Crown size={12} />}
+                  <span>def. {w.opp}</span>
+                  <span className="mono">{w.method.replace(" Loss", "")} &middot; {w.oppRating} OVR</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {careerState.definingLoss && (
             <div className="whatif-block">
@@ -1325,7 +1354,8 @@ export default function CageLab() {
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
