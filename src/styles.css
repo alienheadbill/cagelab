@@ -447,6 +447,7 @@
         .fight-tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 6px; border-radius: 4px; background: rgba(154,143,125,0.12); color: var(--slate); }
         .fight-tag.rivalry { background: rgba(204,106,46,0.18); color: var(--ember); }
         .fight-tag.statement { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .fight-tag.bonus { background: rgba(224,172,58,0.32); color: var(--brass); font-weight: 700; border: 1px solid rgba(224,172,58,0.5); }
         .fight-tag.trait { background: rgba(154,143,125,0.14); color: var(--ink); font-weight: 600; }
 
         .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.18); }
@@ -505,6 +506,10 @@
         .event-card-wrap.won { border-left: 3px solid var(--brass); }
         .event-card-wrap.lost { border-left: 3px solid rgba(214,54,43,0.6); }
         .event-card-wrap.title-event { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 16px rgba(224,172,58,0.15); }
+        /* A finish should read with more weight than a decision at a glance --
+           a touch of glow in the win/loss color, not a scoring signal. */
+        .event-card-wrap.finish.won { box-shadow: 0 2px 14px rgba(224,172,58,0.16); }
+        .event-card-wrap.finish.lost { box-shadow: 0 2px 14px rgba(214,54,43,0.12); }
         .event-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px;
           background: rgba(0,0,0,0.18); border-bottom: 1px solid rgba(154,143,125,0.16); }
         .app-root.dark .event-header { background: rgba(0,0,0,0.32); }
@@ -526,8 +531,18 @@
         .event-wl { font-family: 'Anton', sans-serif; font-size: 26px; line-height: 1; }
         .event-wl.win { color: var(--brass); }
         .event-wl.loss { color: var(--blood); }
-        .event-method { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; margin-top: 2px; color: var(--ink); }
+        .event-wl.finish { font-size: 30px; text-shadow: 0 0 10px currentColor; }
+        .event-method { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; margin-top: 2px; color: var(--ink); }
         .event-result-line { font-size: 9px; color: var(--slate); margin-top: 1px; }
+
+        .rank-move-row { display: flex; align-items: center; gap: 5px; margin: 0 12px; padding: 6px 0;
+          border-top: 1px dashed rgba(154,143,125,0.16); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; }
+        .rank-move-row.up { color: var(--brass); }
+        .rank-move-row.down { color: var(--blood); }
+
+        .interview-line { display: flex; align-items: flex-start; gap: 7px; margin: 0 12px 10px; padding: 8px 10px;
+          background: rgba(154,143,125,0.06); border-radius: 6px; font-size: 11.5px; font-style: italic; color: var(--ink); line-height: 1.4; }
+        .interview-line svg { flex-shrink: 0; margin-top: 2px; color: var(--slate); }
 
         .scorecards-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
         .scorecard-label { font-size: 8px; letter-spacing: 0.08em; color: var(--slate); }
@@ -608,10 +623,16 @@
         .verdict-panel { text-align: center; padding: 26px 18px; }
         .verdict-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; }
         .verdict-title { font-family: 'Anton', sans-serif; font-size: 28px; margin: 8px 0 4px; color: var(--brass); line-height: 1.1; }
+        .retirement-beat { font-size: 12.5px; font-style: italic; color: var(--slate); line-height: 1.4; max-width: 320px; margin: 0 auto 6px; }
         .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
         .stat-box { background: rgba(154,143,125,0.07); border-radius: 8px; padding: 10px 6px; }
         .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
         .stat-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); margin-top: 2px; }
+        .signature-wins-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(154,143,125,0.22); text-align: left; }
+        .signature-win-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 0; color: var(--ink); }
+        .signature-win-row svg { flex-shrink: 0; color: var(--brass); }
+        .signature-win-row span:first-of-type { flex: 1; font-weight: 600; }
+        .signature-win-row .mono { color: var(--slate); font-size: 10.5px; }
 
         /* Career-mode bottom tab nav -- fixed to the viewport so it stays
            reachable through a long career-history scroll, matching the

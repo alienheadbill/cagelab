@@ -197,6 +197,99 @@ function buildFightNarrative(phase, result, playerTraits) {
   return lines;
 }
 
+// A cage-side mic-in-face soundbite for the fight card, picked by what kind
+// of result this actually was -- title stakes and rivalries outrank a plain
+// finish, which outranks a plain decision. Two variants per bucket keep a
+// long career from repeating the same line every time it lands in the same
+// bucket; which flavor of underdog/close moment you hit is what changes,
+// the fight numbers themselves are untouched by any of this.
+function buildInterviewLine(oppName, { win, winProb }, flags) {
+  const { isTitleShot, isTitleDefense, isRivalry, isStatement, bonusType, fightWasClose } = flags;
+  const pick = (a, b) => (Math.random() < 0.5 ? a : b);
+  if (isTitleShot && win) {
+    return pick(
+      `"I told you I'd get here. This belt is mine now."`,
+      `"Years of work for this one moment -- and I took it."`,
+    );
+  }
+  if (isTitleDefense && win) {
+    return pick(
+      `"Come get it. I'll be right here."`,
+      `"Still the champ. That's not changing anytime soon."`,
+    );
+  }
+  if (isTitleDefense && !win) {
+    return pick(
+      `"He was better tonight. I'll be back for it."`,
+      `"That's the game. I'll earn my way back to this spot."`,
+    );
+  }
+  if (isRivalry && win) {
+    return pick(
+      `"That's for everything he's said. We're done now."`,
+      `"I've been waiting a long time to settle that."`,
+    );
+  }
+  if (win && winProb < 0.42) {
+    return pick(
+      `"Nobody gave me a chance in there. Nobody."`,
+      `"They called it an upset. I call it a plan that worked."`,
+    );
+  }
+  if (isStatement && win) {
+    return pick(
+      `"${oppName} is a real name. Now so am I."`,
+      `"Beat the best guy they put in front of me. Who's next?"`,
+    );
+  }
+  if (win && bonusType === "performance") {
+    return pick(
+      `"When it's there, I take it. Simple as that."`,
+      `"Felt it land clean. I knew it was over."`,
+    );
+  }
+  if (win && bonusType === "fotn") {
+    return pick(
+      `"That's what this sport's supposed to look like."`,
+      `"We left it all in there tonight. Both of us."`,
+    );
+  }
+  if (win && fightWasClose) {
+    return pick(
+      `"Not pretty, but a win's a win."`,
+      `"He made me work for every second of that."`,
+    );
+  }
+  if (win) {
+    return pick(
+      `"Did the job. On to the next one."`,
+      `"Nothing fancy -- just went in there and won."`,
+    );
+  }
+  if (!win && bonusType === "fotn") {
+    return pick(
+      `"I'll take that loss. That was a real fight."`,
+      `"Came up short, but I've got no regrets about how I fought."`,
+    );
+  }
+  if (!win && winProb > 0.6) {
+    return pick(
+      `"Got caught. It happens to everybody in this sport."`,
+      `"One mistake and it was over. I know better now."`,
+    );
+  }
+  if (!win && fightWasClose) {
+    return pick(
+      `"I thought I did enough. The judges saw it differently."`,
+      `"Close one. Could've gone either way."`,
+    );
+  }
+  return pick(
+    `"Credit to him. Back to the drawing board."`,
+    `"That's a loss I need to learn from."`,
+  );
+}
+
 function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits) {
   const phase = estimatePhaseControl(player, opp, stanceBias);
   const pMod = traitModifiers(playerTraits);
@@ -633,7 +726,7 @@ function initCareer(picks, options) {
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
       && options.careerStyle === bestFitArchetypeFlat(base)),
-    yearStartRank: 0, yearStartChampion: false,
+    yearStartRank: 0, yearStartChampion: false, yearStartLegacy: 0, peakYearLegacy: 0,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
@@ -664,6 +757,7 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   // recap can show what changed over the course of the year.
   s.yearStartRank = state.rankPoints;
   s.yearStartChampion = state.champion;
+  s.yearStartLegacy = state.runningLegacy;
 
   const effective = applyAging(s.base, s.year, s.wear);
   const riskMult = campQuality === "full" ? 0.55 : 1.35;
@@ -861,6 +955,11 @@ function runFight(state, choiceTag) {
   const tierBefore = s.circuitTier;
   const stanceBias = s.yearStance === "ground" ? 0.08 : s.yearStance === "standup" ? -0.08 : 0;
   const result = resolveFight(effective, s.reachScore, opp.attrs, stanceBias, playerTraits, opp.traits);
+  const totalRounds = isTitleFight ? 5 : 3;
+  // Computed here (rather than inline in the timeline push below) so the
+  // performance-bonus check below can read finishRound/scorecards before
+  // legacyDelta is finalized.
+  const stats = generateFightStats(effective, opp.attrs, result.phase, result, totalRounds);
 
   if (result.win) {
     s.record = { ...s.record, w: s.record.w + 1 };
@@ -874,6 +973,13 @@ function runFight(state, choiceTag) {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
   }
+
+  // Snapshot rank/title status right before this fight moves the needle, so
+  // the fight card can show what actually changed -- same idea as
+  // yearStartRank/yearStartChampion for the year-end recap, just scoped to
+  // one fight instead of one year.
+  const rankPointsBefore = s.rankPoints;
+  const championBefore = s.champion;
 
   s.rankPoints = updateRanking(s.rankPoints, result.win, opp.overall, isTitleFight);
   s.peakRankPoints = Math.max(s.peakRankPoints, s.rankPoints);
@@ -959,6 +1065,21 @@ function runFight(state, choiceTag) {
   if (isStatement) s.statementWins += 1;
   if (isRivalry && result.win) s.rivalryWins += 1;
 
+  // Performance bonuses, UFC-style: a genuinely emphatic round-1 finish
+  // earns "Performance of the Night" (win-only -- you have to finish it);
+  // a real nail-biter that goes the distance earns "Fight of the Night"
+  // regardless of who won, since that one is about the fight, not the
+  // result. This sim's finish rate runs high (most finishes land inside
+  // the first two rounds), so gating on finish round alone would hand a
+  // bonus to roughly half of all fights -- a badge that common stops
+  // meaning anything. Requiring round 1 AND a decisive winProb gap (not
+  // just "isCloseFight"'s wider rivalry-detection band) keeps both bonuses
+  // reserved for the fights that actually stood out.
+  const dominance = Math.abs(result.winProb - 0.5) * 2; // 0 = coin flip, 1 = lopsided
+  const isEmphaticFinish = stats.finishRound === 1 && dominance >= 0.55;
+  const isNailBiter = stats.finishRound == null && Math.abs(result.winProb - 0.5) <= 0.12;
+  const bonusType = (result.win && isEmphaticFinish) ? "performance" : (isNailBiter ? "fotn" : null);
+
   let legacyDelta = 0;
   if (result.win) {
     legacyDelta = result.method === "KO/TKO" ? 8 : result.method === "Submission" ? 7 : 5;
@@ -970,10 +1091,14 @@ function runFight(state, choiceTag) {
     // Winning while fighting against your own natural grain is harder to set
     // up but more memorable when it lands -- a "proved them wrong" bonus.
     if (s.careerStyle && s.careerStyle !== "Balanced" && !s.styleIsNaturalFit) legacyDelta += 3;
+    if (bonusType) legacyDelta += 6;
   } else {
     legacyDelta = result.method === "KO/TKO Loss" ? -6 : result.method === "Submission Loss" ? -5 : -3;
     if (isTitleDefense) legacyDelta -= 4;
     if (isTitleShot) legacyDelta -= choiceTag === "shortNoticeTitle" ? 6 : choiceTag === "demandShot" ? 3 : 2;
+    // A Fight of the Night loss is still a loss, but a hard-fought war
+    // shouldn't sting exactly as much as a listless decision loss does.
+    if (bonusType === "fotn") legacyDelta += 3;
 
     const severity = (isTitleDefense ? 100 : 0) + opp.overall;
     if (!s.definingLoss || severity > s.definingLoss.severity) {
@@ -985,6 +1110,10 @@ function runFight(state, choiceTag) {
   }
   s.runningLegacy = Math.max(0, s.runningLegacy + legacyDelta);
 
+  const interview = buildInterviewLine(oppName, result, {
+    isTitleShot, isTitleDefense, isRivalry, isStatement, bonusType, fightWasClose,
+  });
+
   const timeline = [...s.timeline];
   if (tierChanged) {
     const promoted = CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(tierBefore);
@@ -992,7 +1121,6 @@ function runFight(state, choiceTag) {
   }
   if (rivalryJustBorn) timeline.push({ type: "rivalEvent", id: `rival-${s.fightGlobalIndex}`, oppName });
   if (hype) timeline.push({ type: "hypeEvent", id: `hype-${s.fightGlobalIndex}`, ...hype });
-  const totalRounds = isTitleFight ? 5 : 3;
   // Event branding: numbered CLF cards, with a real card position. Title
   // fights headline; rivalries and elite opponents get the co-main slot.
   const eventNumber = 100 + s.fightGlobalIndex * 3 + (s.year % 3);
@@ -1011,9 +1139,12 @@ function runFight(state, choiceTag) {
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
-    rivalry: isRivalry, statement: isStatement,
+    rivalry: isRivalry, statement: isStatement, bonusType, interview,
+    // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
+    // at display time, same convention as yearEnd's rankBefore/rankAfter.
+    rankBefore: rankPointsBefore, championBefore, rankAfter: s.rankPoints, championAfter: s.champion,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
-    stats: generateFightStats(effective, opp.attrs, result.phase, result, totalRounds),
+    stats,
   });
   s.timeline = timeline;
 
@@ -1058,10 +1189,27 @@ function summarizeYear(timeline, yearStartRank, yearStartChampion, rankNow, cham
   };
 }
 
+// Career-long best wins for the broadcast-style stat line -- the top 3 by
+// opponent rating, not just a count. Ties resolve by fight order, which is
+// stable-sort behavior for .sort on arrays already in timeline order.
+function topCareerWins(timeline) {
+  return timeline
+    .filter((e) => e.type === "fight" && e.win)
+    .sort((a, b) => b.oppRating - a.oppRating)
+    .slice(0, 3)
+    .map((e) => ({ opp: e.opp, oppRating: e.oppRating, method: e.method, titleShot: e.titleShot, titleDefense: e.titleDefense }));
+}
+
 function finishCareerState(state) {
   const { legacyScore, bonus, finishRate, strengthOfSchedule } = calculateLegacy(state);
   const totalFightCount = state.timeline.filter((e) => e.type === "fight").length;
   const verdict = verdictFor(legacyScore);
+  // The last year in progress never goes through advanceCareer's yearEnd
+  // branch (finishCareerState fires in its place), so its legacy gain has
+  // to be folded into peakYearLegacy here too, the same way, or a career
+  // that peaks in its final year would never register that peak.
+  const finalYearGain = Math.max(0, state.runningLegacy - state.yearStartLegacy);
+  const peakYearLegacy = Math.max(state.peakYearLegacy || 0, finalYearGain);
   const timeline = [...state.timeline,
     { type: "retirement", id: "retirement", line: retirementLine(state.record, verdict) },
     {
@@ -1069,9 +1217,10 @@ function finishCareerState(state) {
       finishRate: Math.round(finishRate * 100), strengthOfSchedule: Math.round(strengthOfSchedule),
       peakRankPoints: state.peakRankPoints, rankedFightCount: state.rankedFightCount,
       statementWins: state.statementWins, rivalryWins: state.rivalryWins, bonus,
+      peakYearLegacy, yearsActive: state.year, topWins: topCareerWins(state.timeline),
     },
   ];
-  return { ...state, timeline, finished: true, legacyScore, verdict, totalFightCount };
+  return { ...state, timeline, finished: true, legacyScore, verdict, totalFightCount, peakYearLegacy };
 }
 
 function advanceCareer(state) {
@@ -1079,10 +1228,15 @@ function advanceCareer(state) {
   if (state.fightsRemainingThisYear > 0) return maybeFightChoice(state);
   if (state.year >= state.totalYears) return finishCareerState(state);
   const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.rankPoints, state.champion);
-  const s = { ...state, year: state.year + 1 };
+  // How much Legacy Score this year alone was worth -- kept as a running
+  // peak so "Legacy Score" (the whole career, uneven years and all) and
+  // "Best Year" (your single best stretch) can be shown side by side at
+  // retirement instead of one number hiding the other.
+  const yearLegacyGain = Math.max(0, state.runningLegacy - state.yearStartLegacy);
+  const s = { ...state, year: state.year + 1, peakYearLegacy: Math.max(state.peakYearLegacy || 0, yearLegacyGain) };
   s.timeline = [
     ...s.timeline,
-    { type: "yearEnd", id: `yearend-${state.year}`, year: state.year, ...yearSummary },
+    { type: "yearEnd", id: `yearend-${state.year}`, year: state.year, legacyGain: yearLegacyGain, ...yearSummary },
     { type: "year", id: `y-${s.year}`, year: s.year },
   ];
   s.pendingDecision = { type: "campPlanning" };
