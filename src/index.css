@@ -1,0 +1,24 @@
+/* Global document reset.
+   Two real gaps this closes, both invisible on the old cream palette and
+   both glaringly obvious against the dark arena canvas:
+
+   1. Browsers apply a default ~8px margin to <body>. .app-root only ever
+      painted its own box, so that default margin left a border of the
+      browser's white/Canvas background showing on all four edges around
+      the app -- it blended into the old near-white cream canvas and was
+      never noticed.
+   2. iOS Safari's rubber-band overscroll bounce reveals whatever's behind
+      the scrolled document -- i.e. html/body's own background, not
+      .app-root's -- for the instant you scroll past the top or bottom.
+      Giving html/body the same dark background as the app means that
+      bounce reveals more arena, not a flash of white.
+*/
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #100E0A;
+}
+
+#root {
+  min-height: 100vh;
+}
