@@ -639,6 +639,24 @@
            panel's own centered max-width so it doesn't stretch edge to
            edge on desktop. */
         .sim-panel { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+        /* Extra clearance when the Next/Fast-Forward/Verdict bar is also
+           fixed above the tab bar -- see .sim-advance-bar below. Only
+           applied while that bar is actually rendered (Career tab, no
+           decision pending) so other tabs/states don't carry dead space. */
+        .sim-panel.has-advance-bar { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+        /* The Next/Fast-Forward/Verdict controls, pinned above the tab bar
+           instead of living inline above a Career History feed that keeps
+           growing -- otherwise reading a fresh fight card (appended to the
+           END of the timeline) scrolls this control out of view with no
+           way back to it short of scrolling all the way up. */
+        .sim-advance-bar {
+          position: fixed; left: 0; right: 0; z-index: 45;
+          bottom: calc(58px + env(safe-area-inset-bottom));
+          max-width: 560px; margin: 0 auto;
+          padding: 10px 16px; background: var(--card-bg);
+          border-top: 1.5px solid rgba(154,143,125,0.22);
+          box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+        }
         .tab-bar-fixed {
           position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
           display: flex; max-width: 560px; margin: 0 auto;

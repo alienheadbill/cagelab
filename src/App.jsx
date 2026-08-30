@@ -429,6 +429,11 @@ export default function CageLab() {
   function handleCampConfirm(choice) {
     sfx("select");
     setCareerState(resolveCampPlanning(careerState, choice));
+    // Camp planning has its own tab so it doesn't compete with fight-related
+    // decisions for the same panel, but once it's resolved there's nothing
+    // left to do there -- send the player back to the main hub instead of
+    // leaving them stranded on a now-idle Camp tab.
+    setCareerTab("career");
   }
   function handleFightChoice(tag) {
     const next = runFight(careerState, tag);
@@ -836,7 +841,7 @@ export default function CageLab() {
 
       {phase === "sim" && careerState && (
         <>
-        <div className="panel sim-panel">
+        <div className={`panel sim-panel ${careerTab === "career" && !careerState.pendingDecision ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
@@ -907,7 +912,7 @@ export default function CageLab() {
             </div>
           )}
           {!careerState.pendingDecision && (
-            <div className="btn-row">
+            <div className="btn-row sim-advance-bar">
               {!careerState.finished ? (
                 <>
                   <button className="btn btn-primary" onClick={handleAdvance}>
