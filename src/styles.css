@@ -613,6 +613,32 @@
         .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
         .stat-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); margin-top: 2px; }
 
+        /* Career-mode bottom tab nav -- fixed to the viewport so it stays
+           reachable through a long career-history scroll, matching the
+           panel's own centered max-width so it doesn't stretch edge to
+           edge on desktop. */
+        .sim-panel { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+        .tab-bar-fixed {
+          position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+          display: flex; max-width: 560px; margin: 0 auto;
+          background: var(--card-bg); border-top: 1.5px solid rgba(154,143,125,0.22);
+          padding: 6px calc(6px + env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-right));
+        }
+        .tab-bar-btn {
+          flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+          background: none; border: none; padding: 6px 2px; color: var(--slate);
+          font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; text-transform: uppercase;
+          letter-spacing: 0.04em; cursor: pointer;
+        }
+        .tab-bar-btn.active { color: var(--brass); }
+        .tab-bar-icon-wrap { position: relative; display: inline-flex; }
+        .tab-bar-badge {
+          position: absolute; top: -2px; right: -4px; width: 8px; height: 8px;
+          border-radius: 50%; background: var(--blood); border: 1.5px solid var(--card-bg);
+        }
+        .rankings-list.rankings-list-tab { max-height: none; margin-top: 0; }
+        .camp-idle-view { margin-top: 4px; }
+
         @media (max-width: 380px) {
           .stat-grid { grid-template-columns: repeat(2, 1fr); }
           .action-grid { grid-template-columns: 1fr; }
