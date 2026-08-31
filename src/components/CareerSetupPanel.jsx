@@ -16,19 +16,25 @@ import { sfx } from "../lib/audio.js";
 // rounds), and debut era is gone outright -- there's no era-specific rules
 // or real-fighter pool behind it, so it was a choice with nothing riding
 // on it. What's left is the one real decision: fighting style.
-function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivision, onLaunch, onBack }) {
+function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivision, currentMode, onLaunch, onBack }) {
   const [selectedId, setSelectedId] = useState(currentPicks ? "__current__" : (savedBuilds[0] && savedBuilds[0].id) || null);
 
   // Resolve whichever build is selected into a { picks, name, division } shape.
   const resolved = (() => {
     if (selectedId === "__current__" && currentPicks) {
-      return { picks: currentPicks, name: currentName, division: currentDivision || null };
+      // originMode travels with whichever build actually gets launched, not
+      // with the app's live `mode` value at click time -- picking a SAVED
+      // build here shouldn't inherit whatever mode an unrelated abandoned
+      // draft left lying around (see App.jsx's goHome for the other half
+      // of this fix). "Just drafted" is the one case where the live mode
+      // genuinely IS this build's own origin.
+      return { picks: currentPicks, name: currentName, division: currentDivision || null, originMode: currentMode || "classic" };
     }
     const b = savedBuilds.find((x) => x.id === selectedId);
     if (!b) return null;
     const picks = {};
     (b.picks || []).forEach((p) => { picks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw }; });
-    return { picks, name: b.fighterName, goatScore: b.goatScore, division: b.division || null };
+    return { picks, name: b.fighterName, goatScore: b.goatScore, division: b.division || null, originMode: b.mode || "classic" };
   })();
 
   const base = resolved ? (() => {
@@ -148,6 +154,7 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
           debutEra: "2020s",
           careerStyle: style || "Balanced",
           actualHeight: heightIn, actualReach: reachIn,
+          originMode: resolved.originMode,
         })}
       >
         <Trophy size={16} /> Begin Career
