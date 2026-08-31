@@ -69,6 +69,7 @@ function FightResultCard({ e, playerName }) {
           <div className={`event-wl ${e.win ? "win" : "loss"} ${isFinish ? "finish" : ""}`}>{e.win ? "W" : "L"}</div>
           <div className="event-method mono">{isFinish && <Zap size={11} />}{e.method.replace(" Loss", "")}</div>
           {resultLine && <div className="event-result-line mono">{resultLine}</div>}
+          {!!e.purseGain && <div className="event-purse-line mono">+${e.purseGain}K</div>}
         </div>
         <div className="event-corner opp">
           <div className="corner-label mono">
@@ -138,9 +139,10 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || (e.playerTraits && e.playerTraits.length > 0)) && (
+      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || (e.playerTraits && e.playerTraits.length > 0)) && (
         <div className="fight-bottom-row">
           <div className="fight-tags">
+            {e.calledOut && <div className="fight-tag rivalry">CALLED OUT</div>}
             {e.rivalry && <div className="fight-tag rivalry">RIVALRY</div>}
             {e.statement && <div className="fight-tag statement">STATEMENT WIN</div>}
             {e.bonusType === "performance" && <div className="fight-tag bonus">PERFORMANCE BONUS</div>}

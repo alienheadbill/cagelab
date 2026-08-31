@@ -4,6 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
+  FileSignature, GraduationCap, Wallet,
 } from "lucide-react";
 
 import "./styles.css";
@@ -28,8 +29,9 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, rankLabel, clfTier, applyAging, resolveFight, initCareer,
-  resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, prepareFight, commitFight,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
+  resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
+  resolveContractNegotiation, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
@@ -67,6 +69,7 @@ export default function CageLab() {
   // view; camp planning specifically lives under "camp" (see the auto-switch
   // effect below), rather than sharing the hub with fight-related decisions.
   const [careerTab, setCareerTab] = useState("career");
+  const [calloutOpen, setCalloutOpen] = useState(false);
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
   // straight into the bottom of the ever-growing history feed -- otherwise
@@ -471,14 +474,14 @@ export default function CageLab() {
     // leaving them stranded on a now-idle Camp tab.
     setCareerTab("career");
   }
-  function handleFightChoice(tag) {
+  function handleFightChoice(tag, targetId) {
     // Picking a booking type no longer resolves the fight on the spot --
     // it sets up the opponent/odds and hands off to the pre-fight screen
     // (pendingDecision "preFight"), same as a default booking does. Nothing
     // has actually happened yet, so no transition sfx or history save here;
     // that's handleCommitFight's job once the player confirms.
     sfx("select");
-    setCareerState(prepareFight(careerState, tag));
+    setCareerState(prepareFight(careerState, tag, targetId));
   }
   function handleCommitFight() {
     const next = commitFight(careerState);
@@ -497,6 +500,14 @@ export default function CageLab() {
   function handleMediaEvent(fireBack) {
     sfx("select");
     setCareerState(resolveMediaEvent(careerState, fireBack));
+  }
+  function handleOffCycleEvent(choice) {
+    sfx("select");
+    setCareerState(resolveOffCycleEvent(careerState, choice));
+  }
+  function handleContractNegotiation(contractId) {
+    sfx("select");
+    setCareerState(resolveContractNegotiation(careerState, contractId));
   }
   function handleFastForward() {
     setSpotlightFightId(null);
@@ -955,6 +966,24 @@ export default function CageLab() {
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
+              {careerState.divisionRoster && (
+                <>
+                  <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
+                    <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
+                  </button>
+                  {calloutOpen && (
+                    <div className="callout-list">
+                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
+                        <button className="callout-row" key={f.id} onClick={() => { setCalloutOpen(false); handleFightChoice("callout", f.id); }}>
+                          <span className="rank-num mono">#{i + 1}</span>
+                          <span className="rank-name">{f.name}</span>
+                          <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
           {careerState.pendingDecision && careerState.pendingDecision.type === "trainingEvent" && (
@@ -974,6 +1003,31 @@ export default function CageLab() {
               <div className="choice-row">
                 <button className="choice-btn" onClick={() => handleMediaEvent(true)}>Fire Back<span>+Power for this fight only</span></button>
                 <button className="choice-btn" onClick={() => handleMediaEvent(false)}>Stay Professional<span>+Fight IQ for this fight only</span></button>
+              </div>
+            </div>
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "offCycleEvent" && (
+            <div className="decision-panel">
+              <div className="decision-title"><Megaphone size={15} /> Off-Cycle Content</div>
+              <div className="decision-sub">Not tied to a fight -- just what's on the calendar this week.</div>
+              <div className="choice-row">
+                <button className="choice-btn" onClick={() => handleOffCycleEvent("mediaDay")}>Media Day<span>Big fame gain, small permanent cost to your weakest attribute</span></button>
+                <button className="choice-btn" onClick={() => handleOffCycleEvent("charityWork")}>Charity Work<span>Smaller fame gain, no cost at all</span></button>
+              </div>
+            </div>
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "contractNegotiation" && (
+            <div className="decision-panel contract-panel">
+              <div className="decision-title"><FileSignature size={15} /> You've Made Premier</div>
+              <div className="decision-sub">The promotion wants you signed. Pick the deal that fits how you fight.</div>
+              <div className="contract-option-list">
+                {CONTRACT_TYPES.map((c) => (
+                  <button className="contract-option" key={c.id} onClick={() => handleContractNegotiation(c.id)}>
+                    <div className="contract-option-name">{c.label}</div>
+                    <div className="contract-option-desc">{c.desc}</div>
+                    <div className="contract-option-terms mono">Base ${c.base}K &middot; Win +${c.winBonus}K &middot; Finish +${c.finishBonus}K &middot; Fame cut {Math.round(c.fameCut * 100)}%</div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -1267,6 +1321,40 @@ export default function CageLab() {
                 </div>
               );
             }
+            if (e.type === "coachAssigned") {
+              return (
+                <div className="event-card good" key={e.id}>
+                  <GraduationCap size={15} />
+                  {e.name} signs on as your {ATTR_BY_KEY[e.specialty].label} coach.
+                </div>
+              );
+            }
+            if (e.type === "coachLevelUp") {
+              return (
+                <div className="event-card good" key={e.id}>
+                  <GraduationCap size={15} />
+                  Coach {e.name} hits Level {e.level} -- the relationship is paying off.
+                </div>
+              );
+            }
+            if (e.type === "offCycleEvent") {
+              return (
+                <div className="event-card" key={e.id}>
+                  <Megaphone size={15} />
+                  {e.choice === "mediaDay"
+                    ? `Media day -- full showman mode, fame up to ${e.fameAfter}.`
+                    : `Charity work in the community -- fame up to ${e.fameAfter}.`}
+                </div>
+              );
+            }
+            if (e.type === "contractSigned") {
+              return (
+                <div className="event-card good" key={e.id}>
+                  <FileSignature size={15} />
+                  You sign the {e.label} -- your first real Premier contract.
+                </div>
+              );
+            }
             if (e.type === "summary") {
               return (
                 <div className="summary-card" key={e.id}>
@@ -1385,6 +1473,8 @@ export default function CageLab() {
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
                 { num: careerState.runningLegacy, lbl: "Legacy Score" },
+                { num: `$${careerState.purse}K`, lbl: "Career Earnings" },
+                { num: careerState.fame, lbl: "Fame" },
               ].map((s) => (
                 <div className="stat-box" key={s.lbl}>
                   <div className="stat-num">{s.num}</div>
@@ -1395,7 +1485,23 @@ export default function CageLab() {
           )}
 
           {careerTab === "camp" && (
-            careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" ? (
+            <>
+            {careerState.coach && (
+              <div className="coach-card">
+                <div className="coach-card-head">
+                  <GraduationCap size={16} />
+                  <div>
+                    <div className="coach-name">{careerState.coach.name}</div>
+                    <div className="coach-specialty mono">{ATTR_BY_KEY[careerState.coach.specialty].label} Coach &middot; Level {careerState.coach.level}</div>
+                  </div>
+                </div>
+                <div className="coach-xp-track">
+                  <div className="coach-xp-fill" style={{ width: `${careerState.coach.level >= 5 ? 100 : Math.round((careerState.coach.xp % 60) / 60 * 100)}%` }} />
+                </div>
+                <div className="coach-hint">Focus {ATTR_BY_KEY[careerState.coach.specialty].label} in camp to build the relationship faster -- a maxed-out coach adds +5 to that focus bonus.</div>
+              </div>
+            )}
+            {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" ? (
               <CampPlanningPanel
                 onConfirm={handleCampConfirm}
                 year={careerState.year}
@@ -1416,7 +1522,8 @@ export default function CageLab() {
                   <div className="empty-txt">No camp planned yet — the next one opens up as your career moves forward.</div>
                 )}
               </div>
-            )
+            )}
+            </>
           )}
         </div>
 
@@ -1483,6 +1590,7 @@ export default function CageLab() {
               { num: careerState.statementWins, lbl: "Statement Wins" },
               { num: careerState.rivalryWins, lbl: "Rivalries Won" },
               { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
+              { num: `$${careerState.purse}K`, lbl: "Career Earnings" },
             ].map((s, i) => (
               <div className="stat-box reveal-stagger" style={reducedMotion ? undefined : { animationDelay: `${0.65 + i * 0.08}s` }} key={s.lbl}>
                 <div className="stat-num">{s.num}</div>
