@@ -428,12 +428,18 @@ function formatOdds(prob) {
 // actually happens. Mostly texture, but it does surface the weight-cut
 // penalty when one is active, since that's a real, felt effect the player
 // chose to live with (a weight-class move) rather than just flavor.
-function buildFightWeekLine(state, isTitleFight, isRivalry, isContenderSeriesFight) {
+function buildFightWeekLine(state, isTitleFight, isRivalry, isContenderSeriesFight, isCallout) {
   const pick = (a, b) => (Math.random() < 0.5 ? a : b);
   if (isContenderSeriesFight) {
     return pick(
       "Fight week. One performance, one contract on the line -- this is the shot.",
       "Fight week. Everyone in the building is trying to get signed tonight. Only one performance gets remembered.",
+    );
+  }
+  if (isCallout) {
+    return pick(
+      "Fight week. You called this one out yourself -- no backing down now.",
+      "Fight week. You picked this fight in front of everyone. Time to prove it wasn't just talk.",
     );
   }
   if (state.weightPenaltyFightsLeft > 0) {
@@ -461,12 +467,18 @@ function buildFightWeekLine(state, isTitleFight, isRivalry, isContenderSeriesFig
 // buildInterviewLine, spoken after). Same cascading-by-stakes shape, using
 // only signals already known before the fight (title stakes, rivalry, the
 // odds themselves), never anything the coin flip decides.
-function buildTrashTalk(oppName, winProb, isTitleFight, isRivalry, isContenderSeriesFight) {
+function buildTrashTalk(oppName, winProb, isTitleFight, isRivalry, isContenderSeriesFight, isCallout) {
   const pick = (a, b) => (Math.random() < 0.5 ? a : b);
   if (isContenderSeriesFight) {
     return pick(
       `"${oppName}: 'I've been grinding for this my whole career. I'm not losing it here.'"`,
       `"${oppName}: 'Somebody's getting signed tonight. It's going to be me.'"`,
+    );
+  }
+  if (isCallout) {
+    return pick(
+      `"${oppName}: 'You wanted this fight. Now you've got it -- and you're going to regret it.'"`,
+      `"${oppName}: 'Calling me out was the last good decision you're going to make.'"`,
     );
   }
   if (isRivalry) {
@@ -591,15 +603,47 @@ const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0]
 const CHAMPION_WIN_FLOOR = 0.68;
 const RANKED_WIN_FLOOR = 0.55;
 
+// Shared by generateOpponentRecord (the career-long W-L) and
+// generateRecentForm (a fresh roster fighter's starting last-5) so both
+// read off the same underlying quality, not two independently-rolled ideas
+// of how good this fighter actually is.
+function winRateFor(overall, tier) {
+  if (tier === "champion") return clamp(0.72 + (overall - 85) / 200, CHAMPION_WIN_FLOOR, 0.92);
+  if (tier === "ranked") return clamp(0.58 + (overall - 70) / 150, RANKED_WIN_FLOOR, 0.85);
+  return clamp(0.4 + (overall - 60) / 120, 0.3, 0.75);
+}
+
 function generateOpponentRecord(overall, fightIndexContext, tier) {
   const experience = clamp(Math.round(fightIndexContext * 0.6 + (overall - 50) * 0.3), 3, 40);
-  let winRate;
-  if (tier === "champion") winRate = clamp(0.72 + (overall - 85) / 200, CHAMPION_WIN_FLOOR, 0.92);
-  else if (tier === "ranked") winRate = clamp(0.58 + (overall - 70) / 150, RANKED_WIN_FLOOR, 0.85);
-  else winRate = clamp(0.4 + (overall - 60) / 120, 0.3, 0.75);
+  const winRate = winRateFor(overall, tier);
   const wins = Math.round(experience * winRate);
   const losses = Math.max(0, experience - wins);
   return { w: wins, l: losses };
+}
+
+// A fresh roster fighter's last-5 form, newest first -- shown in the
+// matchmaking picker (see generateMatchmakerOptions) so "who should I
+// fight" has a hot/cold-streak signal, not just a career-long W-L. Drawn
+// straight from the fighter's own record (not a fresh independent roll off
+// winRate) so the last-5 can never show more losses than the fighter has
+// ever actually recorded -- a shuffled sample of their real career, not a
+// second, uncorrelated coin flip that could contradict it.
+function generateRecentForm(wins, losses, count = 5) {
+  const pool = [];
+  for (let i = 0; i < wins; i++) pool.push("W");
+  for (let i = 0; i < losses; i++) pool.push("L");
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
+// Appends one result to a fighter's rolling last-5, newest first, capped
+// at 5 -- the single place every win/loss touching a division fighter's
+// record also updates their form, so the two can never drift apart.
+function pushForm(fighter, win) {
+  fighter.recentForm = [win ? "W" : "L", ...(fighter.recentForm || [])].slice(0, 5);
 }
 
 // ---- Fighting-style choice: gives the archetype system real teeth ---------
@@ -749,6 +793,7 @@ const UNRANKED_COUNT = 24;     // prospects below the rankings you fight on the 
 
 function createDivisionFighter(name, baseRating, seedIndex, tier) {
   const profile = generateOpponentProfile(baseRating);
+  const record = generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12), tier);
   return {
     id: `div-${seedIndex}-${slugify(name)}`,
     name,
@@ -756,7 +801,8 @@ function createDivisionFighter(name, baseRating, seedIndex, tier) {
     overall: profile.overall,
     archetype: profile.archetype,
     traits: profile.traits,
-    record: generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12), tier),
+    record,
+    recentForm: generateRecentForm(record.w, record.l),
     isChampion: false,
   };
 }
@@ -815,6 +861,7 @@ function applyRoundLoss(fighter) {
   const total = fighter.record.w + fighter.record.l + 1;
   if (fighter.record.w / total < floor) return;
   fighter.record.l += 1;
+  pushForm(fighter, false);
 }
 
 // Simulates the fights you weren't part of. Adjacent ranks meet, the winner
@@ -835,9 +882,11 @@ function simulateDivisionRound(division) {
     const champWins = Math.random() < 0.5 + (champ.overall - challenger.overall) / 60;
     if (champWins) {
       champ.record.w += 1;
+      pushForm(champ, true);
       applyRoundLoss(challenger);
     } else {
       challenger.record.w += 1;
+      pushForm(challenger, true);
       applyRoundLoss(champ);
       champ.isChampion = false;
       challenger.isChampion = true;
@@ -860,9 +909,11 @@ function simulateDivisionRound(division) {
     const aWins = Math.random() < 0.5 + (d[i].overall - d[j].overall) / 60;
     if (aWins) {
       d[i].record.w += 1;
+      pushForm(d[i], true);
       applyRoundLoss(d[j]);
     } else {
       d[j].record.w += 1;
+      pushForm(d[j], true);
       applyRoundLoss(d[i]);
       const tmp = d[i]; d[i] = d[j]; d[j] = tmp; // upset moves them up the ladder
     }
@@ -952,6 +1003,29 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   };
 }
 
+// Three REAL, named candidates for the matchmaking panel -- replaces
+// picking a hidden difficulty label with actually seeing who you'd be
+// fighting: their name, archetype, and real last-5 form, before
+// committing to anything. Reuses selectDivisionOpponent's own easy/ranked/
+// stepUp bias, so the risk/reward promise behind each tag is exactly what
+// it already was -- just visible now instead of hidden behind the label.
+// The draws are chained through a growing avoid-list so the three options
+// are never the same person twice.
+function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds) {
+  const tags = ["easy", "ranked", "stepUp"];
+  const avoid = [...(recentOpponentIds || [])];
+  return tags.map((tag) => {
+    const picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+    avoid.push(picked.fighter.id);
+    return {
+      tag, fighterId: picked.fighter.id, rank: picked.rank,
+      name: picked.fighter.name, archetype: picked.fighter.archetype,
+      overall: picked.fighter.overall, record: picked.fighter.record,
+      recentForm: picked.fighter.recentForm || [],
+    };
+  });
+}
+
 // ---- Rivals ---------------------------------------------------------------
 // A rivalry is earned, not assigned: 2+ meetings against the same division
 // fighter, with at least one of them genuinely competitive -- a decision, or
@@ -979,6 +1053,93 @@ function refreshRivalActivity(rivals, playerOverall, division) {
     if (!entry) return { ...r, active: false };
     return { ...r, active: Math.abs(entry.overall - playerOverall) <= RIVAL_OVR_DORMANCY_GAP };
   });
+}
+
+// =========================================================================
+//  CAREER ARC (Phase 4): coach, off-cycle content, callouts, contract
+// =========================================================================
+
+// ---- Coach ----------------------------------------------------------------
+// A relationship that deepens the longer you train under the same person --
+// not a one-time pick, since Career Setup already trimmed every choice down
+// to the ones that actually matter (see CareerSetupPanel). The coach is
+// assigned automatically at the first camp, then levels up through camps
+// actually spent training their specialty.
+const COACH_SPECIALTIES = ["STRIKING", "GRAPPLING", "WRESTLING", "CARDIO", "POWER", "CHIN", "SPEED", "IQ"];
+
+function assignCoach() {
+  const specialty = COACH_SPECIALTIES[Math.floor(Math.random() * COACH_SPECIALTIES.length)];
+  return { name: generateOpponentNames(1)[0], specialty, xp: 0, level: 0 };
+}
+
+// 60xp/level, capped at 5 (300xp to max) -- camps run once a year, so a
+// fighter who focuses the coach's specialty every single year (35xp/camp:
+// 20 base + 15 match bonus) maxes the relationship out around year 9,
+// still inside a typical 8-11 year career instead of needing one longer
+// than any career actually runs.
+function coachLevelFor(xp) { return Math.min(5, Math.floor(xp / 60)); }
+
+// ---- Off-cycle content ------------------------------------------------
+// Media days and charity work -- distinct from fight-week mediaEvent
+// (which is about handling THIS fight's trash talk) in that these aren't
+// tied to any particular fight at all. What they build is fame: a
+// popularity track separate from rankPoints, since a fighter can be a
+// bigger draw than their ranking alone would suggest -- and it's what a
+// Sponsor-Friendly contract (see below) actually pays out on.
+function pickMediaDayLine(playedUp) {
+  return playedUp
+    ? "Media day. Full showman mode -- the cameras love it, the highlight reel writes itself."
+    : "Media day. Straight answers, no bit -- some fans respect that more than the show.";
+}
+
+// ---- Contract -----------------------------------------------------------
+// Three real shapes, not just a bigger number -- what you're actually
+// betting on differs. Purse is denominated in $K per fight, scaled up
+// hard by circuit tier (a Regional purse and a Premier purse shouldn't
+// read anywhere close to the same), the same tier-aware weighting
+// calculateLegacy already uses for legacy gain.
+const CONTRACT_TYPES = [
+  {
+    id: "showMoney", label: "Show Money Deal",
+    desc: "A steady guarantee every time you step in the cage. Smaller bonuses either way.",
+    base: 8, winBonus: 4, finishBonus: 3, fameCut: 0.05,
+  },
+  {
+    id: "payPerPerformance", label: "Pay-Per-Performance",
+    desc: "Low guarantee, real money on the table if you win -- and finish.",
+    base: 3, winBonus: 10, finishBonus: 8, fameCut: 0.05,
+  },
+  {
+    id: "sponsorFriendly", label: "Sponsor-Friendly Deal",
+    desc: "Modest guarantee and bonuses, but your own popularity pays out directly.",
+    base: 5, winBonus: 5, finishBonus: 3, fameCut: 0.25,
+  },
+];
+const DEFAULT_CONTRACT = { id: "regionalMinimum", label: "Regional Minimum", desc: "What every unsigned fighter starts on.", base: 1, winBonus: 1, finishBonus: 0.5, fameCut: 0.02 };
+
+const TIER_PURSE_MULT = { "CLF Regional": 1, "CLF National": 3, "CLF Contender Series": 6, "CLF PREMIER": 20 };
+
+function purseForFight(contract, tier, win, finished, fame) {
+  const scale = TIER_PURSE_MULT[tier] ?? 1;
+  let gain = contract.base * scale;
+  if (win) gain += contract.winBonus * scale;
+  if (win && finished) gain += contract.finishBonus * scale;
+  gain += fame * contract.fameCut * scale * 0.1;
+  return Math.round(gain);
+}
+
+// Resolves the one-time Premier contract negotiation triggered in
+// commitFight. contractId picks from CONTRACT_TYPES; anything unrecognized
+// falls back to Show Money rather than leaving the career on the regional
+// minimum forever.
+function resolveContractNegotiation(state, contractId) {
+  const s = { ...state };
+  const contract = CONTRACT_TYPES.find((c) => c.id === contractId) || CONTRACT_TYPES[0];
+  s.contract = contract;
+  s.contractNegotiated = true;
+  s.timeline = [...s.timeline, { type: "contractSigned", id: `contract-${s.year}-${s.fightGlobalIndex}`, label: contract.label }];
+  s.pendingDecision = null;
+  return s;
 }
 
 function initCareer(picks, options) {
@@ -1022,6 +1183,14 @@ function initCareer(picks, options) {
     rivals: [], recentOpponentIds: [], definingLoss: null,
     yearFocusAttr: null, yearStance: "balanced", campQuality: "full", mediaBuff: null,
     wonTitleAsUnderdog: false,
+    // Phase 4 (Career Arc): a coach relationship that deepens over camps,
+    // fame built through off-cycle content (feeds sponsor money), a real
+    // purse, and the contract that decides how it gets paid out.
+    coach: null,
+    fame: 0,
+    purse: 0,
+    contract: DEFAULT_CONTRACT,
+    contractNegotiated: false,
     timeline: [
       { type: "styleSelected", id: "style-select",
         style: (options && options.careerStyle) || "Balanced",
@@ -1114,6 +1283,24 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
     }
   }
 
+  // Coach: assigned the first time camp planning ever runs, then levels up
+  // with every camp -- faster when this year's focus matches their
+  // specialty, since that's the whole relationship actually being used.
+  if (!s.coach) {
+    s.coach = assignCoach();
+    timeline.push({ type: "coachAssigned", id: `coach-${s.year}`, name: s.coach.name, specialty: s.coach.specialty });
+  } else {
+    const focusMatch = focusAttr === s.coach.specialty;
+    const xpGain = 20 + (focusMatch ? 15 : 0);
+    const levelBefore = s.coach.level;
+    const xp = s.coach.xp + xpGain;
+    const level = coachLevelFor(xp);
+    s.coach = { ...s.coach, xp, level };
+    if (level > levelBefore) {
+      timeline.push({ type: "coachLevelUp", id: `coachlvl-${s.year}`, name: s.coach.name, level });
+    }
+  }
+
   s.timeline = timeline;
   s.fightsRemainingThisYear = fightsThisYear;
   s.pendingDecision = null;
@@ -1128,12 +1315,22 @@ function maybeFightChoice(state) {
   // prepareFight's "contenderSeries" branch) standing between here and
   // the Premier contract.
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 3 && state.rankPoints >= 50);
+  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.rankPoints >= 40);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
-  if (roll < 0.22) return { ...state, pendingDecision: { type: "fightChoice" } };
+  if (roll < 0.22) {
+    // Computed once, right here -- fixed for the life of this decision
+    // (same convention as trainingEvent's attr below), not re-rolled on
+    // every render.
+    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds);
+    return { ...state, pendingDecision: { type: "fightChoice", options } };
+  }
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
   if (roll < 0.36) return { ...state, pendingDecision: { type: "mediaEvent" } };
+  // Off-cycle content -- not tied to any particular fight, just building
+  // fame between them. Kept rare (4% total) so it reads as a real event,
+  // not a third flavor of the fight-week media roll above.
+  if (roll < 0.38) return { ...state, pendingDecision: { type: "offCycleEvent" } };
   return prepareFight(state, "default");
 }
 
@@ -1187,6 +1384,25 @@ function resolveMediaEvent(state, fireBack) {
   return s;
 }
 
+// Off-cycle content: Media Day builds fame fast at a small stat cost
+// (skipping camp time for the cameras); Charity Work builds fame slower
+// but with no cost at all -- goodwill instead of a highlight reel. Neither
+// is tied to a fight; this is what actually grows the fame track that a
+// Sponsor-Friendly contract pays out on (see purseForFight).
+function resolveOffCycleEvent(state, choice) {
+  const s = { ...state };
+  if (choice === "mediaDay") {
+    s.fame = clamp(s.fame + 8, 0, 100);
+    const worst = pickWeakestSkill(s.base);
+    s.base = { ...s.base, [worst]: clamp(s.base[worst] - 1, 30, 99) };
+  } else {
+    s.fame = clamp(s.fame + 4, 0, 100);
+  }
+  s.timeline = [...s.timeline, { type: "offCycleEvent", id: `offcycle-${s.year}-${s.fightGlobalIndex}`, choice, fameAfter: s.fame }];
+  s.pendingDecision = null;
+  return s;
+}
+
 // Sets up everything a fight needs -- opponent selection, hype rolls, the
 // camp/style/media modifiers baked into "effective" stats, and a real odds
 // preview -- but does NOT roll the outcome. That happens in commitFight,
@@ -1196,7 +1412,7 @@ function resolveMediaEvent(state, fireBack) {
 // previously opponent selection and the coin flip happened in the same
 // atomic call, so there was never a moment where "who's next" was known
 // but "who won" wasn't.
-function prepareFight(state, choiceTag) {
+function prepareFight(state, choiceTag, targetId) {
   const s = { ...state };
   s.fightGlobalIndex += 1;
 
@@ -1205,8 +1421,14 @@ function prepareFight(state, choiceTag) {
   // and nobody there can ever become a rival (there's no persistent
   // roster to re-meet them in).
   const isContenderSeriesFight = choiceTag === "contenderSeries";
-  const isTitleShot = !isContenderSeriesFight && ((!s.champion && s.streak >= 3 && s.rankPoints >= 50) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
-  const isTitleDefense = !isContenderSeriesFight && s.champion;
+  const isCallout = choiceTag === "callout" && !!targetId;
+  // The matchmaking panel now shows 3 real, named candidates (see
+  // generateMatchmakerOptions) instead of a hidden difficulty label --
+  // picking one passes its id through here so the fight that happens is
+  // exactly the fighter the player saw and picked, not a fresh re-draw.
+  const isMatchmakerPick = !!targetId && (choiceTag === "easy" || choiceTag === "ranked" || choiceTag === "stepUp");
+  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.rankPoints >= 40) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
   const agedNow = applyAging(s.base, s.year, s.wear);
@@ -1215,6 +1437,23 @@ function prepareFight(state, choiceTag) {
   let picked, isRivalFight = false;
   if (isContenderSeriesFight) {
     picked = { fighter: generateContenderSeriesOpponent(), rank: null };
+  } else if (isCallout) {
+    // Called-out fight: the player is naming a specific ranked contender
+    // instead of taking whatever matchmaking offers -- a real statement,
+    // so it's scored like one (see the legacy bonus/penalty in
+    // commitFight). Champion is off-limits here on purpose: calling out
+    // the belt IS a title shot, and that already has its own real path
+    // (streak+ranking, or Demand/Short-Notice) with its own stakes.
+    const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
+    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
+  } else if (isMatchmakerPick) {
+    const target = s.divisionRoster.find((f) => f.id === targetId);
+    // Falls back to a fresh draw with the same difficulty bias if the
+    // targeted fighter somehow isn't in the roster anymore (e.g. the
+    // division regenerated between the offer being shown and picked --
+    // shouldn't happen inside one decision, but never leave the player
+    // stuck on a dead pick).
+    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -1258,7 +1497,10 @@ function prepareFight(state, choiceTag) {
     // Focusing one attribute costs mat time elsewhere: +4 to the focus, -1 to
     // the two weakest OTHER attributes. Without a cost, taking the focus every
     // year would be strictly correct and therefore not a decision at all.
-    effective = { ...effective, [s.yearFocusAttr]: clamp(effective[s.yearFocusAttr] + 4, 30, 99) };
+    // A coach whose specialty matches adds their level on top -- the payoff
+    // for actually training with the same person year after year.
+    const coachBonus = (s.coach && s.coach.specialty === s.yearFocusAttr) ? s.coach.level : 0;
+    effective = { ...effective, [s.yearFocusAttr]: clamp(effective[s.yearFocusAttr] + 4 + coachBonus, 30, 99) };
     const others = SKILL_KEYS.filter((k) => k !== s.yearFocusAttr)
       .sort((a, b) => effective[a] - effective[b])
       .slice(0, 2);
@@ -1289,12 +1531,12 @@ function prepareFight(state, choiceTag) {
 
   s.pendingDecision = { type: "preFight" };
   s.pendingFight = {
-    choiceTag, isTitleShot, isTitleDefense, isTitleFight,
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout,
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
     winProb: preview.winProb, matchup: preview.matchup,
-    fightWeekLine: buildFightWeekLine(s, isTitleFight, isRivalFight, isContenderSeriesFight),
-    trashTalk: buildTrashTalk(oppName, preview.winProb, isTitleFight, isRivalFight, isContenderSeriesFight),
+    fightWeekLine: buildFightWeekLine(s, isTitleFight, isRivalFight, isContenderSeriesFight, isCallout),
+    trashTalk: buildTrashTalk(oppName, preview.winProb, isTitleFight, isRivalFight, isContenderSeriesFight, isCallout),
     youOdds: formatOdds(preview.winProb), oppOdds: formatOdds(1 - preview.winProb),
   };
   return s;
@@ -1311,7 +1553,7 @@ function commitFight(state) {
   const s = { ...state };
   const pf = s.pendingFight;
   const {
-    choiceTag, isTitleShot, isTitleDefense, isTitleFight,
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout,
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
   } = pf;
@@ -1376,7 +1618,7 @@ function commitFight(state) {
   if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 4)) {
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 3)) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
     // title, no rank, no matter how you earned the invite. Winning the
@@ -1391,6 +1633,11 @@ function commitFight(state) {
     resetForFreshTier = result.win;
   }
   const tierChanged = s.circuitTier !== tierBefore;
+  // First real contract: the moment you actually make Premier is when the
+  // promotion sits you down with a real deal, not before -- everyone
+  // starts on the same regional minimum. Guarded by contractNegotiated so
+  // it can only ever fire once per career.
+  const triggerContractNegotiation = s.circuitTier === "CLF PREMIER" && tierBefore !== "CLF PREMIER" && !s.contractNegotiated;
   // Peak reached is a high-water mark, never unwritten by a later bounce
   // back down (Contender Series -> National on a loss is the one case
   // that can happen -- see above).
@@ -1422,14 +1669,21 @@ function commitFight(state) {
   if (!isContenderSeriesFight) {
     let nextDivision = s.divisionRoster.map((f) => (
       f.id === oppEntry.id
-        ? { ...f, record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) } }
+        ? {
+            ...f,
+            record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) },
+            recentForm: [result.win ? "L" : "W", ...(f.recentForm || [])].slice(0, 5),
+          }
         : f
     ));
-    // Beating someone ranked above you takes their spot.
-    if (result.win && oppRank > 0 && s.playerRank != null && oppRank < s.playerRank) {
-      s.playerRank = oppRank;
-    } else if (result.win && s.playerRank == null) {
-      s.playerRank = Math.max(1, oppRank);
+    // Beating someone ranked above you moves you toward their spot -- but
+    // capped, so one callout upset over the #1 contender doesn't teleport a
+    // total unknown straight to #1. Even a shocking win only climbs so far
+    // in one night; closing a big gap takes several real wins, not one.
+    const RANK_CLIMB_CAP = 5;
+    if (result.win && oppRank > 0) {
+      const startRank = s.playerRank != null ? s.playerRank : DIVISION_SIZE + 1;
+      if (oppRank < startRank) s.playerRank = Math.max(oppRank, startRank - RANK_CLIMB_CAP);
     } else if (!result.win && s.playerRank != null) {
       s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
     }
@@ -1503,6 +1757,16 @@ function commitFight(state) {
   const isStatement = result.win && opp.overall >= 88;
   if (isStatement) s.statementWins += 1;
   if (isRivalry && result.win) s.rivalryWins += 1;
+  // Fame builds off-cycle (media days, charity work) but also off the
+  // fights that actually make noise -- a statement win, a rivalry blowoff,
+  // a called-out fight, or the kind of finish that earns a bonus. A quiet
+  // decision over a nobody doesn't move it either way.
+  let fameGain = 0;
+  if (isStatement) fameGain += 4;
+  if (isRivalry) fameGain += 3;
+  if (isCallout) fameGain += 3;
+  if (result.win && stats.finishRound != null && stats.finishRound <= 2) fameGain += 2;
+  if (fameGain > 0) s.fame = clamp(s.fame + fameGain, 0, 100);
 
   // Performance bonuses, UFC-style: a genuinely emphatic early finish earns
   // "Performance of the Night" (win-only -- you have to finish it); a real
@@ -1535,6 +1799,9 @@ function commitFight(state) {
     if (s.careerStyle && s.careerStyle !== "Balanced" && !s.styleIsNaturalFit) legacyDelta += 3;
     if (bonusType) legacyDelta += 6;
     if (isUnderdogWin) legacyDelta += 4;
+    // Calling your shot and landing it is worth more than the same win
+    // falling out of ordinary matchmaking.
+    if (isCallout) legacyDelta += 7;
   } else {
     legacyDelta = result.method === "KO/TKO Loss" ? -6 : result.method === "Submission Loss" ? -5 : -3;
     if (isTitleDefense) legacyDelta -= 4;
@@ -1542,6 +1809,9 @@ function commitFight(state) {
     // A Fight of the Night loss is still a loss, but a hard-fought war
     // shouldn't sting exactly as much as a listless decision loss does.
     if (bonusType === "fotn") legacyDelta += 3;
+    // Called your shot and got beat -- that's a bigger story than a loss
+    // nobody saw coming you into.
+    if (isCallout) legacyDelta -= 5;
 
     const severity = (isTitleDefense ? 100 : 0) + opp.overall;
     if (!s.definingLoss || severity > s.definingLoss.severity) {
@@ -1558,6 +1828,13 @@ function commitFight(state) {
   const TIER_LEGACY_MULT = { "CLF Regional": 0.55, "CLF National": 0.8, "CLF Contender Series": 1, "CLF PREMIER": 1.25 };
   legacyDelta = Math.round(legacyDelta * (TIER_LEGACY_MULT[tierBefore] ?? 1));
   s.runningLegacy = Math.max(0, s.runningLegacy + legacyDelta);
+
+  // Purse: paid out on the contract signed at the time, scaled by the
+  // tier the fight actually happened at -- a Regional purse and a Premier
+  // purse shouldn't read anywhere close to the same. Contender Series
+  // pays nothing (it's a tryout, not a sanctioned bout on the books yet).
+  const purseGain = isContenderSeriesFight ? 0 : purseForFight(s.contract, tierBefore, result.win, stats.finishRound != null, s.fame);
+  s.purse += purseGain;
 
   const interview = buildInterviewLine(oppName, result, {
     isTitleShot, isTitleDefense, isRivalry, isStatement, bonusType, fightWasClose,
@@ -1591,20 +1868,23 @@ function commitFight(state) {
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
-    contenderSeries: isContenderSeriesFight,
+    contenderSeries: isContenderSeriesFight, calledOut: isCallout,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
     // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
     rankBefore: rankPointsBefore, championBefore, rankAfter: s.rankPoints, championAfter: s.champion,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
-    stats, rounds,
+    stats, rounds, purseGain,
   });
   s.timeline = timeline;
 
   s.fightsRemainingThisYear -= 1;
   if (s.weightPenaltyFightsLeft > 0) s.weightPenaltyFightsLeft -= 1;
   s.mediaBuff = null;
-  s.pendingDecision = null;
+  // A fresh Premier contract waits until the very next decision point --
+  // everything about THIS fight (result card, rank move, the promotion
+  // banner) still needs to render first.
+  s.pendingDecision = triggerContractNegotiation ? { type: "contractNegotiation" } : null;
   s.pendingFight = null;
   return s;
 }
@@ -1724,6 +2004,12 @@ function fastForwardCareer(state) {
         s = resolveTrainingEvent(s, s.pendingDecision.attr, true);
       } else if (s.pendingDecision.type === "mediaEvent") {
         s = resolveMediaEvent(s, false);
+      } else if (s.pendingDecision.type === "offCycleEvent") {
+        s = resolveOffCycleEvent(s, "charityWork");
+      } else if (s.pendingDecision.type === "contractNegotiation") {
+        // Show Money is the safe, no-regrets default for a fast-forwarded
+        // career with no player actually weighing the trade-off.
+        s = resolveContractNegotiation(s, "showMoney");
       }
     } else {
       s = advanceCareer(s);
@@ -1845,6 +2131,7 @@ export {
   ARCHETYPES,
   ARCHETYPE_TAGLINES,
   CLF_TIERS,
+  CONTRACT_TYPES,
   DIVISION_SIZE,
   STYLE_DESCRIPTIONS,
   TRAIT_DEFS,
@@ -1861,6 +2148,7 @@ export {
   deriveTraits,
   estimatePhaseControl,
   fastForwardCareer,
+  generateMatchmakerOptions,
   generateOpponentProfile,
   initCareer,
   maybeFightChoice,
@@ -1871,8 +2159,10 @@ export {
   rankLabel,
   rankToTierCls,
   resolveCampPlanning,
+  resolveContractNegotiation,
   resolveFight,
   resolveMediaEvent,
+  resolveOffCycleEvent,
   resolveTrainingEvent,
   runFight,
   verdictFor,
