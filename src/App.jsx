@@ -538,6 +538,18 @@ export default function CageLab() {
   // full gold as the tier climbs, instead of every tier looking the same.
   const tierRampCls = (tierName) => `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
 
+  // What actually gets you promoted off the tier you're currently on --
+  // mirrors the real gate logic in career.js's commitFight exactly, so this
+  // text can never drift out of sync with what the game actually checks.
+  function circuitNextRequirement(tierName, isChampion) {
+    if (tierName === "CLF Regional") return "Win the Regional title to move up to National.";
+    if (tierName === "CLF National") return "Win the National title, or string together a serious win streak on its own, to earn a shot in the Contender Series.";
+    if (tierName === "CLF Contender Series") return "One showcase fight decides it -- win it and the Premier contract is waiting. Lose it and it's back to National, standing untouched.";
+    return isChampion
+      ? "You hold the Premier title -- the top of the ladder. Defend it and build the legacy."
+      : "You've reached Premier -- the top of the ladder. Win the title and defend it to build the legacy.";
+  }
+
   // Last few results at a glance, oldest-to-newest so the strip reads like a
   // trend -- part of the decision-first career hub, so "how am I doing"
   // doesn't require scrolling the full history.
@@ -1252,6 +1264,44 @@ export default function CageLab() {
           )}
 
           {careerTab === "rankings" && careerState.divisionRoster && (
+            <>
+              {/* The circuit ladder -- explains the whole tier system at a
+                  glance instead of leaving it to be inferred from the odd
+                  promotion banner. Only the CURRENT tier gets a real roster
+                  below; earlier/later tiers are shown by blurb only -- each
+                  one gets its own fresh champion + Top 15 + prospects the
+                  moment you actually arrive there, not before, so there's
+                  nothing real to preview for a tier you haven't reached. */}
+              <div className="circuit-ladder">
+                <div className="circuit-ladder-title">The Climb</div>
+                <div className="circuit-ladder-steps">
+                  {CLF_TIERS.map((t, i) => {
+                    const currentIdx = CLF_TIERS.findIndex((ct) => ct.name === careerState.circuitTier);
+                    const status = i === currentIdx ? "current" : i < currentIdx ? "cleared" : "locked";
+                    return (
+                      <div className={`circuit-step ${status} ${tierRampCls(t.name)}`} key={t.name}>
+                        <div className="circuit-step-num mono">{i + 1}</div>
+                        <div className="circuit-step-body">
+                          <div className="circuit-step-name">{t.short}</div>
+                          <div className="circuit-step-blurb">{t.blurb}</div>
+                          {status === "current" && <div className="circuit-step-here mono">YOU ARE HERE</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="circuit-next">
+                  <span className="circuit-next-label mono">NEXT</span>
+                  {circuitNextRequirement(careerState.circuitTier, careerState.champion)}
+                </div>
+                <div className="circuit-note">
+                  Regional, National, and Premier each run their own independent roster --
+                  a champion, a ranked Top 15, and a deeper pool of prospects below them,
+                  all fighting for position while you're away. Contender Series is a single
+                  showcase fight against another prospect, not a ladder of its own.
+                </div>
+              </div>
+
             <div className="rankings-list rankings-list-tab">
               {careerState.playerRank === 0 && (
                 <div className="ranking-row you champ">
@@ -1294,6 +1344,7 @@ export default function CageLab() {
                 </div>
               )}
             </div>
+            </>
           )}
 
           {careerTab === "stats" && (
