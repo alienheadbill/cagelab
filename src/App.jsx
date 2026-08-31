@@ -22,7 +22,7 @@ import {
   submitChallengeScore, fetchChallengeLeaderboard,
 } from "./lib/supabase.js";
 import { sfx } from "./lib/audio.js";
-import { formatHeight, formatReach } from "./lib/utils.js";
+import { formatHeight, formatPurse, formatReach } from "./lib/utils.js";
 import {
   tierOf, computeGoatScore, computeGoatScoreBreakdown, relativeHeightScore,
   relativeReachScore, relativeNoteFor, archetypeFor, synergiesFor,
@@ -52,6 +52,27 @@ import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
+
+// Career History used to render strictly oldest-first, so on anything but a
+// brand-new career the most recent fight or event -- the thing you'd
+// actually want to look at -- sank further and further below a permanent
+// wall of Year 1 content. Groups by the "year" divider entries and
+// reverses the GROUPS (most recent year first), while keeping each year's
+// own events in the order they actually happened -- camp -> fights ->
+// recap still reads as a story, it just doesn't make you scroll to the
+// bottom of an 11-year career to find it.
+function groupTimelineNewestYearFirst(timeline) {
+  const groups = [];
+  let current = null;
+  for (const e of timeline) {
+    if (e.type === "year" || !current) {
+      current = [];
+      groups.push(current);
+    }
+    current.push(e);
+  }
+  return groups.reverse().flat();
+}
 
 // Framing for the 3 real candidates the matchmaking panel offers -- same
 // risk/reward promise the old abstract Easy/Ranked/Step-Up buttons made,
@@ -1225,7 +1246,7 @@ export default function CageLab() {
           )}
 
           <div className="section-divider" style={{ marginTop: 6 }}>Career History</div>
-          {careerState.timeline.filter((e) => e.id !== spotlightFightId).map((e) => {
+          {groupTimelineNewestYearFirst(careerState.timeline.filter((e) => e.id !== spotlightFightId)).map((e) => {
             if (e.type === "year") return <div className="year-divider" key={e.id}>Year {e.year}</div>;
             if (e.type === "campPlan") {
               const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
@@ -1258,10 +1279,14 @@ export default function CageLab() {
             if (e.type === "yearEnd") {
               const beforeLabel = rankLabel(e.rankBefore, e.championBefore);
               const afterLabel = rankLabel(e.rankAfter, e.championAfter);
+              const tierMoved = e.tierBefore && e.tierAfter && e.tierBefore !== e.tierAfter;
               return (
                 <div className="year-end-card" key={e.id}>
                   <div className="year-end-title">Year {e.year} Recap</div>
                   <div className="summary-row"><span>Record</span><b>{e.wins}-{e.losses}</b></div>
+                  {tierMoved && (
+                    <div className="summary-row"><span>Division</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
+                  )}
                   <div className="summary-row"><span>Ranking</span><b>{beforeLabel === afterLabel ? afterLabel : `${beforeLabel} → ${afterLabel}`}</b></div>
                   {e.bestWin && <div className="summary-row"><span>Best Win</span><b>vs {e.bestWin.opp} ({e.bestWin.oppRating})</b></div>}
                   {e.toughestLoss && <div className="summary-row"><span>Toughest Loss</span><b>vs {e.toughestLoss.opp} ({e.toughestLoss.oppRating})</b></div>}
@@ -1510,7 +1535,7 @@ export default function CageLab() {
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
                 { num: careerState.runningLegacy, lbl: "Legacy Score" },
-                { num: `$${careerState.purse}K`, lbl: "Career Earnings" },
+                { num: formatPurse(careerState.purse), lbl: "Career Earnings" },
                 { num: careerState.fame, lbl: "Fame" },
               ].map((s) => (
                 <div className="stat-box" key={s.lbl}>
@@ -1610,7 +1635,7 @@ export default function CageLab() {
               early (or late) doesn't get flattened into one number. */}
           {summary && (
             <div className="mono reveal-stagger reveal-delay-3" style={{ fontSize: 11, color: "var(--slate)", marginTop: 2 }}>
-              Best Year <b style={{ color: "var(--brass)" }}>{summary.peakYearLegacy}</b> &middot; {summary.yearsActive} {summary.yearsActive === 1 ? "Year" : "Years"} Active
+              Best Year: Year <b style={{ color: "var(--brass)" }}>{summary.peakYearNumber}</b> (+{summary.peakYearLegacy} Legacy) &middot; {summary.yearsActive} {summary.yearsActive === 1 ? "Year" : "Years"} Active
             </div>
           )}
 

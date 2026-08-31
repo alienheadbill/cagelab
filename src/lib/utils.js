@@ -8,6 +8,15 @@ function formatReach(inches) {
   return `${inches % 1 === 0 ? inches : inches.toFixed(1)}"`;
 }
 
+// Career purse is tracked in whole $K -- fine unformatted for a single
+// fight's payday, but a whole career's earnings routinely clears 4 digits
+// (e.g. "$2165K"), which reads as a typo rather than a number. Comma-group
+// under $1M, switch to "$X.XXM" at and above it.
+function formatPurse(purseK) {
+  if (purseK >= 1000) return `$${(purseK / 1000).toFixed(2)}M`;
+  return `$${Math.round(purseK).toLocaleString("en-US")}K`;
+}
+
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
 function slugify(str) {
@@ -24,6 +33,7 @@ function lerpColor(c1, c2, t) {
 export {
   clamp,
   formatHeight,
+  formatPurse,
   formatReach,
   lerpColor,
   slugify,
