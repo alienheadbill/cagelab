@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet,
+  FileSignature, GraduationCap, Wallet, Flame,
 } from "lucide-react";
 
 import "./styles.css";
@@ -24,14 +24,14 @@ import {
 import { sfx } from "./lib/audio.js";
 import { formatHeight, formatPurse, formatReach } from "./lib/utils.js";
 import {
-  tierOf, computeGoatScore, computeGoatScoreBreakdown, relativeHeightScore,
+  tierOf, computeGoatScore, computeGoatScoreBreakdown, computeBuildValueBreakdown, relativeHeightScore,
   relativeReachScore, relativeNoteFor, archetypeFor, synergiesFor,
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
   DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
-  resolveContractNegotiation, prepareFight, commitFight,
+  resolveContractNegotiation, resolveWeightMoveOffer, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
@@ -535,6 +535,10 @@ export default function CageLab() {
     sfx("select");
     setCareerState(resolveOffCycleEvent(careerState, choice));
   }
+  function handleWeightMoveOffer(accept) {
+    sfx("select");
+    setCareerState(resolveWeightMoveOffer(careerState, accept));
+  }
   function handleContractNegotiation(contractId) {
     sfx("select");
     setCareerState(resolveContractNegotiation(careerState, contractId));
@@ -563,6 +567,10 @@ export default function CageLab() {
   }
 
   const goatTier = goatScore !== null ? (goatScore >= 90 ? "tier-legend" : goatScore >= 75 ? "tier-gold" : goatScore >= 55 ? "tier-silver" : "tier-bronze") : null;
+  // Analytical only -- never read by anything in career.js, never changes a
+  // fight outcome. Guarded the same way goatTier is: only meaningful once
+  // all 10 attributes are actually locked in.
+  const buildValueInfo = goatScore !== null ? computeBuildValueBreakdown(picks) : null;
 
   const dailyRankInfo = (() => {
     if (mode !== "daily" || goatScore === null) return null;
@@ -797,9 +805,26 @@ export default function CageLab() {
             <div className="result-fighter-name display">{name}</div>
             <div className="result-goat-num display"><AnimatedGoatScore score={goatScore} reducedMotion={reducedMotion} /></div>
             <div className="result-goat-lbl mono">GOAT SCORE</div>
+            <div className="result-axis-question">How complete is this fighter?</div>
             <div className={`tier-badge result-tier-badge ${goatTier} reveal-stagger reveal-delay-1`}>
               <TierIcon cls={goatTier} size={13} />
               {goatTier === "tier-legend" ? "LEGENDARY BUILD" : goatTier === "tier-gold" ? "ELITE BUILD" : goatTier === "tier-silver" ? "SOLID BUILD" : "ROUGH BUILD"}
+            </div>
+
+            {/* Build Value is a deliberately smaller, secondary callout --
+                not a second hero number -- so it never reads as "a second
+                overall rating." It answers a different question than GOAT
+                Score (completeness): how dangerous this specific build's
+                offense actually is, derived from the same combat model
+                that drives real fights (see computeBuildValueBreakdown).
+                Analytical only -- never feeds back into the fight engine. */}
+            <div className="build-value-callout reveal-stagger reveal-delay-1">
+              <Flame size={16} />
+              <div className="build-value-num mono">{buildValueInfo.buildValue}</div>
+              <div className="build-value-text">
+                <div className="build-value-lbl">BUILD VALUE</div>
+                <div className="result-axis-question">How dangerous is this fighter's actual game?</div>
+              </div>
             </div>
 
             <div className="result-identity reveal-stagger reveal-delay-2">
@@ -1071,6 +1096,25 @@ export default function CageLab() {
               <div className="choice-row">
                 <button className="choice-btn" onClick={() => handleOffCycleEvent("mediaDay")}>Media Day<span>Big fame gain, small permanent cost to your weakest attribute</span></button>
                 <button className="choice-btn" onClick={() => handleOffCycleEvent("charityWork")}>Charity Work<span>Smaller fame gain, no cost at all</span></button>
+              </div>
+            </div>
+          )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "weightMoveOffer" && (
+            <div className="decision-panel">
+              <div className="decision-title">
+                {careerState.pendingDecision.direction === "up" ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
+                {" "}Weight Class Change
+              </div>
+              <div className="decision-sub">
+                Your team thinks a move {careerState.pendingDecision.direction} to {careerState.pendingDecision.targetDivision} could pay off. It's your call.
+              </div>
+              <div className="choice-row">
+                <button className="choice-btn danger" onClick={() => handleWeightMoveOffer(true)}>
+                  Make the Move<span>New division, fresh Top 15, back to Unranked -- rank and rankPoints don't carry over</span>
+                </button>
+                <button className="choice-btn" onClick={() => handleWeightMoveOffer(false)}>
+                  Stay in {careerState.division}<span>Keep your ranking and everything you've built here</span>
+                </button>
               </div>
             </div>
           )}
@@ -1380,6 +1424,14 @@ export default function CageLab() {
                   {/* A real division change now, not flavor text -- new
                       weight class, fresh roster, back to Unranked there. */}
                   Moving {e.direction} to {e.division} — a new division means a fresh Top 15 and starting back at Unranked, plus a short physical adjustment period.
+                </div>
+              );
+            }
+            if (e.type === "weightMoveDeclined") {
+              return (
+                <div className="event-card" key={e.id}>
+                  <Megaphone size={15} />
+                  Stayed in {e.division} -- the team's suggestion to change weight classes went nowhere.
                 </div>
               );
             }

@@ -56,6 +56,64 @@ function computeGoatScore(picks) {
 }
 
 // =========================================================================
+//  BUILD VALUE: functional threat, not overall quality
+//  A separate axis from GOAT Score, answering a different question. GOAT
+//  Score asks "how complete is this fighter" (balanced attributes, few
+//  weaknesses). Build Value asks "how dangerous is this fighter's actual
+//  game" -- derived straight from the same combat model that drives real
+//  fights (phaseWeightedOutput, already used by computeWinProbability and
+//  the round-by-round sim), never a separate stat formula and never a
+//  hardcoded "X+Y = bonus" combo table.
+//
+//  The idea: measure the build's own offensive output against a flat,
+//  unspecialized "solid division regular" reference, scanned across a
+//  spread of phase splits from grappling-heavy to striking-heavy. The
+//  PEAK ratio -- how dominant this build is in whichever phase most favors
+//  it -- is the headline signal. The FLOOR ratio -- how it fares in its
+//  worst environment -- pulls a little back off that peak, so a real
+//  weakness costs something, but a genuine, earned spike still beats an
+//  unremarkable, safe floor.
+//
+//  Deliberately does NOT touch CARDIO/CHIN/SPEED/IQ -- those already
+//  matter plenty (durability, fatigue, tactical edge) in
+//  computeWinProbability and the round-by-round sim itself. Build Value
+//  isolates pure offensive danger, a real, narrower question a tough
+//  grinder can legitimately score low on without being a bad or
+//  unplayable build (validated: a 96 Cardio/97 Chin build that scores 0
+//  here still wins ~67% against a same-offense, average-durability
+//  opponent in the actual fight engine -- 0 means "not a finisher," not
+//  "bad fighter").
+//
+//  Analytical/scoring layer only -- nothing here feeds back into
+//  resolveFight, computeWinProbability, or any other part of the fight
+//  engine. It reads the combat model; it never changes what the combat
+//  model does.
+const BUILD_VALUE_REFERENCE = { STRIKING: 78, GRAPPLING: 78, WRESTLING: 78, CARDIO: 78, POWER: 78, CHIN: 78, SPEED: 78, IQ: 78 };
+const BUILD_VALUE_PHASE_SPLITS = [0.15, 0.3, 0.5, 0.7, 0.85].map((standShare) => ({ standShare, groundShare: 1 - standShare }));
+const BUILD_VALUE_DISCOUNT = 0.15;
+
+function buildValueScale(ratio) {
+  return clamp(Math.round(50 + (ratio - 1) * 200), 0, 100);
+}
+
+function computeBuildValueBreakdown(picks) {
+  const player = {};
+  SKILL_KEYS.forEach((k) => { player[k] = picks[k].scoreValue; });
+  const ratios = BUILD_VALUE_PHASE_SPLITS.map((phase) => phaseWeightedOutput(player, phase) / phaseWeightedOutput(BUILD_VALUE_REFERENCE, phase));
+  const peakRatio = Math.max(...ratios);
+  const floorRatio = Math.min(...ratios);
+  const peakScore = buildValueScale(peakRatio);
+  const floorScore = buildValueScale(floorRatio);
+  const discount = Math.round(BUILD_VALUE_DISCOUNT * (peakScore - floorScore));
+  const buildValue = clamp(peakScore - discount, 0, 100);
+  return { peakRatio, floorRatio, peakScore, floorScore, discount, buildValue };
+}
+
+function computeBuildValue(picks) {
+  return computeBuildValueBreakdown(picks).buildValue;
+}
+
+// =========================================================================
 //  SHAREABLE SCORECARD (text + downloadable PNG card)
 // =========================================================================
 // =========================================================================
@@ -182,6 +240,8 @@ function matchupProfileFor(picks) {
 export {
   archetypeFor,
   buildScorecardText,
+  computeBuildValue,
+  computeBuildValueBreakdown,
   computeGoatScore,
   computeGoatScoreBreakdown,
   estimateGoatSoFar,
