@@ -533,7 +533,13 @@ function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
     return clamp(rankPoints + delta, 0, 100);
   }
   const softenedBy = Math.max(0, oppOverall - 70) * 0.15;
-  const delta = 8 + Math.max(0, 70 - oppOverall) * 0.3 + (isTitleFight ? 4 : 0) - softenedBy;
+  // A lost title shot already costs the streak (resets to 0 on any loss)
+  // and the belt never got any closer -- piling an extra rankPoints
+  // penalty on top used to mean a near-miss and a blowout cost the same
+  // amount to rebuild from, which made repeated cracks at a tough champion
+  // punishingly slow to requalify for. Trimmed so a title-fight loss still
+  // stings, just not doubly.
+  const delta = 8 + Math.max(0, 70 - oppOverall) * 0.3 + (isTitleFight ? 2 : 0) - softenedBy;
   return clamp(rankPoints - delta, 0, 100);
 }
 
@@ -692,14 +698,35 @@ function calculateLegacy(state) {
   return { legacyScore: Math.max(0, runningLegacy + bonus), bonus, finishRate, strengthOfSchedule };
 }
 
-function verdictFor(score) {
-  if (score >= 300) return "Generational Talent";
-  if (score >= 225) return "First-Ballot Hall of Famer";
-  if (score >= 160) return "Hall of Fame";
-  if (score >= 105) return "Fringe Hall of Famer";
-  if (score >= 60) return "Legitimate Contender";
-  if (score >= 22) return "Journeyman";
-  return "Prospect Who Never Broke Through";
+// Verdict tiers above "Legitimate Contender" are meant to read as real
+// top-level accomplishment, not just a big number racked up beating a
+// weaker bracket -- a Hall of Fame case needs a real record AT the top
+// level, not just a great one somewhere below it. Capped by the highest
+// circuit tier the career actually reached (peakCircuitTier), regardless
+// of how big the raw score got getting there.
+const VERDICT_ORDER = [
+  "Prospect Who Never Broke Through", "Journeyman", "Legitimate Contender",
+  "Fringe Hall of Famer", "Hall of Fame", "First-Ballot Hall of Famer", "Generational Talent",
+];
+const VERDICT_TIER_CAP = {
+  "CLF Regional": "Legitimate Contender",
+  "CLF National": "Fringe Hall of Famer",
+  "CLF Contender Series": "Hall of Fame",
+  "CLF PREMIER": "Generational Talent",
+};
+
+function verdictFor(score, peakCircuitTier) {
+  let verdict;
+  if (score >= 300) verdict = "Generational Talent";
+  else if (score >= 225) verdict = "First-Ballot Hall of Famer";
+  else if (score >= 160) verdict = "Hall of Fame";
+  else if (score >= 105) verdict = "Fringe Hall of Famer";
+  else if (score >= 60) verdict = "Legitimate Contender";
+  else if (score >= 22) verdict = "Journeyman";
+  else verdict = "Prospect Who Never Broke Through";
+
+  const cap = VERDICT_TIER_CAP[peakCircuitTier] || VERDICT_TIER_CAP["CLF Regional"];
+  return VERDICT_ORDER.indexOf(verdict) > VERDICT_ORDER.indexOf(cap) ? cap : verdict;
 }
 
 // ---- Interactive career state machine -----------------------------------
@@ -976,6 +1003,13 @@ function initCareer(picks, options) {
     record: { w: 0, l: 0 }, finishes: { ko: 0, sub: 0, dec: 0 },
     rankPoints: 0, peakRankPoints: 0, rankedFightCount: 0,
     circuitTier: "CLF Regional",
+    // The highest tier ever REACHED -- tracked separately from circuitTier
+    // because that can drop back to National after a Contender Series loss
+    // (standings intact, per the tier-promotion comment below), and a
+    // showcase-level run shouldn't get unwritten by finishing back where
+    // it came from. Legacy scoring and the final verdict both key off this,
+    // not the raw score alone -- see calculateLegacy/verdictFor.
+    peakCircuitTier: "CLF Regional",
     careerStyle: (options && options.careerStyle) || "Balanced",
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
@@ -1094,7 +1128,7 @@ function maybeFightChoice(state) {
   // prepareFight's "contenderSeries" branch) standing between here and
   // the Premier contract.
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 4 && state.rankPoints >= 70);
+  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 3 && state.rankPoints >= 50);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) return { ...state, pendingDecision: { type: "fightChoice" } };
@@ -1171,7 +1205,7 @@ function prepareFight(state, choiceTag) {
   // and nobody there can ever become a rival (there's no persistent
   // roster to re-meet them in).
   const isContenderSeriesFight = choiceTag === "contenderSeries";
-  const isTitleShot = !isContenderSeriesFight && ((!s.champion && s.streak >= 4 && s.rankPoints >= 70) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  const isTitleShot = !isContenderSeriesFight && ((!s.champion && s.streak >= 3 && s.rankPoints >= 50) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
@@ -1342,13 +1376,27 @@ function commitFight(state) {
   if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 5)) {
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 4)) {
     s.circuitTier = "CLF Contender Series";
+    // Contender Series is "just another fighter trying to get in" -- no
+    // title, no rank, no matter how you earned the invite. Winning the
+    // National title itself sets s.champion=true a few lines up, above;
+    // clear it back off here so it can't leak into the showcase fight, or
+    // (worse) ride all the way back into National on a loss -- the belt
+    // was left behind the moment the Contender Series invite was accepted,
+    // whether or not the showcase itself goes your way.
+    s.champion = false;
   } else if (s.circuitTier === "CLF Contender Series") {
     s.circuitTier = result.win ? "CLF PREMIER" : "CLF National";
     resetForFreshTier = result.win;
   }
   const tierChanged = s.circuitTier !== tierBefore;
+  // Peak reached is a high-water mark, never unwritten by a later bounce
+  // back down (Contender Series -> National on a loss is the one case
+  // that can happen -- see above).
+  if (CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(s.peakCircuitTier)) {
+    s.peakCircuitTier = s.circuitTier;
+  }
   if (resetForFreshTier) {
     // Fresh climb at the new level -- you're a nobody again, same as
     // stepping up a weight class in real life. A Contender Series loss
@@ -1503,6 +1551,12 @@ function commitFight(state) {
       };
     }
   }
+  // Legacy weighs the level of competition, not just wins piled up -- a
+  // Regional tear and a Premier reign shouldn't earn the same score per
+  // fight. Weighted by the tier this fight was actually fought at
+  // (tierBefore, same as the fight card's own tier badge).
+  const TIER_LEGACY_MULT = { "CLF Regional": 0.55, "CLF National": 0.8, "CLF Contender Series": 1, "CLF PREMIER": 1.25 };
+  legacyDelta = Math.round(legacyDelta * (TIER_LEGACY_MULT[tierBefore] ?? 1));
   s.runningLegacy = Math.max(0, s.runningLegacy + legacyDelta);
 
   const interview = buildInterviewLine(oppName, result, {
@@ -1610,7 +1664,7 @@ function topCareerWins(timeline) {
 function finishCareerState(state) {
   const { legacyScore, bonus, finishRate, strengthOfSchedule } = calculateLegacy(state);
   const totalFightCount = state.timeline.filter((e) => e.type === "fight").length;
-  const verdict = verdictFor(legacyScore);
+  const verdict = verdictFor(legacyScore, state.peakCircuitTier);
   // The last year in progress never goes through advanceCareer's yearEnd
   // branch (finishCareerState fires in its place), so its legacy gain has
   // to be folded into peakYearLegacy here too, the same way, or a career

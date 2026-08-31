@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, Trophy } from "lucide-react";
-import { SKILL_KEYS, WEIGHT_CLASSES, CLASS_PHYSICALS } from "../data/attrs.js";
+import { ArrowLeft, Trophy, Ruler } from "lucide-react";
+import { SKILL_KEYS, CLASS_PHYSICALS, ATTR_BY_KEY } from "../data/attrs.js";
 import { ARCHETYPES, bestFitArchetypeFlat, STYLE_DESCRIPTIONS } from "../lib/career.js";
 import { archetypeFor } from "../lib/scoring.js";
 import { generateOpponentNames } from "../data/fighters.js";
@@ -8,22 +8,27 @@ import { formatHeight, formatReach } from "../lib/utils.js";
 import { sfx } from "../lib/audio.js";
 
 // ---------- Career Setup: configure the career, not the build ----------
-// The build is already scored and finished. Everything set here shapes the
-// CAREER only -- actual height/reach are cosmetic and never touch GOAT Score,
-// which was locked in at draft time.
-function CareerSetupPanel({ savedBuilds, currentPicks, currentName, onLaunch, onBack }) {
+// Division, actual height/reach, and debut era used to all be re-picked
+// here, disconnected from the fighter that was actually just drafted --
+// three extra decisions redoing something already decided. Division and
+// physicals now come straight from the draft (the weight class it was
+// rolled in, and the real height/reach of whoever got picked for those two
+// rounds), and debut era is gone outright -- there's no era-specific rules
+// or real-fighter pool behind it, so it was a choice with nothing riding
+// on it. What's left is the one real decision: fighting style.
+function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivision, onLaunch, onBack }) {
   const [selectedId, setSelectedId] = useState(currentPicks ? "__current__" : (savedBuilds[0] && savedBuilds[0].id) || null);
 
   // Resolve whichever build is selected into a { picks, name, division } shape.
   const resolved = (() => {
     if (selectedId === "__current__" && currentPicks) {
-      return { picks: currentPicks, name: currentName, division: currentPicks.HEIGHT ? null : null };
+      return { picks: currentPicks, name: currentName, division: currentDivision || null };
     }
     const b = savedBuilds.find((x) => x.id === selectedId);
     if (!b) return null;
     const picks = {};
-    (b.picks || []).forEach((p) => { picks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue }; });
-    return { picks, name: b.fighterName, goatScore: b.goatScore };
+    (b.picks || []).forEach((p) => { picks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw }; });
+    return { picks, name: b.fighterName, goatScore: b.goatScore, division: b.division || null };
   })();
 
   const base = resolved ? (() => {
@@ -33,15 +38,16 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, onLaunch, on
   })() : null;
 
   const [name, setName] = useState(currentName || "");
-  const [division, setDivision] = useState(WEIGHT_CLASSES[3]);
-  const [debutEra, setDebutEra] = useState("2020s");
   const [style, setStyle] = useState(null);
   const naturalFit = base ? bestFitArchetypeFlat(base) : null;
 
-  // Career-only physicals, defaulted from the division's typical build.
+  // Locked in from the draft -- a build saved before this changed (or one
+  // whose HEIGHT/REACH rounds somehow didn't resolve a real fighter) falls
+  // back to its division's typical build rather than leaving a gap.
+  const division = (resolved && resolved.division) || "Lightweight";
   const classPhys = CLASS_PHYSICALS[division] || CLASS_PHYSICALS.Lightweight;
-  const [heightIn, setHeightIn] = useState(Math.round(classPhys.ht));
-  const [reachIn, setReachIn] = useState(Math.round(classPhys.rc));
+  const heightIn = (resolved && resolved.picks.HEIGHT && resolved.picks.HEIGHT.raw) || Math.round(classPhys.ht);
+  const reachIn = (resolved && resolved.picks.REACH && resolved.picks.REACH.raw) || Math.round(classPhys.rc);
 
   if (!resolved) {
     return (
@@ -82,53 +88,48 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, onLaunch, on
                maxLength={24} placeholder="NAME YOUR FIGHTER" />
       </div>
 
-      <div className="setup-block">
-        <div className="setup-label">Division</div>
-        <select className="setup-select mono" value={division} onChange={(e) => {
-          const wc = e.target.value;
-          setDivision(wc);
-          const cp = CLASS_PHYSICALS[wc];
-          setHeightIn(Math.round(cp.ht));
-          setReachIn(Math.round(cp.rc));
-        }}>
-          {WEIGHT_CLASSES.map((wc) => <option key={wc} value={wc}>{wc}</option>)}
-        </select>
-      </div>
-
-      <div className="setup-block">
-        <div className="setup-label">Height &mdash; {formatHeight(heightIn)}</div>
-        <input type="range" min="60" max="82" value={heightIn} className="setup-range"
-               onChange={(e) => setHeightIn(Number(e.target.value))} />
-        <div className="setup-label" style={{ marginTop: 8 }}>Reach &mdash; {formatReach(reachIn)}</div>
-        <input type="range" min="60" max="86" value={reachIn} className="setup-range"
-               onChange={(e) => setReachIn(Number(e.target.value))} />
-        <div className="setup-hint">
-          Career-mode only — your build's Height and Reach <b>ratings</b> still count toward its GOAT Score.
-          This just sets how big your fighter actually is.
-        </div>
-      </div>
-
-      <div className="setup-block">
-        <div className="setup-label">Debut Era</div>
-        <div className="era-row">
-          {["2000s", "2010s", "2020s"].map((e) => (
-            <button key={e} className={`choice-btn ${debutEra === e ? "active" : ""}`} onClick={() => setDebutEra(e)}>{e}</button>
-          ))}
-        </div>
+      {/* Locked in from the draft, not a choice made here -- shown so it's
+          still visible, just not editable. */}
+      <div className="setup-locked-row mono">
+        <Ruler size={13} />
+        <span>{division}</span>
+        <span className="setup-locked-sep">&middot;</span>
+        <span>{formatHeight(heightIn)}</span>
+        <span className="setup-locked-sep">&middot;</span>
+        <span>{formatReach(reachIn)} reach</span>
       </div>
 
       <div className="setup-block">
         <div className="setup-label">Fighting Style</div>
         <div className="style-option-list">
-          {[...ARCHETYPES.filter((a) => a.name !== "Balanced"), { name: "Balanced" }].map((a) => (
-            <button key={a.name} className={`style-option ${style === a.name ? "active" : ""}`} onClick={() => { sfx("select"); setStyle(a.name); }}>
-              <div className="style-option-top">
-                <span className="style-option-name">{a.name}</span>
-                {a.name === naturalFit && <span className="style-fit-tag">NATURAL FIT</span>}
-              </div>
-              <div className="style-option-desc">{STYLE_DESCRIPTIONS[a.name]}</div>
-            </button>
-          ))}
+          {[...ARCHETYPES.filter((a) => a.name !== "Balanced"), { name: "Balanced", mult: {} }].map((a) => {
+            // What this style actually does to THIS build's own numbers --
+            // the whole point of showing stats here is picking with the
+            // real effect in view, not just a one-line blurb.
+            const deltas = base ? Object.entries(a.mult || {}).map(([key, m]) => {
+              const before = Math.round(base[key]);
+              const after = Math.round(base[key] * m);
+              return { key, before, after, up: after > before };
+            }) : [];
+            return (
+              <button key={a.name} className={`style-option ${style === a.name ? "active" : ""}`} onClick={() => { sfx("select"); setStyle(a.name); }}>
+                <div className="style-option-top">
+                  <span className="style-option-name">{a.name}</span>
+                  {a.name === naturalFit && <span className="style-fit-tag">NATURAL FIT</span>}
+                </div>
+                <div className="style-option-desc">{STYLE_DESCRIPTIONS[a.name]}</div>
+                {deltas.length > 0 && (
+                  <div className="style-option-deltas mono">
+                    {deltas.map((d) => (
+                      <span key={d.key} className={d.up ? "up" : "down"}>
+                        {ATTR_BY_KEY[d.key].abbr} {d.before}&rarr;{d.after}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -141,7 +142,10 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, onLaunch, on
           // that then carries through the whole career -- generate a real
           // one from the same pool that names every NPC.
           name: (name || resolved.name || "").trim() || generateOpponentNames(1)[0],
-          division, debutEra,
+          division,
+          // No era picker anymore -- always debuts "now," since nothing in
+          // the sim actually varies by era.
+          debutEra: "2020s",
           careerStyle: style || "Balanced",
           actualHeight: heightIn, actualReach: reachIn,
         })}
