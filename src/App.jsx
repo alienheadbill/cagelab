@@ -29,7 +29,7 @@ import {
 } from "./lib/scoring.js";
 import {
   DIVISION_SIZE, CLF_TIERS, rankLabel, clfTier, applyAging, resolveFight, initCareer,
-  resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, runFight,
+  resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, rankToTierCls, ARCHETYPE_TAGLINES, calculateLegacy, verdictFor,
 } from "./lib/career.js";
@@ -436,7 +436,16 @@ export default function CageLab() {
     setCareerTab("career");
   }
   function handleFightChoice(tag) {
-    const next = runFight(careerState, tag);
+    // Picking a booking type no longer resolves the fight on the spot --
+    // it sets up the opponent/odds and hands off to the pre-fight screen
+    // (pendingDecision "preFight"), same as a default booking does. Nothing
+    // has actually happened yet, so no transition sfx or history save here;
+    // that's handleCommitFight's job once the player confirms.
+    sfx("select");
+    setCareerState(prepareFight(careerState, tag));
+  }
+  function handleCommitFight() {
+    const next = commitFight(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
     if (next.finished && !careerState.finished) saveCareerToHistory(next);
@@ -841,7 +850,7 @@ export default function CageLab() {
 
       {phase === "sim" && careerState && (
         <>
-        <div className={`panel sim-panel ${careerTab === "career" && !careerState.pendingDecision ? "has-advance-bar" : ""}`}>
+        <div className={`panel sim-panel ${careerTab === "career" && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
@@ -911,9 +920,63 @@ export default function CageLab() {
               </div>
             </div>
           )}
-          {!careerState.pendingDecision && (
+          {/* Pre-fight buildup: the booking is set (opponent, odds, stakes)
+              but the fight itself hasn't happened yet -- prepareFight() set
+              all of this up without rolling anything. Committing (below, in
+              the sticky bar) is what actually resolves it. */}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" && careerState.pendingFight && (
+            <div className="decision-panel prefight-panel">
+              {(careerState.pendingFight.isTitleShot || careerState.pendingFight.isTitleDefense) && (
+                <div className="event-title-strap" style={{ marginBottom: 10 }}>
+                  <Crown size={14} />
+                  {careerState.pendingFight.choiceTag === "shortNoticeTitle" ? "SHORT-NOTICE TITLE FIGHT" : careerState.pendingFight.isTitleShot ? "FOR THE TITLE" : "TITLE DEFENSE"}
+                </div>
+              )}
+              <div className="decision-title"><Calendar size={15} /> Fight Night</div>
+              <div className="decision-sub">{careerState.pendingFight.fightWeekLine}</div>
+
+              <div className="prefight-matchup">
+                <div className="prefight-corner">
+                  <div className="corner-label mono">YOU</div>
+                  <div className="corner-name">{name}</div>
+                  <div className="corner-sub mono">{careerState.record.w}-{careerState.record.l} &middot; {careerState.pendingFight.playerOverallNow} OVR</div>
+                </div>
+                <div className="prefight-vs mono">VS</div>
+                <div className="prefight-corner opp">
+                  <div className="corner-label mono">
+                    {careerState.pendingFight.oppRank === 0 ? "CHAMPION" : careerState.pendingFight.oppRank ? `#${careerState.pendingFight.oppRank}` : "UNRANKED"}
+                  </div>
+                  <div className="corner-name">{careerState.pendingFight.oppName}</div>
+                  <div className="corner-sub mono">
+                    {careerState.pendingFight.oppRecord.w}-{careerState.pendingFight.oppRecord.l} &middot; {careerState.pendingFight.opp.overall} OVR
+                  </div>
+                </div>
+              </div>
+
+              <div className="prefight-odds-row">
+                <div className={`odds-chip ${careerState.pendingFight.winProb >= 0.5 ? "favorite" : ""}`}>{careerState.pendingFight.youOdds}</div>
+                <div className="odds-label mono">BETTING ODDS</div>
+                <div className={`odds-chip ${careerState.pendingFight.winProb < 0.5 ? "favorite" : ""}`}>{careerState.pendingFight.oppOdds}</div>
+              </div>
+
+              <div className="interview-line">
+                <Megaphone size={13} />
+                <span>{careerState.pendingFight.trashTalk}</span>
+              </div>
+            </div>
+          )}
+          {(!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") && (
             <div className="btn-row sim-advance-bar">
-              {!careerState.finished ? (
+              {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" ? (
+                <>
+                  <button className="btn btn-primary" onClick={handleCommitFight}>
+                    <Swords size={16} /> Fight Night
+                  </button>
+                  <button className="btn btn-ghost" onClick={handleFastForward} style={{ flex: "0 0 auto", width: "auto", padding: "13px 16px" }}>
+                    <FastForward size={16} />
+                  </button>
+                </>
+              ) : !careerState.finished ? (
                 <>
                   <button className="btn btn-primary" onClick={handleAdvance}>
                     Next <ChevronRight size={16} />
