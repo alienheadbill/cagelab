@@ -53,6 +53,27 @@ import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
 
+// Career History used to render strictly oldest-first, so on anything but a
+// brand-new career the most recent fight or event -- the thing you'd
+// actually want to look at -- sank further and further below a permanent
+// wall of Year 1 content. Groups by the "year" divider entries and
+// reverses the GROUPS (most recent year first), while keeping each year's
+// own events in the order they actually happened -- camp -> fights ->
+// recap still reads as a story, it just doesn't make you scroll to the
+// bottom of an 11-year career to find it.
+function groupTimelineNewestYearFirst(timeline) {
+  const groups = [];
+  let current = null;
+  for (const e of timeline) {
+    if (e.type === "year" || !current) {
+      current = [];
+      groups.push(current);
+    }
+    current.push(e);
+  }
+  return groups.reverse().flat();
+}
+
 // Framing for the 3 real candidates the matchmaking panel offers -- same
 // risk/reward promise the old abstract Easy/Ranked/Step-Up buttons made,
 // just attached to an actual named fighter now instead of a hidden draw.
@@ -1225,7 +1246,7 @@ export default function CageLab() {
           )}
 
           <div className="section-divider" style={{ marginTop: 6 }}>Career History</div>
-          {careerState.timeline.filter((e) => e.id !== spotlightFightId).map((e) => {
+          {groupTimelineNewestYearFirst(careerState.timeline.filter((e) => e.id !== spotlightFightId)).map((e) => {
             if (e.type === "year") return <div className="year-divider" key={e.id}>Year {e.year}</div>;
             if (e.type === "campPlan") {
               const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
@@ -1614,7 +1635,7 @@ export default function CageLab() {
               early (or late) doesn't get flattened into one number. */}
           {summary && (
             <div className="mono reveal-stagger reveal-delay-3" style={{ fontSize: 11, color: "var(--slate)", marginTop: 2 }}>
-              Best Year <b style={{ color: "var(--brass)" }}>{summary.peakYearLegacy}</b> &middot; {summary.yearsActive} {summary.yearsActive === 1 ? "Year" : "Years"} Active
+              Best Year: Year <b style={{ color: "var(--brass)" }}>{summary.peakYearNumber}</b> (+{summary.peakYearLegacy} Legacy) &middot; {summary.yearsActive} {summary.yearsActive === 1 ? "Year" : "Years"} Active
             </div>
           )}
 

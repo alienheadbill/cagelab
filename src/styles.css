@@ -82,7 +82,7 @@
 
         .daily-hero { width: 100%; text-align: left; border: 2px solid var(--brass); border-radius: 12px; cursor: pointer; touch-action: manipulation;
           padding: 16px; margin-bottom: 12px; background: linear-gradient(160deg, rgba(224,172,58,0.14), var(--card-bg) 70%);
-          box-shadow: 0 4px 18px rgba(224,172,58,0.12); }
+          box-shadow: 0 4px 18px rgba(224,172,58,0.12); color: var(--ink); }
         .daily-hero:active { transform: scale(0.985); }
         .daily-hero-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .daily-hero-eyebrow { font-size: 10.5px; letter-spacing: 0.1em; color: var(--brass); display: flex; align-items: center; gap: 5px; font-weight: 700; }
@@ -98,10 +98,10 @@
         .section-divider { font-size: 10px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; margin: 4px 0 8px; }
         .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
         .mode-card { width: 100%; text-align: left; border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; background: var(--card-bg);
-          padding: 14px; margin-bottom: 10px; cursor: pointer; touch-action: manipulation; }
+          padding: 14px; margin-bottom: 10px; cursor: pointer; touch-action: manipulation; color: var(--ink); }
         .mode-card:active { transform: scale(0.98); }
         .mode-card.compact { margin-bottom: 0; padding: 12px; }
-        .mode-card-title { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; margin-top: 6px; }
+        .mode-card-title { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; margin-top: 6px; color: var(--ink); }
         .mode-card-sub { font-size: 11.5px; color: var(--slate); margin-top: 2px; }
         .pref-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.06em; }
         .home-footer-row { display: flex; gap: 10px; margin-top: 6px; }
@@ -492,7 +492,7 @@
         /* ---- Contract negotiation panel ---- */
         .contract-option-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
         .contract-option { text-align: left; border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px;
-          padding: 10px 12px; cursor: pointer; touch-action: manipulation; }
+          padding: 10px 12px; cursor: pointer; touch-action: manipulation; color: var(--ink); }
         .contract-option:active { transform: scale(0.98); }
         .contract-option-name { font-family: 'Anton', sans-serif; font-size: 14px; }
         .contract-option-desc { font-size: 11px; color: var(--slate); line-height: 1.4; margin-top: 2px; }

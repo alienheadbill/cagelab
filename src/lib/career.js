@@ -1014,9 +1014,27 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
 function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds) {
   const tags = ["easy", "ranked", "stepUp"];
   const avoid = [...(recentOpponentIds || [])];
+  const pickedRecords = [];
   return tags.map((tag) => {
-    const picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+    // Distinct people is already guaranteed by the avoid-list, but their
+    // W-L record is a separate independent roll (see generateOpponentRecord)
+    // that doesn't scale with tier the way overall does -- two of the three
+    // panels landing on the exact same record isn't rare, and when it
+    // happens the "risk" framing has nothing backing it up: the Step-Up
+    // pick reads no tougher than Easy on paper, so there's no real reason
+    // not to always take the bigger reward. A few bounded re-draws against
+    // an already-picked record (same avoid-list mechanism as distinctness)
+    // usually finds someone whose record actually looks different; if the
+    // division's too thin to avoid it, showing the repeat beats looping.
+    let picked;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+      const dupRecord = pickedRecords.some((r) => r.w === picked.fighter.record.w && r.l === picked.fighter.record.l);
+      if (!dupRecord) break;
+      avoid.push(picked.fighter.id);
+    }
     avoid.push(picked.fighter.id);
+    pickedRecords.push(picked.fighter.record);
     return {
       tag, fighterId: picked.fighter.id, rank: picked.rank,
       name: picked.fighter.name, archetype: picked.fighter.archetype,
@@ -1175,7 +1193,7 @@ function initCareer(picks, options) {
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
       && options.careerStyle === bestFitArchetypeFlat(base)),
-    yearStartRank: 0, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0,
+    yearStartRank: 0, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
@@ -1624,6 +1642,11 @@ function commitFight(state) {
   // doesn't send you back to Regional, same as the real thing.
   const justWonTierTitle = isTitleShot && result.win;
   let resetForFreshTier = false;
+  // True only for the National -> Contender Series branch below: champion
+  // gets cleared without a fresh-tier reset (the National roster/standing
+  // is kept, not rebuilt), so the belt-taking block further down needs its
+  // own guard against re-crowning the player right after this clears them.
+  let leftBeltBehindForContenderSeries = false;
   if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
@@ -1637,6 +1660,22 @@ function commitFight(state) {
     // was left behind the moment the Contender Series invite was accepted,
     // whether or not the showcase itself goes your way.
     s.champion = false;
+    leftBeltBehindForContenderSeries = true;
+    // playerRank comes down with it -- best-in-division but not literally
+    // holding a belt you walked away from, same standing as any other
+    // former champion (see demoteInDivision's "modest drop" elsewhere).
+    // Set directly here rather than left to the belt-taking block below:
+    // that block is guarded off for this case (see
+    // leftBeltBehindForContenderSeries below) specifically because it
+    // would otherwise set playerRank back to 0 right after champion was
+    // just cleared to false two lines up -- Rankings tab reading "you're
+    // the champion" while the summary line says Unranked, which is
+    // exactly the desync that got reported. Covers both ways in here: a
+    // fresh title win this same fight (justWonTierTitle -- playerRank
+    // hasn't been touched yet, still whatever it was beforehand), or
+    // already being champion on a defense win that also happened to hit
+    // the streak>=3 gate (championBefore -- playerRank is already 0).
+    if (justWonTierTitle || championBefore) s.playerRank = 1;
   } else if (s.circuitTier === "CLF Contender Series") {
     s.circuitTier = result.win ? "CLF PREMIER" : "CLF National";
     resetForFreshTier = result.win;
@@ -1706,7 +1745,13 @@ function commitFight(state) {
     // and crowned the player over them, unearned, before they'd fought a
     // single fight there. oppEntry also belongs to the tier just left
     // behind, so none of these lookups even resolve against the new roster.
-    if (!resetForFreshTier) {
+    // Also guarded against leftBeltBehindForContenderSeries: that branch
+    // above already cleared s.champion and set the correct playerRank for
+    // a National title won on the way into Contender Series -- letting
+    // this block re-run on top of it would set playerRank back to 0 right
+    // after champion was cleared to false, the exact desync this whole
+    // guard exists to prevent.
+    if (!resetForFreshTier && !leftBeltBehindForContenderSeries) {
       if (isTitleShot && result.win) {
         // You took the belt -- clear isChampion off the old champ (found by
         // flag, not position) so they fall back into the ranked pool as a
@@ -1975,7 +2020,9 @@ function finishCareerState(state) {
   // to be folded into peakYearLegacy here too, the same way, or a career
   // that peaks in its final year would never register that peak.
   const finalYearGain = Math.max(0, state.runningLegacy - state.yearStartLegacy);
-  const peakYearLegacy = Math.max(state.peakYearLegacy || 0, finalYearGain);
+  const finalYearIsPeak = finalYearGain > (state.peakYearLegacy || 0);
+  const peakYearLegacy = finalYearIsPeak ? finalYearGain : (state.peakYearLegacy || 0);
+  const peakYearNumber = finalYearIsPeak ? state.year : (state.peakYearNumber || 1);
   const timeline = [...state.timeline,
     { type: "retirement", id: "retirement", line: retirementLine(state.record, verdict) },
     {
@@ -1983,10 +2030,10 @@ function finishCareerState(state) {
       finishRate: Math.round(finishRate * 100), strengthOfSchedule: Math.round(strengthOfSchedule),
       peakRankPoints: state.peakRankPoints, rankedFightCount: state.rankedFightCount,
       statementWins: state.statementWins, rivalryWins: state.rivalryWins, bonus,
-      peakYearLegacy, yearsActive: state.year, topWins: topCareerWins(state.timeline),
+      peakYearLegacy, peakYearNumber, yearsActive: state.year, topWins: topCareerWins(state.timeline),
     },
   ];
-  return { ...state, timeline, finished: true, legacyScore, verdict, totalFightCount, peakYearLegacy };
+  return { ...state, timeline, finished: true, legacyScore, verdict, totalFightCount, peakYearLegacy, peakYearNumber };
 }
 
 function advanceCareer(state) {
@@ -1999,7 +2046,16 @@ function advanceCareer(state) {
   // "Best Year" (your single best stretch) can be shown side by side at
   // retirement instead of one number hiding the other.
   const yearLegacyGain = Math.max(0, state.runningLegacy - state.yearStartLegacy);
-  const s = { ...state, year: state.year + 1, peakYearLegacy: Math.max(state.peakYearLegacy || 0, yearLegacyGain) };
+  // "Best Year" is a QUANTITY (legacy points earned that year), not a year
+  // number -- shown on the verdict screen it used to read like "Year 27" in
+  // an 8-year career. Track which year actually earned it alongside the
+  // number, so the display can say "Year 4" and mean it.
+  const newPeak = yearLegacyGain > (state.peakYearLegacy || 0);
+  const s = {
+    ...state, year: state.year + 1,
+    peakYearLegacy: newPeak ? yearLegacyGain : (state.peakYearLegacy || 0),
+    peakYearNumber: newPeak ? state.year : (state.peakYearNumber || 1),
+  };
   s.timeline = [
     ...s.timeline,
     { type: "yearEnd", id: `yearend-${state.year}`, year: state.year, legacyGain: yearLegacyGain, ...yearSummary },
