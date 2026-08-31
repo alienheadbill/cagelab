@@ -927,8 +927,8 @@ export default function CageLab() {
               <div className="decision-title"><Target size={15} /> Training Camp</div>
               <div className="decision-sub">Your coaches see a real weakness in {ATTR_BY_KEY[careerState.pendingDecision.attr].label}.</div>
               <div className="choice-row">
-                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, this camp's focus</span></button>
-                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>No change, no risk</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, costs a sliver of your sharpest attributes</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>Sharpens your best weapon for the next fight only</span></button>
               </div>
             </div>
           )}
@@ -1104,7 +1104,14 @@ export default function CageLab() {
             if (e.type === "campPlan") {
               const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
               const showLeap = e.year >= 3 && e.year <= 5;
-              const madeTheLeap = e.rankSnapshot >= 60;
+              // rankPoints alone resets to 0 on every tier promotion, so a
+              // player who just broke into National or Premier -- the real
+              // leap -- would otherwise read as "still waiting" the moment
+              // their fresh climb starts back at zero. Already being out of
+              // Regional (or holding a title) counts as the leap on its own;
+              // short of that, fall back to real momentum inside the current
+              // tier's own ladder.
+              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || e.rankSnapshot >= 60;
               return (
                 <div className="event-card" style={{ alignItems: "flex-start" }} key={e.id}>
                   <Sparkles size={15} style={{ marginTop: 2 }} />
@@ -1154,7 +1161,10 @@ export default function CageLab() {
             if (e.type === "interim") {
               return (
                 <div className="event-card bad" key={e.id}>
-                  <Crown size={15} /> Title vacated while sidelined — the promotion books an interim title fight.
+                  <Crown size={15} />
+                  {e.interimName
+                    ? `Title vacated while sidelined — ${e.interimName} wins the interim belt. Beat them to reclaim it for real.`
+                    : "Title vacated while sidelined — the promotion books an interim title fight."}
                 </div>
               );
             }
@@ -1199,8 +1209,8 @@ export default function CageLab() {
                 <div className={`event-card ${e.addressed ? "good" : ""}`} key={e.id}>
                   <Target size={15} />
                   {e.addressed
-                    ? `Camp addresses the ${ATTR_BY_KEY[e.attr].label} weakness — a small, permanent gain.`
-                    : `Coaches flagged a ${ATTR_BY_KEY[e.attr].label} weakness, but camp stayed the course.`}
+                    ? `Camp addresses the ${ATTR_BY_KEY[e.attr].label} weakness — a small permanent gain, at the cost of a sliver of your two sharpest attributes.`
+                    : `Coaches flagged a ${ATTR_BY_KEY[e.attr].label} weakness, but camp stayed the course — rhythm intact, best weapon sharpened for the next walkout.`}
                 </div>
               );
             }
@@ -1214,9 +1224,11 @@ export default function CageLab() {
             }
             if (e.type === "weightMove") {
               return (
-                <div className="event-card" key={e.id}>
+                <div className="event-card bad" key={e.id}>
                   {e.direction === "up" ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
-                  Moving {e.direction} a weight class — a short adjustment period follows.
+                  {/* A real division change now, not flavor text -- new
+                      weight class, fresh roster, back to Unranked there. */}
+                  Moving {e.direction} to {e.division} — a new division means a fresh Top 15 and starting back at Unranked, plus a short physical adjustment period.
                 </div>
               );
             }

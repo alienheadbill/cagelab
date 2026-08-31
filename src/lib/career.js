@@ -1,4 +1,4 @@
-import { ATTRS, SKILL_KEYS, ATTR_BY_KEY } from "../data/attrs.js";
+import { ATTRS, SKILL_KEYS, ATTR_BY_KEY, WEIGHT_CLASSES } from "../data/attrs.js";
 import { clamp, slugify } from "./utils.js";
 import { sfx } from "./audio.js";
 import { generateOpponentNames } from "../data/fighters.js";
@@ -1020,14 +1020,33 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   if (s.year > 8) fightsThisYear = Math.max(1, fightsThisYear - 1);
   if (campQuality === "full") fightsThisYear = Math.max(1, fightsThisYear - 1);
 
-  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints }];
+  // circuitTier/champion ride along too -- the "made the leap" read in the
+  // UI needs to know whether a tier was already broken into, not just the
+  // raw rankPoints number, since that resets to 0 on every promotion.
+  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints, circuitTier: state.circuitTier, champion: state.champion }];
   let champion = s.champion;
   if (injury) {
     s.wear = { chin: s.wear.chin + (injury.major ? 3 : 1), speed: s.wear.speed + (injury.major ? 3 : 1) };
     if (injury.major) {
       fightsThisYear = 0;
       timeline.push({ type: "injury", id: `inj-${s.year}`, major: true });
-      if (champion) { champion = false; timeline.push({ type: "interim", id: `int-${s.year}` }); }
+      if (champion) {
+        champion = false;
+        // The belt doesn't just sit empty for a year -- flag the current
+        // #1 contender as the real interim champion in the roster. Once
+        // the player returns, the existing title-reclaim logic already
+        // knows how to find and dethrone whoever's flagged isChampion (see
+        // commitFight's isTitleShot-win branch, which now also demotes
+        // them via demoteInDivision same as any other beaten former
+        // champion) -- so fighting back for the real belt just works, no
+        // separate interim-specific code path needed anywhere else.
+        let interimName = null;
+        if (s.divisionRoster && s.divisionRoster.length) {
+          interimName = s.divisionRoster[0].name;
+          s.divisionRoster = s.divisionRoster.map((f, i) => (i === 0 ? { ...f, isChampion: true } : f));
+        }
+        timeline.push({ type: "interim", id: `int-${s.year}`, interimName });
+      }
     } else {
       fightsThisYear = Math.max(1, fightsThisYear - 1);
       timeline.push({ type: "injury", id: `inj-${s.year}`, major: false });
@@ -1036,11 +1055,29 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   s.champion = champion;
 
-  // Optional light weight-class move: brief adjustment penalty, then normal.
+  // Weight-class move: a genuine division change, not just a flavor line
+  // and a temporary stat hit. New division name, a freshly generated
+  // roster for it (a different weight class's Top 15 has nothing to do
+  // with the one just left behind), and starting back at the bottom there
+  // -- rank, rankPoints, and a held title don't follow you across weight
+  // classes any more than they would in real life. The circuit tier
+  // itself (Regional/National/Premier) is untouched -- this is a lateral
+  // move, not a promotion or demotion. Bounded at the ends of the weight
+  // class list (no moving "up" from Heavyweight or "down" from Flyweight).
   if (s.weightPenaltyFightsLeft <= 0 && Math.random() < 0.05) {
-    const direction = Math.random() < 0.5 ? "up" : "down";
-    s.weightPenaltyFightsLeft = 2;
-    timeline.push({ type: "weightMove", id: `wm-${s.year}`, direction });
+    const classIdx = WEIGHT_CLASSES.indexOf(s.division);
+    const canGoUp = classIdx !== -1 && classIdx < WEIGHT_CLASSES.length - 1;
+    const canGoDown = classIdx !== -1 && classIdx > 0;
+    if (canGoUp || canGoDown) {
+      const direction = canGoUp && (!canGoDown || Math.random() < 0.5) ? "up" : "down";
+      s.division = WEIGHT_CLASSES[direction === "up" ? classIdx + 1 : classIdx - 1];
+      s.divisionRoster = buildDivision();
+      s.playerRank = null;
+      s.rankPoints = 0;
+      s.champion = false;
+      s.weightPenaltyFightsLeft = 2;
+      timeline.push({ type: "weightMove", id: `wm-${s.year}`, direction, division: s.division });
+    }
   }
 
   s.timeline = timeline;
@@ -1072,10 +1109,36 @@ function pickWeakestSkill(base) {
   return worst.key;
 }
 
-// A permanent, modest improvement if the player chooses to address the gap.
+// A real trade either way -- "Address It" used to be a free permanent
+// stat with no cost at all, which made "Stay the Course" pointless. Now
+// both options cost something and gain something, just on different
+// timescales: shore up the weakness permanently at the cost of a sliver
+// of your strengths, or bank a one-fight sharpness edge on your best
+// weapon by keeping camp rhythm intact instead.
 function resolveTrainingEvent(state, attr, addressed) {
   const s = { ...state };
-  if (addressed) s.base = { ...s.base, [attr]: clamp(s.base[attr] + 3, 30, 99) };
+  if (addressed) {
+    s.base = { ...s.base, [attr]: clamp(s.base[attr] + 3, 30, 99) };
+    // Extra mat time on the weak spot comes from somewhere -- the two
+    // attributes furthest ahead of it take a small permanent hit. Pulling
+    // from strengths (not other weaknesses, like camp planning's own focus
+    // trade-off does) keeps this feeling like a different mechanic, not a
+    // second copy of the same one.
+    const strongest = SKILL_KEYS.filter((k) => k !== attr)
+      .sort((a, b) => s.base[b] - s.base[a])
+      .slice(0, 2);
+    strongest.forEach((k) => { s.base = { ...s.base, [k]: clamp(s.base[k] - 1, 30, 99) }; });
+  } else {
+    // Staying the course keeps camp rhythm intact -- a one-fight sharpness
+    // bump to the fighter's current best weapon for the very next fight,
+    // instead of gambling mat time patching the weak spot. Shares the same
+    // one-fight buff slot fight-week media handling uses (see
+    // resolveMediaEvent) -- both represent "what's dialed in for the next
+    // walkout," so if both somehow fire before the next fight, the more
+    // recent one is what carries in, same as it already works today.
+    const best = SKILL_KEYS.reduce((a, b) => (s.base[b] > s.base[a] ? b : a));
+    s.mediaBuff = { attr: best, delta: 3 };
+  }
   s.timeline = [...s.timeline, { type: "trainingEvent", id: `train-${s.year}-${s.fightGlobalIndex}`, attr, addressed }];
   s.pendingDecision = null;
   return s;
