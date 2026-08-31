@@ -136,8 +136,14 @@ function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
     const roundProb = clamp(0.5 + (playerOut - oppOut) / 55 + pMod.winProbDelta - oMod.winProbDelta, 0.12, 0.88);
     const playerWonRound = Math.random() < roundProb;
 
-    const pRoundSig = Math.max(1, Math.round(phase.standShare * 5 * (player.STRIKING / 80) * (1 - playerFatigue * 0.4)));
-    const oRoundSig = Math.max(1, Math.round(phase.standShare * 5 * (opp.STRIKING / 80) * (1 - oppFatigue * 0.4)));
+    // Real UFC fighters land roughly 3.5-4.5 significant strikes per
+    // minute, so ~17-22 in a 5-minute round -- this was badly under-tuned
+    // (a flat "5" per round, meant to be this same rate spread across a
+    // whole fight's worth of rounds, got left at a whole-fight-sized
+    // number when the stats moved from a single post-hoc total into a
+    // real per-round accumulation).
+    const pRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (player.STRIKING / 80) * (1 - playerFatigue * 0.4)));
+    const oRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (opp.STRIKING / 80) * (1 - oppFatigue * 0.4)));
     playerSig += pRoundSig; oppSig += oRoundSig;
     playerTD += Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
     oppTD += Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
@@ -422,8 +428,14 @@ function formatOdds(prob) {
 // actually happens. Mostly texture, but it does surface the weight-cut
 // penalty when one is active, since that's a real, felt effect the player
 // chose to live with (a weight-class move) rather than just flavor.
-function buildFightWeekLine(state, isTitleFight, isRivalry) {
+function buildFightWeekLine(state, isTitleFight, isRivalry, isContenderSeriesFight) {
   const pick = (a, b) => (Math.random() < 0.5 ? a : b);
+  if (isContenderSeriesFight) {
+    return pick(
+      "Fight week. One performance, one contract on the line -- this is the shot.",
+      "Fight week. Everyone in the building is trying to get signed tonight. Only one performance gets remembered.",
+    );
+  }
   if (state.weightPenaltyFightsLeft > 0) {
     return "Fight week. The scale wasn't kind during the cut -- this one comes with a cost.";
   }
@@ -449,8 +461,14 @@ function buildFightWeekLine(state, isTitleFight, isRivalry) {
 // buildInterviewLine, spoken after). Same cascading-by-stakes shape, using
 // only signals already known before the fight (title stakes, rivalry, the
 // odds themselves), never anything the coin flip decides.
-function buildTrashTalk(oppName, winProb, isTitleFight, isRivalry) {
+function buildTrashTalk(oppName, winProb, isTitleFight, isRivalry, isContenderSeriesFight) {
   const pick = (a, b) => (Math.random() < 0.5 ? a : b);
+  if (isContenderSeriesFight) {
+    return pick(
+      `"${oppName}: 'I've been grinding for this my whole career. I'm not losing it here.'"`,
+      `"${oppName}: 'Somebody's getting signed tonight. It's going to be me.'"`,
+    );
+  }
   if (isRivalry) {
     return pick(
       `"${oppName}: 'We've done this before. I know exactly how it ends.'"`,
@@ -549,13 +567,6 @@ const CLF_TIERS = [
 const CLF_TIER_ORDER = CLF_TIERS.map((t) => t.name);
 
 const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0];
-
-function circuitTierFor(rankPoints, champion) {
-  if (champion || rankPoints >= 55) return "CLF PREMIER";
-  if (rankPoints >= 25) return "CLF Contender Series";
-  if (rankPoints >= 8) return "CLF National";
-  return "CLF Regional";
-}
 
 // A plausible W-L record for a generated opponent, scaled by how far into the
 // career this fight happens and how good the opponent's overall rating is.
@@ -743,6 +754,27 @@ function buildDivision() {
   return roster;
 }
 
+// ---- Contender Series ------------------------------------------------------
+// Not a ladder like the other three tiers -- no rankings, no belt of its
+// own. Just one (occasionally two, if the first showcase doesn't go your
+// way) short-notice fight against someone else also trying to break in,
+// real UFC Contender Series-style: win it and the Premier contract is
+// waiting; lose it and it's back to National to build the case again.
+function generateContenderSeriesOpponent() {
+  const profile = generateOpponentProfile(clamp(Math.round(78 + Math.random() * 10), 40, 99));
+  const name = generateOpponentNames(1)[0];
+  return {
+    id: `cs-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    name,
+    attrs: profile.attrs,
+    overall: profile.overall,
+    archetype: profile.archetype,
+    traits: profile.traits,
+    record: generateOpponentRecord(profile.overall, 14, "ranked"),
+    isChampion: false,
+  };
+}
+
 // Records a round loss for a division fighter, but never lets it push a
 // ranked-pool member (or the champion) below the win-rate floor their tier
 // was seeded with. Every fighter simulateDivisionRound touches is already
@@ -915,7 +947,7 @@ function initCareer(picks, options) {
     playerRank: null,
     record: { w: 0, l: 0 }, finishes: { ko: 0, sub: 0, dec: 0 },
     rankPoints: 0, peakRankPoints: 0, rankedFightCount: 0,
-    circuitTier: circuitTierFor(0, false),
+    circuitTier: "CLF Regional",
     careerStyle: (options && options.careerStyle) || "Balanced",
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
@@ -992,6 +1024,11 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 // Rare, non-fight decision points. Capped chances so they feel special
 // rather than constant, and title fights always skip straight to the fight.
 function maybeFightChoice(state) {
+  // Contender Series is a short, focused stretch -- no camp-planning
+  // distractions or random events, just the one showcase fight (see
+  // prepareFight's "contenderSeries" branch) standing between here and
+  // the Premier contract.
+  if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
   const wouldBeTitle = state.champion || (!state.champion && state.streak >= 4 && state.rankPoints >= 70);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
@@ -1038,38 +1075,51 @@ function prepareFight(state, choiceTag) {
   const s = { ...state };
   s.fightGlobalIndex += 1;
 
-  const isTitleShot = (!s.champion && s.streak >= 4 && s.rankPoints >= 70) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot";
-  const isTitleDefense = s.champion;
+  // Contender Series is a one-off showcase against someone else also
+  // trying to break in -- not a title fight, not a ranked-ladder booking,
+  // and nobody there can ever become a rival (there's no persistent
+  // roster to re-meet them in).
+  const isContenderSeriesFight = choiceTag === "contenderSeries";
+  const isTitleShot = !isContenderSeriesFight && ((!s.champion && s.streak >= 4 && s.rankPoints >= 70) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  const isTitleDefense = !isContenderSeriesFight && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
-  // Draw the opponent from the persistent division: a real fighter with a
-  // standing record, not a throwaway profile. An active rival can be drawn
-  // for a rematch -- but only an ACTIVE one: re-validate every rival against
-  // the player's current strength before considering a redraw, so a rival
-  // from years-outgrown tiers stops being reachable instead of getting
-  // rebooked against a PREMIER-tier fighter forever.
   const agedNow = applyAging(s.base, s.year, s.wear);
   const playerOverallNow = Math.round(SKILL_KEYS.reduce((sum, k) => sum + agedNow[k], 0) / SKILL_KEYS.length);
-  s.rivals = refreshRivalActivity(s.rivals || [], playerOverallNow, s.divisionRoster);
-  // Only actual EARNED rivals are eligible for a redraw -- s.rivals also
-  // holds one-meeting entries that haven't crossed the isRival threshold
-  // yet, and those must never get the 40%-redraw shortcut (that's exactly
-  // how a random one-off opponent turns into an immediate, unearned rematch).
-  const activeRivals = s.rivals.filter((r) => r.active && r.isRival);
-  const rivalEntry = activeRivals.length && !isTitleFight
-    ? s.divisionRoster.find((f) => f.id === activeRivals[Math.floor(Math.random() * activeRivals.length)].id)
-    : null;
-  const drawRival = rivalEntry && Math.random() < 0.4;
-  const picked = drawRival
-    ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-    : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds);
+
+  let picked, isRivalFight = false;
+  if (isContenderSeriesFight) {
+    picked = { fighter: generateContenderSeriesOpponent(), rank: null };
+  } else {
+    // Draw the opponent from the persistent division: a real fighter with a
+    // standing record, not a throwaway profile. An active rival can be drawn
+    // for a rematch -- but only an ACTIVE one: re-validate every rival against
+    // the player's current strength before considering a redraw, so a rival
+    // from years-outgrown tiers stops being reachable instead of getting
+    // rebooked against a PREMIER-tier fighter forever.
+    s.rivals = refreshRivalActivity(s.rivals || [], playerOverallNow, s.divisionRoster);
+    // Only actual EARNED rivals are eligible for a redraw -- s.rivals also
+    // holds one-meeting entries that haven't crossed the isRival threshold
+    // yet, and those must never get the 40%-redraw shortcut (that's exactly
+    // how a random one-off opponent turns into an immediate, unearned rematch).
+    const activeRivals = s.rivals.filter((r) => r.active && r.isRival);
+    const rivalEntry = activeRivals.length && !isTitleFight
+      ? s.divisionRoster.find((f) => f.id === activeRivals[Math.floor(Math.random() * activeRivals.length)].id)
+      : null;
+    const drawRival = rivalEntry && Math.random() < 0.4;
+    picked = drawRival
+      ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds);
+  }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
   const oppRank = picked.rank;
   const opp = { attrs: oppEntry.attrs, overall: oppEntry.overall, archetype: oppEntry.archetype, traits: oppEntry.traits };
   const oppRecord = oppEntry.record;
-  const existingRival = s.rivals.find((r) => r.id === oppEntry.id);
-  const isRivalFight = !!(existingRival && existingRival.isRival);
+  if (!isContenderSeriesFight) {
+    const existingRival = s.rivals.find((r) => r.id === oppEntry.id);
+    isRivalFight = !!(existingRival && existingRival.isRival);
+  }
 
   let hype = null;
   if ((isTitleFight || isRivalFight) && Math.random() < 0.4) {
@@ -1118,8 +1168,8 @@ function prepareFight(state, choiceTag) {
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
     winProb: preview.winProb, matchup: preview.matchup,
-    fightWeekLine: buildFightWeekLine(s, isTitleFight, isRivalFight),
-    trashTalk: buildTrashTalk(oppName, preview.winProb, isTitleFight, isRivalFight),
+    fightWeekLine: buildFightWeekLine(s, isTitleFight, isRivalFight, isContenderSeriesFight),
+    trashTalk: buildTrashTalk(oppName, preview.winProb, isTitleFight, isRivalFight, isContenderSeriesFight),
     youOdds: formatOdds(preview.winProb), oppOdds: formatOdds(1 - preview.winProb),
   };
   return s;
@@ -1140,6 +1190,7 @@ function commitFight(state) {
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
   } = pf;
+  const isContenderSeriesFight = choiceTag === "contenderSeries";
 
   const tierBefore = s.circuitTier;
   const totalRounds = isTitleFight ? 5 : 3;
@@ -1185,71 +1236,116 @@ function commitFight(state) {
     else s.champion = false;
   }
 
-  s.circuitTier = circuitTierFor(s.rankPoints, s.champion);
+  // --- tier promotion ---------------------------------------------------
+  // A one-way climb -- Regional -> National -> Contender Series -> Premier
+  // -- gated by real accomplishment at each level instead of a raw
+  // rankPoints threshold: winning that tier's title, or (National only,
+  // since a title shot isn't guaranteed even on a genuine tear) a serious
+  // win streak. Contender Series has no ladder of its own: win the single
+  // showcase fight and the Premier contract is waiting; lose it and it's
+  // back to National to build the case again, standings intact. No
+  // demotion once a tier is broken into -- a rough patch in Premier
+  // doesn't send you back to Regional, same as the real thing.
+  const justWonTierTitle = isTitleShot && result.win;
+  let resetForFreshTier = false;
+  if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
+    s.circuitTier = "CLF National";
+    resetForFreshTier = true;
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 5)) {
+    s.circuitTier = "CLF Contender Series";
+  } else if (s.circuitTier === "CLF Contender Series") {
+    s.circuitTier = result.win ? "CLF PREMIER" : "CLF National";
+    resetForFreshTier = result.win;
+  }
   const tierChanged = s.circuitTier !== tierBefore;
+  if (resetForFreshTier) {
+    // Fresh climb at the new level -- you're a nobody again, same as
+    // stepping up a weight class in real life. A Contender Series loss
+    // bouncing back to National is deliberately NOT here: that keeps the
+    // National standing already earned instead of erasing it.
+    s.divisionRoster = buildDivision();
+    s.playerRank = null;
+    s.champion = false;
+    s.rankPoints = 0;
+    // Win streak resets too -- otherwise a streak built beating up the tier
+    // you just left over-qualifies you for the next one on day one (e.g. a
+    // 4-fight streak that won the Regional title would, left alone, already
+    // satisfy National's streak>=5 Contender Series gate one fight later).
+    s.streak = 0;
+  }
 
-  // --- update the persistent division ---------------------------------
+  // --- update the persistent division -----------------------------------
   // Your opponent's record changes from fighting you, then the rest of the
   // division fights among itself so the standings move while you're away.
-  let nextDivision = s.divisionRoster.map((f) => (
-    f.id === oppEntry.id
-      ? { ...f, record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) } }
-      : f
-  ));
-  // Beating someone ranked above you takes their spot.
-  if (result.win && oppRank > 0 && s.playerRank != null && oppRank < s.playerRank) {
-    s.playerRank = oppRank;
-  } else if (result.win && s.playerRank == null) {
-    s.playerRank = Math.max(1, oppRank);
-  } else if (!result.win && s.playerRank != null) {
-    s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
+  // Skipped for a Contender Series fight -- that opponent isn't part of
+  // any persistent roster, and the division above (National, in this
+  // case) shouldn't move on a fight it wasn't actually part of.
+  if (!isContenderSeriesFight) {
+    let nextDivision = s.divisionRoster.map((f) => (
+      f.id === oppEntry.id
+        ? { ...f, record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) } }
+        : f
+    ));
+    // Beating someone ranked above you takes their spot.
+    if (result.win && oppRank > 0 && s.playerRank != null && oppRank < s.playerRank) {
+      s.playerRank = oppRank;
+    } else if (result.win && s.playerRank == null) {
+      s.playerRank = Math.max(1, oppRank);
+    } else if (!result.win && s.playerRank != null) {
+      s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
+    }
+    if (isTitleShot && result.win) {
+      // You took the belt -- clear isChampion off the old champ (found by
+      // flag, not position) so they fall back into the ranked pool as a
+      // normal contender with their real record intact. The player's own
+      // champion status lives on career state (s.champion), never as a
+      // divisionRoster entry, so rankings render must check that flag first.
+      nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
+      s.playerRank = 0;
+    } else if (isTitleDefense && !result.win) {
+      // You lost the belt -- the opponent who just beat you becomes champion.
+      // (s.playerRank already moved to 1 above, same as any other title loss.)
+      nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
+    }
+    s.divisionRoster = simulateDivisionRound(nextDivision);
   }
-  if (isTitleShot && result.win) {
-    // You took the belt -- clear isChampion off the old champ (found by
-    // flag, not position) so they fall back into the ranked pool as a
-    // normal contender with their real record intact. The player's own
-    // champion status lives on career state (s.champion), never as a
-    // divisionRoster entry, so rankings render must check that flag first.
-    nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
-    s.playerRank = 0;
-  } else if (isTitleDefense && !result.win) {
-    // You lost the belt -- the opponent who just beat you becomes champion.
-    // (s.playerRank already moved to 1 above, same as any other title loss.)
-    nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
-  }
-  s.divisionRoster = simulateDivisionRound(nextDivision);
 
   // A rivalry is earned: 2+ meetings, at least one of them genuinely
   // competitive. Tracked as a proper record per opponent (id-keyed, not
   // name equality) so multiple rivals can be active at once, each with
   // their own meeting count and head-to-head record.
   const fightWasClose = isCloseFight(result.method, result.winProb);
-  const rivalIdx = s.rivals.findIndex((r) => r.id === oppEntry.id);
   let rivalryJustBorn = false;
-  if (rivalIdx === -1) {
-    s.rivals = [...s.rivals, {
-      id: oppEntry.id, name: oppName, meetings: 1,
-      wins: result.win ? 1 : 0, losses: result.win ? 0 : 1,
-      active: true, everClose: fightWasClose, isRival: false,
-    }];
-  } else {
-    const r = s.rivals[rivalIdx];
-    const meetings = r.meetings + 1;
-    const everClose = r.everClose || fightWasClose;
-    const isRival = r.isRival || (meetings >= RIVAL_MIN_MEETINGS && everClose);
-    rivalryJustBorn = isRival && !r.isRival;
-    s.rivals = s.rivals.map((x, i) => (i === rivalIdx ? {
-      ...x, meetings, everClose, isRival,
-      wins: x.wins + (result.win ? 1 : 0), losses: x.losses + (result.win ? 0 : 1),
-    } : x));
+  let isRivalry = false;
+  // A Contender Series opponent is a one-off (there's no persistent roster
+  // to ever re-meet them in), so they're never worth tracking as a rival.
+  if (!isContenderSeriesFight) {
+    const rivalIdx = s.rivals.findIndex((r) => r.id === oppEntry.id);
+    if (rivalIdx === -1) {
+      s.rivals = [...s.rivals, {
+        id: oppEntry.id, name: oppName, meetings: 1,
+        wins: result.win ? 1 : 0, losses: result.win ? 0 : 1,
+        active: true, everClose: fightWasClose, isRival: false,
+      }];
+    } else {
+      const r = s.rivals[rivalIdx];
+      const meetings = r.meetings + 1;
+      const everClose = r.everClose || fightWasClose;
+      const isRival = r.isRival || (meetings >= RIVAL_MIN_MEETINGS && everClose);
+      rivalryJustBorn = isRival && !r.isRival;
+      s.rivals = s.rivals.map((x, i) => (i === rivalIdx ? {
+        ...x, meetings, everClose, isRival,
+        wins: x.wins + (result.win ? 1 : 0), losses: x.losses + (result.win ? 0 : 1),
+      } : x));
+    }
+    // Also require `active`: normal (non-redraw) matchmaking has no idea who's
+    // an old rival, so it can still coincidentally land on one. If the player
+    // has outgrown them since, the meeting still counts toward their history,
+    // but the fight itself shouldn't wear a RIVALRY tag for a matchup that's
+    // really just a dormant former rival turning up by chance.
+    const rivalRecord = s.rivals.find((r) => r.id === oppEntry.id);
+    isRivalry = !!(rivalRecord && rivalRecord.isRival && rivalRecord.active);
   }
-  // Also require `active`: normal (non-redraw) matchmaking has no idea who's
-  // an old rival, so it can still coincidentally land on one. If the player
-  // has outgrown them since, the meeting still counts toward their history,
-  // but the fight itself shouldn't wear a RIVALRY tag for a matchup that's
-  // really just a dormant former rival turning up by chance.
-  const rivalRecord = s.rivals.find((r) => r.id === oppEntry.id);
-  const isRivalry = !!(rivalRecord && rivalRecord.isRival && rivalRecord.active);
   s.recentOpponentIds = [oppEntry.id, ...(s.recentOpponentIds || [])].slice(0, 2);
   const isStatement = result.win && opp.overall >= 88;
   if (isStatement) s.statementWins += 1;
@@ -1318,7 +1414,7 @@ function commitFight(state) {
   // Event branding: numbered CLF cards, with a real card position. Title
   // fights headline; rivalries and elite opponents get the co-main slot.
   const eventNumber = 100 + s.fightGlobalIndex * 3 + (s.year % 3);
-  const cardPosition = isTitleFight
+  const cardPosition = isTitleFight || isContenderSeriesFight
     ? "MAIN EVENT"
     : (isRivalry || isStatement) ? "CO-MAIN EVENT"
     : opp.overall >= 78 ? "MAIN CARD" : "PRELIMS";
@@ -1329,10 +1425,14 @@ function commitFight(state) {
     // way oppRecord is -- mirrors the opponent corner so the fight card can
     // show name -> rank/archetype -> OVR+record consistently on both sides.
     playerOverall: playerOverallNow, playerRecord: state.record,
-    circuitTier: s.circuitTier, eventNumber, cardPosition,
+    // The tier this fight was actually contested at -- a title-fight win
+    // that triggers a promotion still happened AT the old tier; the move
+    // itself shows up as its own circuitMove timeline entry right after.
+    circuitTier: tierBefore, eventNumber, cardPosition,
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
+    contenderSeries: isContenderSeriesFight,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
     // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
@@ -1594,7 +1694,6 @@ export {
   bestFitArchetypeFlat,
   buildDivision,
   calculateLegacy,
-  circuitTierFor,
   clfTier,
   commitFight,
   computeAchievements,
