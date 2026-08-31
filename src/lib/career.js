@@ -1,6 +1,5 @@
 import { ATTRS, SKILL_KEYS, ATTR_BY_KEY } from "../data/attrs.js";
 import { clamp, slugify } from "./utils.js";
-import { shuffle } from "./rng.js";
 import { sfx } from "./audio.js";
 import { generateOpponentNames } from "../data/fighters.js";
 
@@ -86,20 +85,138 @@ function computeWinProbability(player, opp, phase, reachScore) {
   return clamp(prob, 0.08, 0.92);
 }
 
+// Multipliers tuned against real UFC finish data (~8,600 bouts): KO/TKO
+// outnumbers submission roughly 63:37 among finishes. The bare formula
+// below the multipliers -- POWER*STRIKING vs CHIN for KO, GRAPPLING*
+// WRESTLING for submission -- structurally favors submission by about 4:1
+// for evenly-matched fighters (the CHIN-resistance term alone accounts for
+// most of that gap), so the multipliers correct the *ratio*, not the
+// underlying stat logic.
 function computeFinishOdds(attacker, defender, phase) {
-  const koPotential = (attacker.POWER * attacker.STRIKING / 100) * ((100 - defender.CHIN) / 100) * phase.standShare * 1.4;
-  const subPotential = (attacker.GRAPPLING * attacker.WRESTLING / 100) * phase.groundShare * 1.4;
-  const finishTotal = koPotential + subPotential;
-  const decisionWeight = Math.max(12, 55 - finishTotal);
-  return { koPotential, subPotential, decisionWeight };
+  const koPotential = (attacker.POWER * attacker.STRIKING / 100) * ((100 - defender.CHIN) / 100) * phase.standShare * 6.0;
+  const subPotential = (attacker.GRAPPLING * attacker.WRESTLING / 100) * phase.groundShare * 0.9;
+  return { koPotential, subPotential };
 }
 
+// KO/TKO vs Submission, weighted by potential. This used to also have to
+// weigh a third "Decision" outcome (hence the name), back when a single
+// roll picked between all three -- now decision-vs-finish is decided
+// separately, by simulateRounds' round-by-round damage threshold, so this
+// is only ever called once a finish has already happened and just needs
+// to know which kind.
 function rollMethod(odds) {
-  const total = odds.koPotential + odds.subPotential + odds.decisionWeight;
-  const roll = Math.random() * total;
-  if (roll < odds.koPotential) return "KO/TKO";
-  if (roll < odds.koPotential + odds.subPotential) return "Submission";
-  return "Decision";
+  return Math.random() * (odds.koPotential + odds.subPotential) < odds.koPotential ? "KO/TKO" : "Submission";
+}
+
+// ---- Round-by-round simulation -------------------------------------------
+// Runs the fight one round at a time instead of a single coin flip, with
+// real state carried forward between rounds: CARDIO drains a fighter's
+// output round over round (a gas-tank fighter fades late), and every round
+// lost adds accumulated damage (POWER vs CHIN) that raises finish risk as
+// the fight goes on -- a fighter who's been outstruck for two rounds is
+// genuinely more finishable in the third, not just re-rolling the same odds
+// blind to what already happened. A finish can land in any round; a fight
+// that reaches the final round with nothing decided goes to scorecards
+// tallied from the rounds actually won, not synthesized separately from the
+// result the way the old single-roll model's stats were.
+function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
+  let playerFatigue = 0, oppFatigue = 0; // 0-1, grows each round from CARDIO
+  let playerDamage = 0, oppDamage = 0; // absorbed damage, grows from lost rounds
+  let playerSig = 0, oppSig = 0, playerTD = 0, oppTD = 0;
+  const rounds = [];
+  let finishRound = null, finishTime = null, finishMethod = null, finishWinner = null;
+
+  for (let r = 1; r <= totalRounds; r++) {
+    playerFatigue = clamp(playerFatigue + (100 - player.CARDIO) / 480, 0, 0.4);
+    oppFatigue = clamp(oppFatigue + (100 - opp.CARDIO) / 480, 0, 0.4);
+    // Absorbed damage saps output too, on top of the fatigue toll -- a
+    // fighter who's been hurt fights worse, not just closer to finished.
+    const playerOut = phaseWeightedOutput(player, phase) * (1 - playerFatigue) * (1 - clamp(playerDamage / 260, 0, 0.35));
+    const oppOut = phaseWeightedOutput(opp, phase) * (1 - oppFatigue) * (1 - clamp(oppDamage / 260, 0, 0.35));
+    const roundProb = clamp(0.5 + (playerOut - oppOut) / 55 + pMod.winProbDelta - oMod.winProbDelta, 0.12, 0.88);
+    const playerWonRound = Math.random() < roundProb;
+
+    const pRoundSig = Math.max(1, Math.round(phase.standShare * 5 * (player.STRIKING / 80) * (1 - playerFatigue * 0.4)));
+    const oRoundSig = Math.max(1, Math.round(phase.standShare * 5 * (opp.STRIKING / 80) * (1 - oppFatigue * 0.4)));
+    playerSig += pRoundSig; oppSig += oRoundSig;
+    playerTD += Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
+    oppTD += Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
+
+    // Whoever lost the round absorbs damage, scaled by the winner's power
+    // and resisted by the loser's chin.
+    if (playerWonRound) oppDamage += Math.max(3, (player.POWER - opp.CHIN * 0.45) / 6 + 5);
+    else playerDamage += Math.max(3, (opp.POWER - player.CHIN * 0.45) / 6 + 5);
+
+    rounds.push({ round: r, playerWon: playerWonRound, margin: Math.abs(roundProb - 0.5) });
+
+    // Finish check: only the fighter who just lost the round is at risk,
+    // and only once their accumulated damage crosses a real threshold --
+    // weighted by the winner's actual finish odds (same KO/sub potential
+    // math the pre-fight preview and old model both used) so a low-power
+    // grinder rarely finishes even a badly hurt opponent.
+    const loserDamage = playerWonRound ? oppDamage : playerDamage;
+    if (loserDamage >= 16) {
+      const attacker = playerWonRound ? player : opp;
+      const defender = playerWonRound ? opp : player;
+      const aMod = playerWonRound ? pMod : oMod;
+      const odds = computeFinishOdds(attacker, defender, phase);
+      odds.koPotential += aMod.koBoost;
+      odds.subPotential += aMod.subBoost;
+      const finishChance = clamp((loserDamage - 12) / 85 + (odds.koPotential + odds.subPotential) / 380, 0, 0.5);
+      if (Math.random() < finishChance) {
+        finishWinner = playerWonRound;
+        finishMethod = rollMethod(odds);
+        finishRound = r;
+        const secs = Math.floor(Math.random() * 299) + 1;
+        finishTime = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+        break;
+      }
+    }
+  }
+
+  let win, method;
+  if (finishRound != null) {
+    win = finishWinner;
+    method = win ? finishMethod : `${finishMethod} Loss`;
+  } else {
+    const playerRoundsWon = rounds.filter((rd) => rd.playerWon).length;
+    win = playerRoundsWon > rounds.length / 2;
+    method = win ? "Decision" : "Decision Loss";
+  }
+
+  let playerKD = 0, oppKD = 0;
+  if (method === "KO/TKO") playerKD = 1;
+  else if (method === "KO/TKO Loss") oppKD = 1;
+  else {
+    // A knockdown that didn't finish it -- still a real moment in a fight
+    // that went the distance (or ended by submission instead).
+    if (player.POWER >= 82 && Math.random() < 0.16) playerKD = 1;
+    if (opp.POWER >= 82 && Math.random() < 0.16) oppKD = 1;
+  }
+
+  // Three judges reading the same real rounds, not a second independent
+  // simulation -- each agrees with the actual round winner almost always,
+  // and only a genuinely close round (low margin) has a real chance of
+  // reading differently on one card, same as real judging splits do.
+  const scorecards = finishRound == null ? [0, 1, 2].map(() => {
+    let playerRoundsWon = 0;
+    rounds.forEach((rd) => {
+      const judgeAgrees = Math.random() < 0.82 + rd.margin * 0.7;
+      if (rd.playerWon ? judgeAgrees : !judgeAgrees) playerRoundsWon++;
+    });
+    return { player: 10 * totalRounds - (totalRounds - playerRoundsWon), opp: 10 * totalRounds - playerRoundsWon };
+  }) : null;
+
+  const pControlShare = clamp(0.5 + (player.WRESTLING - opp.WRESTLING) / 200, 0.1, 0.9);
+
+  return {
+    win, method, rounds,
+    stats: {
+      totalRounds, finishRound, finishTime, scorecards,
+      player: { sigStrikes: playerSig, takedowns: playerTD, controlPct: Math.round(phase.groundShare * 100 * pControlShare), knockdowns: playerKD },
+      opp: { sigStrikes: oppSig, takedowns: oppTD, controlPct: Math.round(phase.groundShare * 100 * (1 - pControlShare)), knockdowns: oppKD },
+    },
+  };
 }
 
 // =========================================================================
@@ -380,25 +497,16 @@ function computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, 
   return { phase, matchup, winProb, pMod, oMod };
 }
 
-function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits) {
+// totalRounds now drives an actual round-by-round simulation (see
+// simulateRounds) rather than a single coin flip -- winProb from the
+// pre-fight preview is still returned unchanged, since Wave 2's odds
+// display and everything keyed off it (rivalry "close fight" detection,
+// the underdog-win Legacy bonus) reads that pre-fight estimate, not a
+// post-hoc read of the actual rounds.
+function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits, totalRounds) {
   const { phase, matchup, winProb, pMod, oMod } = computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, oppTraits);
-  const win = Math.random() < winProb;
-
-  if (win) {
-    const odds = computeFinishOdds(player, opp, phase);
-    odds.koPotential += pMod.koBoost;
-    odds.subPotential += pMod.subBoost;
-    odds.decisionWeight += pMod.decBoost;
-    const method = rollMethod(odds);
-    return { win: true, method, phase, winProb, matchup, narrative: buildFightNarrative(phase, { win: true, method }, playerTraits || []) };
-  }
-  const odds = computeFinishOdds(opp, player, phase);
-  odds.koPotential += oMod.koBoost;
-  odds.subPotential += oMod.subBoost;
-  odds.decisionWeight += oMod.decBoost;
-  const rawMethod = rollMethod(odds);
-  const method = rawMethod === "Decision" ? "Decision Loss" : `${rawMethod} Loss`;
-  return { win: false, method, phase, winProb, matchup, narrative: buildFightNarrative(phase, { win: false, method }, playerTraits || []) };
+  const { win, method, rounds, stats } = simulateRounds(player, opp, phase, pMod, oMod, totalRounds);
+  return { win, method, phase, winProb, matchup, rounds, stats, narrative: buildFightNarrative(phase, { win, method }, playerTraits || []) };
 }
 
 function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
@@ -917,56 +1025,6 @@ function resolveMediaEvent(state, fireBack) {
   return s;
 }
 
-// ---- Simulated fight statistics (broadcast-style breakdown) ---------------
-// Everything here is derived from the same player/opponent attributes and
-// phase-control split the real engine already computed for this fight --
-// nothing is independently random-flavored. Generated once when the fight
-// resolves (inside runFight) and stored on the timeline entry, so it's
-// stable across re-renders rather than recomputed on every paint.
-function generateFightStats(player, opp, phase, result, totalRounds) {
-  const sigStrikesFor = (a) => Math.max(1, Math.round(phase.standShare * 14 * (a.STRIKING / 80) * (0.7 + a.CARDIO / 300) * totalRounds));
-  const takedownsFor = (a) => Math.max(0, Math.round(phase.groundShare * 2.4 * (a.WRESTLING / 80) * totalRounds));
-
-  const pControlShare = clamp(0.5 + (player.WRESTLING - opp.WRESTLING) / 200, 0.1, 0.9);
-
-  let pKD = 0, oKD = 0;
-  if (result.method === "KO/TKO") pKD = 1;
-  else if (result.method === "KO/TKO Loss") oKD = 1;
-  else {
-    if (player.POWER >= 82 && Math.random() < 0.16) pKD = 1;
-    if (opp.POWER >= 82 && Math.random() < 0.16) oKD = 1;
-  }
-
-  const isFinish = result.method.startsWith("KO/TKO") || result.method.startsWith("Submission");
-  const dominance = clamp(Math.abs(result.winProb - 0.5) * 2, 0, 1); // 0 = coin flip, 1 = dominant
-  let finishRound = null, finishTime = null, scorecards = null;
-
-  if (isFinish) {
-    // Higher dominance skews the roll toward earlier rounds.
-    const roll = Math.pow(Math.random(), 1 + dominance * 2);
-    finishRound = clamp(Math.ceil(roll * totalRounds), 1, totalRounds);
-    // A clock time within that round, so results read like a real result line.
-    const secs = Math.floor(Math.random() * 299) + 1;
-    finishTime = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-  } else {
-    scorecards = [0, 1, 2].map(() => {
-      let playerRoundsWon = 0;
-      for (let r = 0; r < totalRounds; r++) {
-        const roundWinProb = result.win ? 0.55 + dominance * 0.35 : 0.45 - dominance * 0.35;
-        if (Math.random() < roundWinProb) playerRoundsWon++;
-      }
-      // Simplified scoring: every round is a 10-9, no 10-8s/10-10s.
-      return { player: 10 * totalRounds - (totalRounds - playerRoundsWon), opp: 10 * totalRounds - playerRoundsWon };
-    });
-  }
-
-  return {
-    totalRounds, finishRound, finishTime, scorecards,
-    player: { sigStrikes: sigStrikesFor(player), takedowns: takedownsFor(player), controlPct: Math.round(phase.groundShare * 100 * pControlShare), knockdowns: pKD },
-    opp: { sigStrikes: sigStrikesFor(opp), takedowns: takedownsFor(opp), controlPct: Math.round(phase.groundShare * 100 * (1 - pControlShare)), knockdowns: oKD },
-  };
-}
-
 // Sets up everything a fight needs -- opponent selection, hype rolls, the
 // camp/style/media modifiers baked into "effective" stats, and a real odds
 // preview -- but does NOT roll the outcome. That happens in commitFight,
@@ -1084,12 +1142,14 @@ function commitFight(state) {
   } = pf;
 
   const tierBefore = s.circuitTier;
-  const result = resolveFight(effective, s.reachScore, opp.attrs, stanceBias, playerTraits, opp.traits);
   const totalRounds = isTitleFight ? 5 : 3;
-  // Computed here (rather than inline in the timeline push below) so the
-  // performance-bonus check below can read finishRound/scorecards before
-  // legacyDelta is finalized.
-  const stats = generateFightStats(effective, opp.attrs, result.phase, result, totalRounds);
+  const result = resolveFight(effective, s.reachScore, opp.attrs, stanceBias, playerTraits, opp.traits, totalRounds);
+  // stats/rounds come straight from the round-by-round simulation itself
+  // now (see simulateRounds) rather than a separate post-hoc fabrication --
+  // read here (rather than only inline in the timeline push below) so the
+  // performance-bonus check below can see finishRound before legacyDelta
+  // is finalized.
+  const { stats, rounds } = result;
 
   if (result.win) {
     s.record = { ...s.record, w: s.record.w + 1 };
@@ -1195,19 +1255,18 @@ function commitFight(state) {
   if (isStatement) s.statementWins += 1;
   if (isRivalry && result.win) s.rivalryWins += 1;
 
-  // Performance bonuses, UFC-style: a genuinely emphatic round-1 finish
-  // earns "Performance of the Night" (win-only -- you have to finish it);
-  // a real nail-biter that goes the distance earns "Fight of the Night"
-  // regardless of who won, since that one is about the fight, not the
-  // result. This sim's finish rate runs high (most finishes land inside
-  // the first two rounds), so gating on finish round alone would hand a
-  // bonus to roughly half of all fights -- a badge that common stops
-  // meaning anything. Requiring round 1 AND a decisive winProb gap (not
-  // just "isCloseFight"'s wider rivalry-detection band) keeps both bonuses
-  // reserved for the fights that actually stood out.
+  // Performance bonuses, UFC-style: a genuinely emphatic early finish earns
+  // "Performance of the Night" (win-only -- you have to finish it); a real
+  // nail-biter that goes the distance earns "Fight of the Night" regardless
+  // of who won, since that one is about the fight, not the result. Round 1
+  // alone would be too narrow a bar now that round-by-round momentum means
+  // most finishes land once real damage has built up (round 2+, not round
+  // 1) -- round 1 or 2 with a decisive winProb gap keeps "emphatic" honest
+  // (a quick finish, not a grind) without making the badge nearly
+  // impossible to ever see in a career.
   const dominance = Math.abs(result.winProb - 0.5) * 2; // 0 = coin flip, 1 = lopsided
-  const isEmphaticFinish = stats.finishRound === 1 && dominance >= 0.55;
-  const isNailBiter = stats.finishRound == null && Math.abs(result.winProb - 0.5) <= 0.12;
+  const isEmphaticFinish = stats.finishRound != null && stats.finishRound <= 2 && dominance >= 0.55;
+  const isNailBiter = stats.finishRound == null && Math.abs(result.winProb - 0.5) <= 0.08;
   const bonusType = (result.win && isEmphaticFinish) ? "performance" : (isNailBiter ? "fotn" : null);
   // Betting odds are shown before the fight now (see prepareFight) --
   // winning as a real underdog against the odds the player actually saw
@@ -1239,7 +1298,7 @@ function commitFight(state) {
     if (!s.definingLoss || severity > s.definingLoss.severity) {
       s.definingLoss = {
         severity, oppName, oppRating: opp.overall, wasTitle: isTitleDefense,
-        fightSnapshot: { effective, reachScore: s.reachScore, oppAttrs: opp.attrs, stanceBias, playerTraits, oppTraits: opp.traits },
+        fightSnapshot: { effective, reachScore: s.reachScore, oppAttrs: opp.attrs, stanceBias, playerTraits, oppTraits: opp.traits, totalRounds },
       };
     }
   }
@@ -1279,7 +1338,7 @@ function commitFight(state) {
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
     rankBefore: rankPointsBefore, championBefore, rankAfter: s.rankPoints, championAfter: s.champion,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
-    stats,
+    stats, rounds,
   });
   s.timeline = timeline;
 
