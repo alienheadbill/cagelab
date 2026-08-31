@@ -499,8 +499,13 @@
         .setup-hint { font-size: 10.5px; color: var(--slate); margin-top: 6px; line-height: 1.45; }
         .setup-hint b { color: var(--ink); }
         .setup-range { width: 100%; accent-color: var(--brass); margin: 2px 0; }
-        .era-row { display: flex; gap: 8px; }
         .style-option.active { border-color: var(--brass); background: rgba(224,172,58,0.1); }
+        /* Division/height/reach are locked in from the draft, not chosen
+           here -- a plain readout, not a form control. */
+        .setup-locked-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--slate);
+          margin: -6px 0 16px; padding: 8px 10px; border-radius: 6px; background: rgba(154,143,125,0.06); }
+        .setup-locked-row svg { flex-shrink: 0; color: var(--slate); }
+        .setup-locked-sep { opacity: 0.5; }
 
         .division-roll-panel { text-align: center; padding: 34px 20px; }
         .division-roll-name { font-size: 30px; line-height: 1.1; margin: 10px 0 6px; letter-spacing: 0.02em; }
@@ -518,6 +523,9 @@
         .style-option-name { font-family: 'Anton', sans-serif; font-size: 14.5px; }
         .style-fit-tag { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; font-weight: 700; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 6px; }
         .style-option-desc { font-size: 11px; color: var(--slate); line-height: 1.4; }
+        .style-option-deltas { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; font-size: 10px; font-weight: 700; }
+        .style-option-deltas .up { color: var(--brass); }
+        .style-option-deltas .down { color: var(--blood); }
 
         /* ---- CLF event card: every fight is a card on a numbered event ---- */
         .event-card-wrap { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; margin-bottom: 12px; overflow: hidden;

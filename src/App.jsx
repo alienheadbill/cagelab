@@ -352,7 +352,12 @@ export default function CageLab() {
       fighterName: name,
       mode,
       goatScore,
-      picks: ATTRS.map((a) => ({ key: a.key, label: a.label, fighter: picks[a.key].fighter, display: picks[a.key].display, scoreValue: picks[a.key].scoreValue })),
+      // The division this build was actually drafted in, and the real
+      // height/reach (in inches) of whichever real fighters got drafted for
+      // those two rounds -- both now carry straight into Career Setup
+      // instead of being re-picked there (see CareerSetupPanel).
+      division: lockedDivision,
+      picks: ATTRS.map((a) => ({ key: a.key, label: a.label, fighter: picks[a.key].fighter, display: picks[a.key].display, scoreValue: picks[a.key].scoreValue, raw: picks[a.key].raw })),
     };
     saveJSON(LS_SAVED_BUILDS, [entry, ...builds].slice(0, 20));
     setBuildSaved(true);
@@ -365,7 +370,7 @@ export default function CageLab() {
     sfx("select");
     const restoredPicks = {};
     (build.picks || []).forEach((p) => {
-      restoredPicks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue };
+      restoredPicks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw };
     });
     setPicks(restoredPicks);
     setFighterName(build.fighterName || "");
@@ -631,6 +636,7 @@ export default function CageLab() {
           savedBuilds={loadJSON(LS_SAVED_BUILDS, [])}
           currentPicks={Object.keys(picks).length === ATTRS.length ? picks : null}
           currentName={name}
+          currentDivision={lockedDivision}
           onLaunch={launchCareer}
           onBack={() => setPhase(goatScore !== null ? "draftDone" : "home")}
         />
