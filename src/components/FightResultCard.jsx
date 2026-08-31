@@ -43,6 +43,13 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
+      {e.contenderSeries && (
+        <div className="event-title-strap contender-strap">
+          <Zap size={14} />
+          {e.win ? "CONTENDER SERIES -- SIGNED TO PREMIER" : "CONTENDER SERIES -- SHOWCASE"}
+        </div>
+      )}
+
       {/* The tale of the tape -- you vs them, with the result between.
           Both corners mirror the same shape: name is the anchor, a short
           label above it (rank/status), then record + OVR (+ archetype for
