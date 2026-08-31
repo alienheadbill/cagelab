@@ -1175,7 +1175,7 @@ function initCareer(picks, options) {
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
       && options.careerStyle === bestFitArchetypeFlat(base)),
-    yearStartRank: 0, yearStartChampion: false, yearStartLegacy: 0, peakYearLegacy: 0,
+    yearStartRank: 0, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
@@ -1214,6 +1214,7 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   // recap can show what changed over the course of the year.
   s.yearStartRank = state.rankPoints;
   s.yearStartChampion = state.champion;
+  s.yearStartTier = state.circuitTier;
   s.yearStartLegacy = state.runningLegacy;
 
   const effective = applyAging(s.base, s.year, s.wear);
@@ -1602,6 +1603,14 @@ function commitFight(state) {
     if (result.win) s.titleDefenses += 1;
     else s.champion = false;
   }
+  // Snapshotted here, before a tier promotion (if this fight just triggered
+  // one) resets rankPoints/champion for the next tier's fresh climb -- the
+  // fight card should always show what actually happened in THIS fight
+  // (e.g. winning the Regional title -> "Champion"), not the next tier's
+  // clean slate. That reset is its own story, told by the circuitMove card
+  // right after this one.
+  const rankPointsAfterFight = s.rankPoints;
+  const championAfterFight = s.champion;
 
   // --- tier promotion ---------------------------------------------------
   // A one-way climb -- Regional -> National -> Contender Series -> Premier
@@ -1687,32 +1696,44 @@ function commitFight(state) {
     } else if (!result.win && s.playerRank != null) {
       s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
     }
-    if (isTitleShot && result.win) {
-      // You took the belt -- clear isChampion off the old champ (found by
-      // flag, not position) so they fall back into the ranked pool as a
-      // normal contender with their real record intact. The player's own
-      // champion status lives on career state (s.champion), never as a
-      // divisionRoster entry, so rankings render must check that flag first.
-      // They also get moved out of the reserved index-0 slot -- left there,
-      // index 0 becomes a frozen "vacant champion" seat nothing else ever
-      // draws into, and the very next title defense would end up rebooked
-      // against the exact fighter the player just dethroned. A beaten
-      // former champion is still elite, so the drop is modest.
-      const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
-      nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
-      if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
-      s.playerRank = 0;
-    } else if (isTitleDefense && !result.win) {
-      // You lost the belt -- the opponent who just beat you becomes champion.
-      // (s.playerRank already moved to 1 above, same as any other title loss.)
-      nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
-    } else if (isTitleDefense && result.win) {
-      // You defended -- the challenger who just lost needs to rebuild
-      // before getting another crack at the title, same as real UFC
-      // booking. A bigger drop than the ex-champion case above: this
-      // fighter didn't hold the belt, they just lost a title fight.
-      const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
-      if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
+    // Guarded against resetForFreshTier: winning the Regional (or Contender
+    // Series) title just rebuilt s.divisionRoster into the NEXT tier's own
+    // fresh roster a few lines up, and reset s.champion/s.playerRank back to
+    // a clean slate on purpose -- a nobody again, same as stepping up a
+    // weight class. Without this guard, this block re-applied the OLD
+    // tier's title win on TOP of that reset (nextDivision was already the
+    // new roster by this point): it stripped the new tier's own champion
+    // and crowned the player over them, unearned, before they'd fought a
+    // single fight there. oppEntry also belongs to the tier just left
+    // behind, so none of these lookups even resolve against the new roster.
+    if (!resetForFreshTier) {
+      if (isTitleShot && result.win) {
+        // You took the belt -- clear isChampion off the old champ (found by
+        // flag, not position) so they fall back into the ranked pool as a
+        // normal contender with their real record intact. The player's own
+        // champion status lives on career state (s.champion), never as a
+        // divisionRoster entry, so rankings render must check that flag first.
+        // They also get moved out of the reserved index-0 slot -- left there,
+        // index 0 becomes a frozen "vacant champion" seat nothing else ever
+        // draws into, and the very next title defense would end up rebooked
+        // against the exact fighter the player just dethroned. A beaten
+        // former champion is still elite, so the drop is modest.
+        const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
+        nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
+        if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
+        s.playerRank = 0;
+      } else if (isTitleDefense && !result.win) {
+        // You lost the belt -- the opponent who just beat you becomes champion.
+        // (s.playerRank already moved to 1 above, same as any other title loss.)
+        nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
+      } else if (isTitleDefense && result.win) {
+        // You defended -- the challenger who just lost needs to rebuild
+        // before getting another crack at the title, same as real UFC
+        // booking. A bigger drop than the ex-champion case above: this
+        // fighter didn't hold the belt, they just lost a title fight.
+        const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
+        if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
+      }
     }
     s.divisionRoster = simulateDivisionRound(nextDivision);
   }
@@ -1872,7 +1893,7 @@ function commitFight(state) {
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
     // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
-    rankBefore: rankPointsBefore, championBefore, rankAfter: s.rankPoints, championAfter: s.champion,
+    rankBefore: rankPointsBefore, championBefore, rankAfter: rankPointsAfterFight, championAfter: championAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
     stats, rounds, purseGain,
   });
@@ -1915,7 +1936,7 @@ function retirementLine(record, verdict) {
 
 // Scans back to the most recent "year" divider and summarizes that year's
 // fights -- record, rank movement, and the standout win/loss.
-function summarizeYear(timeline, yearStartRank, yearStartChampion, rankNow, championNow) {
+function summarizeYear(timeline, yearStartRank, yearStartChampion, rankNow, championNow, yearStartTier, tierNow) {
   let idx = timeline.length - 1;
   while (idx >= 0 && timeline[idx].type !== "year") idx -= 1;
   const yearFights = timeline.slice(idx + 1).filter((e) => e.type === "fight");
@@ -1927,6 +1948,10 @@ function summarizeYear(timeline, yearStartRank, yearStartChampion, rankNow, cham
     wins: wins.length, losses: losses.length, bestWin, toughestLoss,
     rankBefore: yearStartRank, championBefore: yearStartChampion,
     rankAfter: rankNow, championAfter: championNow,
+    // A tier change (Regional -> National, etc.) is a bigger story than a
+    // ranking-label move within the same division -- surfaced separately so
+    // the recap card can call it out instead of burying it in "Ranking".
+    tierBefore: yearStartTier, tierAfter: tierNow,
   };
 }
 
@@ -1968,7 +1993,7 @@ function advanceCareer(state) {
   if (state.finished || state.pendingDecision) return state;
   if (state.fightsRemainingThisYear > 0) return maybeFightChoice(state);
   if (state.year >= state.totalYears) return finishCareerState(state);
-  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.rankPoints, state.champion);
+  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.rankPoints, state.champion, state.yearStartTier, state.circuitTier);
   // How much Legacy Score this year alone was worth -- kept as a running
   // peak so "Legacy Score" (the whole career, uneven years and all) and
   // "Best Year" (your single best stretch) can be shown side by side at

@@ -22,7 +22,7 @@ import {
   submitChallengeScore, fetchChallengeLeaderboard,
 } from "./lib/supabase.js";
 import { sfx } from "./lib/audio.js";
-import { formatHeight, formatReach } from "./lib/utils.js";
+import { formatHeight, formatPurse, formatReach } from "./lib/utils.js";
 import {
   tierOf, computeGoatScore, computeGoatScoreBreakdown, relativeHeightScore,
   relativeReachScore, relativeNoteFor, archetypeFor, synergiesFor,
@@ -1258,10 +1258,14 @@ export default function CageLab() {
             if (e.type === "yearEnd") {
               const beforeLabel = rankLabel(e.rankBefore, e.championBefore);
               const afterLabel = rankLabel(e.rankAfter, e.championAfter);
+              const tierMoved = e.tierBefore && e.tierAfter && e.tierBefore !== e.tierAfter;
               return (
                 <div className="year-end-card" key={e.id}>
                   <div className="year-end-title">Year {e.year} Recap</div>
                   <div className="summary-row"><span>Record</span><b>{e.wins}-{e.losses}</b></div>
+                  {tierMoved && (
+                    <div className="summary-row"><span>Division</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
+                  )}
                   <div className="summary-row"><span>Ranking</span><b>{beforeLabel === afterLabel ? afterLabel : `${beforeLabel} → ${afterLabel}`}</b></div>
                   {e.bestWin && <div className="summary-row"><span>Best Win</span><b>vs {e.bestWin.opp} ({e.bestWin.oppRating})</b></div>}
                   {e.toughestLoss && <div className="summary-row"><span>Toughest Loss</span><b>vs {e.toughestLoss.opp} ({e.toughestLoss.oppRating})</b></div>}
@@ -1510,7 +1514,7 @@ export default function CageLab() {
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
                 { num: careerState.runningLegacy, lbl: "Legacy Score" },
-                { num: `$${careerState.purse}K`, lbl: "Career Earnings" },
+                { num: formatPurse(careerState.purse), lbl: "Career Earnings" },
                 { num: careerState.fame, lbl: "Fame" },
               ].map((s) => (
                 <div className="stat-box" key={s.lbl}>
