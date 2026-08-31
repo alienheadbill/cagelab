@@ -96,7 +96,17 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {e.narrative && (
+      {/* "How it happened" -- a short synthesis of the whole fight's arc,
+          replacing the old flat 2-line narrative. Only present on fights
+          resolved after the narrative layer shipped (see narrative.js);
+          older saved fights fall back to the original narrative lines so
+          existing career history doesn't go blank. */}
+      {e.howItHappened ? (
+        <div className="fight-narrative how-it-happened">
+          <div className="how-it-happened-lbl mono">How It Happened</div>
+          <div>{e.howItHappened}</div>
+        </div>
+      ) : e.narrative && (
         <div className="fight-narrative">
           {e.narrative.map((line, i) => <div key={i}>{line}</div>)}
         </div>
@@ -106,10 +116,23 @@ function FightResultCard({ e, playerName }) {
           event, not a row you have to click to unfold. */}
       {stats && (
         <div className="fight-breakdown">
-          {/* Round-by-round tracker -- who actually won each round, straight
-              from the simulation itself (not synthesized separately from
-              the result), stopping at the finish round for a stoppage. */}
-          {e.rounds && e.rounds.length > 0 && (
+          {/* Round-by-round: pip (who won) + a short line explaining why,
+              generated once at fight-resolution time from the actual
+              per-round data (see narrative.js) -- never invented, never
+              re-rolled on render. Falls back to pip-only for fights saved
+              before this existed (no roundNarratives on the entry). */}
+          {e.rounds && e.rounds.length > 0 && (e.roundNarratives ? (
+            <div className="round-narrative-list">
+              {e.rounds.map((r, i) => (
+                <div key={r.round} className={`round-narrative-row ${r.playerWon ? "you" : "opp"} ${r.finishThisRound ? "finish" : ""}`}>
+                  <div className="round-narrative-head mono">
+                    ROUND {r.round}{r.finishThisRound ? " — FINISH" : ""}
+                  </div>
+                  <div className="round-narrative-text">{e.roundNarratives[i]}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
             <div className="round-tracker">
               {e.rounds.map((r) => (
                 <div
@@ -118,6 +141,23 @@ function FightResultCard({ e, playerName }) {
                   title={`Round ${r.round}: ${r.playerWon ? "You" : "Opponent"}${stats.finishRound === r.round ? " -- fight-ending round" : ""}`}
                 >
                   R{r.round}
+                </div>
+              ))}
+            </div>
+          ))}
+          {/* Fight moments -- standout events pulled from the whole fight
+              (real danger, a knockdown, a comeback), deliberately kept
+              separate from the round-by-round prose above so a non-finish
+              knockdown never gets claimed as something that happened IN a
+              specific round's text -- only that it happened, attributed to
+              (not recorded by the sim as belonging to) the round with the
+              strongest supporting evidence. */}
+          {e.moments && e.moments.length > 0 && (
+            <div className="fight-moments">
+              {e.moments.map((m, i) => (
+                <div className={`fight-moment moment-${m.type}`} key={i}>
+                  <div className="fight-moment-label mono">{m.label}{m.round ? ` · R${m.round}` : ""}</div>
+                  <div className="fight-moment-text">{m.text}</div>
                 </div>
               ))}
             </div>

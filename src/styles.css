@@ -530,6 +530,8 @@
         .fight-tag.bonus { background: rgba(224,172,58,0.32); color: var(--brass); font-weight: 700; border: 1px solid rgba(224,172,58,0.5); }
         .fight-tag.trait { background: rgba(154,143,125,0.14); color: var(--ink); font-weight: 600; }
 
+        .how-it-happened-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--slate); margin-bottom: 3px; }
+
         .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.18); }
         .round-tracker { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
         .round-pip { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700; padding: 3px 7px;
@@ -537,6 +539,37 @@
         .round-pip.you { background: rgba(224,172,58,0.22); color: var(--brass); }
         .round-pip.opp { background: rgba(214,54,43,0.12); color: var(--blood); }
         .round-pip.finish { box-shadow: 0 0 0 1.5px currentColor inset; }
+
+        /* Round-by-round narrative -- one short line per round, generated
+           once at fight-resolution time (see narrative.js), never re-rolled
+           on render. Left border carries the same you/opp color language as
+           the old pips so the win/loss read is still instant at a glance,
+           just with the "why" now attached. */
+        .round-narrative-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+        .round-narrative-row { padding: 6px 9px; border-left: 2.5px solid rgba(154,143,125,0.3); border-radius: 4px; background: rgba(154,143,125,0.06); }
+        .round-narrative-row.you { border-left-color: var(--brass); }
+        .round-narrative-row.opp { border-left-color: var(--blood); }
+        .round-narrative-row.finish { background: rgba(224,172,58,0.1); }
+        .round-narrative-head { font-size: 8.5px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 1px; }
+        .round-narrative-row.you .round-narrative-head { color: var(--brass); }
+        .round-narrative-row.opp .round-narrative-head { color: var(--blood); }
+        .round-narrative-text { font-size: 11.5px; color: var(--ink); line-height: 1.4; }
+
+        /* Fight moments -- standout events pulled out of the round prose on
+           purpose, so they can carry their own stronger visual weight
+           without the round text itself getting shouty. */
+        .fight-moments { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .fight-moment { padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(154,143,125,0.22); background: var(--card-bg); }
+        .fight-moment-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--slate); margin-bottom: 1px; }
+        .fight-moment-text { font-size: 11.5px; color: var(--ink); line-height: 1.35; }
+        .fight-moment.moment-danger-opp, .fight-moment.moment-knockdown, .fight-moment.moment-comeback {
+          border-color: rgba(224,172,58,0.4); background: rgba(224,172,58,0.08); }
+        .fight-moment.moment-danger-opp .fight-moment-label, .fight-moment.moment-knockdown .fight-moment-label, .fight-moment.moment-comeback .fight-moment-label { color: var(--brass); }
+        .fight-moment.moment-danger-self, .fight-moment.moment-knockdown-against, .fight-moment.moment-collapse {
+          border-color: rgba(214,54,43,0.35); background: rgba(214,54,43,0.06); }
+        .fight-moment.moment-danger-self .fight-moment-label, .fight-moment.moment-knockdown-against .fight-moment-label, .fight-moment.moment-collapse .fight-moment-label { color: var(--blood); }
+        .fight-moment.moment-finish { border-color: var(--brass); background: rgba(224,172,58,0.12); }
+        .fight-moment.moment-finish .fight-moment-label { color: var(--brass); }
         .scorecard-row span:last-child { color: var(--ink); font-weight: 600; }
         .stat-compare-grid { display: flex; flex-direction: column; gap: 3px; }
         .stat-compare-header { display: grid; grid-template-columns: 1fr 1.4fr 1fr; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate); margin-bottom: 2px; }

@@ -2,6 +2,11 @@ import { ATTRS, SKILL_KEYS, ATTR_BY_KEY, WEIGHT_CLASSES } from "../data/attrs.js
 import { clamp, slugify } from "./utils.js";
 import { sfx } from "./audio.js";
 import { generateOpponentNames } from "../data/fighters.js";
+import {
+  buildFightStory,
+  identifyMoments as identifyFightMoments,
+  howItHappened as summarizeHowItHappened,
+} from "./narrative.js";
 
 // =========================================================================
 //  CAREER SIMULATION ENGINE
@@ -145,23 +150,24 @@ function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
     const pRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (player.STRIKING / 80) * (1 - playerFatigue * 0.4)));
     const oRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (opp.STRIKING / 80) * (1 - oppFatigue * 0.4)));
     playerSig += pRoundSig; oppSig += oRoundSig;
-    playerTD += Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
-    oppTD += Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
+    const pRoundTD = Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
+    const oRoundTD = Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
+    playerTD += pRoundTD; oppTD += oRoundTD;
 
     // Whoever lost the round absorbs damage, scaled by the winner's power
     // and resisted by the loser's chin.
     if (playerWonRound) oppDamage += Math.max(3, (player.POWER - opp.CHIN * 0.45) / 6 + 5);
     else playerDamage += Math.max(3, (opp.POWER - player.CHIN * 0.45) / 6 + 5);
 
-    rounds.push({ round: r, playerWon: playerWonRound, margin: Math.abs(roundProb - 0.5) });
-
     // Finish check: only the fighter who just lost the round is at risk,
     // and only once their accumulated damage crosses a real threshold --
     // weighted by the winner's actual finish odds (same KO/sub potential
     // math the pre-fight preview and old model both used) so a low-power
     // grinder rarely finishes even a badly hurt opponent.
+    let nearFinish = false, finishThisRound = false;
     const loserDamage = playerWonRound ? oppDamage : playerDamage;
     if (loserDamage >= 16) {
+      nearFinish = true;
       const attacker = playerWonRound ? player : opp;
       const defender = playerWonRound ? opp : player;
       const aMod = playerWonRound ? pMod : oMod;
@@ -170,14 +176,31 @@ function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
       odds.subPotential += aMod.subBoost;
       const finishChance = clamp((loserDamage - 12) / 85 + (odds.koPotential + odds.subPotential) / 380, 0, 0.5);
       if (Math.random() < finishChance) {
+        finishThisRound = true;
         finishWinner = playerWonRound;
         finishMethod = rollMethod(odds);
         finishRound = r;
         const secs = Math.floor(Math.random() * 299) + 1;
         finishTime = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-        break;
       }
     }
+
+    // Per-round detail for the narrative layer (see narrative.js) -- purely
+    // additive: every value here was already being computed above for the
+    // simulation's own use, just not previously kept past this iteration.
+    // Recording it doesn't touch a single probability, roll, or threshold.
+    rounds.push({
+      round: r, playerWon: playerWonRound, margin: Math.abs(roundProb - 0.5),
+      playerSig: pRoundSig, oppSig: oRoundSig,
+      playerTD: pRoundTD, oppTD: oRoundTD,
+      playerFatigue, oppFatigue, // cumulative 0-0.4, AFTER this round
+      playerDamage, oppDamage,   // cumulative, AFTER this round
+      outputGap: playerOut - oppOut,
+      nearFinish, finishThisRound,
+      groundHeavy: phase.groundShare > 0.55,
+    });
+
+    if (finishThisRound) break;
   }
 
   let win, method;
@@ -536,7 +559,17 @@ function computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, 
 function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits, totalRounds) {
   const { phase, matchup, winProb, pMod, oMod } = computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, oppTraits);
   const { win, method, rounds, stats } = simulateRounds(player, opp, phase, pMod, oMod, totalRounds);
-  return { win, method, phase, winProb, matchup, rounds, stats, narrative: buildFightNarrative(phase, { win, method }, playerTraits || []) };
+  // Narrative is strictly downstream of the sim -- generated once, here,
+  // from the already-decided rounds/stats, and never read by anything that
+  // could feed back into a probability, roll, or outcome. See narrative.js.
+  const roundNarratives = buildFightStory(rounds, method);
+  const moments = identifyFightMoments(rounds, !!stats.player.knockdowns, !!stats.opp.knockdowns, stats.finishRound, method, win);
+  const howItHappenedText = summarizeHowItHappened(rounds, win, method, stats.finishRound);
+  return {
+    win, method, phase, winProb, matchup, rounds, stats,
+    narrative: buildFightNarrative(phase, { win, method }, playerTraits || []),
+    roundNarratives, moments, howItHappened: howItHappenedText,
+  };
 }
 
 function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
@@ -1961,6 +1994,7 @@ function commitFight(state) {
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
     rankBefore: rankPointsBefore, championBefore, rankAfter: rankPointsAfterFight, championAfter: championAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
+    roundNarratives: result.roundNarratives, moments: result.moments, howItHappened: result.howItHappened,
     stats, rounds, purseGain,
   });
   s.timeline = timeline;
