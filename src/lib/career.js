@@ -1,4 +1,4 @@
-import { ATTRS, SKILL_KEYS, ATTR_BY_KEY } from "../data/attrs.js";
+import { ATTRS, SKILL_KEYS, ATTR_BY_KEY, WEIGHT_CLASSES } from "../data/attrs.js";
 import { clamp, slugify } from "./utils.js";
 import { sfx } from "./audio.js";
 import { generateOpponentNames } from "../data/fighters.js";
@@ -843,13 +843,31 @@ function simulateDivisionRound(division) {
   return d;
 }
 
+// Moves the fighter at `fromIdx` out of the front of the ranked ladder and
+// reinserts them `dropBy` spots lower (clamped to stay inside the ranked
+// pool) -- used right after a title fight so the SAME contender doesn't
+// keep getting rebooked as the next challenger fight after fight. Without
+// this, index 0 (the "next in line" slot once the player holds the belt)
+// only ever moves when the background sim happens to pick it for one of
+// its two random ranked-neighbour bouts and the incumbent happens to lose
+// -- rare enough that a beaten challenger could realistically get 4+
+// straight rematches by pure chance, same as the record you fought.
+function demoteInDivision(division, fromIdx, dropBy) {
+  if (fromIdx < 0 || fromIdx >= division.length) return division;
+  const d = division.slice();
+  const [moved] = d.splice(fromIdx, 1);
+  const insertAt = clamp(fromIdx + dropBy, fromIdx + 1, Math.min(DIVISION_SIZE, d.length));
+  d.splice(insertAt, 0, moved);
+  return d;
+}
+
 // Picks who you fight next out of the real division, based on where you stand.
 // Higher rank = you face people nearer the top.
 // avoidIds (optional): opponent ids faced in the last few fights -- reroll a
 // handful of times to dodge landing on the same person back-to-back by pure
 // chance. Bounded, so a thin division can't spin forever, and never applies
 // to the title-fight path (that's resolved by flag, not by this draw).
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds) {
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -865,7 +883,17 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds) 
   // Map rank points onto a slot in the ladder. Low-ranked fighters draw from
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
-  const centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
+  // actually gets drawn -- lower array index is a stronger fighter (index 0
+  // is the champion), so easy pushes the centre toward a higher index
+  // (weaker) and step-up pulls it toward a lower one (tougher). Legacy gain
+  // and win probability both already scale off the opponent's real overall
+  // rating, so shifting who gets drawn is the whole fix: it's what makes
+  // those buttons' "lower risk & reward" / "very tough, major reward"
+  // promises real instead of purely cosmetic labels on an identical draw.
+  if (difficulty === "easy") centre = clamp(centre + 8, 1, span);
+  else if (difficulty === "stepUp") centre = clamp(centre - 8, 1, span);
   const avoid = avoidIds || [];
   let target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
   if (avoid.includes(division[target].id)) {
@@ -992,14 +1020,33 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   if (s.year > 8) fightsThisYear = Math.max(1, fightsThisYear - 1);
   if (campQuality === "full") fightsThisYear = Math.max(1, fightsThisYear - 1);
 
-  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints }];
+  // circuitTier/champion ride along too -- the "made the leap" read in the
+  // UI needs to know whether a tier was already broken into, not just the
+  // raw rankPoints number, since that resets to 0 on every promotion.
+  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints, circuitTier: state.circuitTier, champion: state.champion }];
   let champion = s.champion;
   if (injury) {
     s.wear = { chin: s.wear.chin + (injury.major ? 3 : 1), speed: s.wear.speed + (injury.major ? 3 : 1) };
     if (injury.major) {
       fightsThisYear = 0;
       timeline.push({ type: "injury", id: `inj-${s.year}`, major: true });
-      if (champion) { champion = false; timeline.push({ type: "interim", id: `int-${s.year}` }); }
+      if (champion) {
+        champion = false;
+        // The belt doesn't just sit empty for a year -- flag the current
+        // #1 contender as the real interim champion in the roster. Once
+        // the player returns, the existing title-reclaim logic already
+        // knows how to find and dethrone whoever's flagged isChampion (see
+        // commitFight's isTitleShot-win branch, which now also demotes
+        // them via demoteInDivision same as any other beaten former
+        // champion) -- so fighting back for the real belt just works, no
+        // separate interim-specific code path needed anywhere else.
+        let interimName = null;
+        if (s.divisionRoster && s.divisionRoster.length) {
+          interimName = s.divisionRoster[0].name;
+          s.divisionRoster = s.divisionRoster.map((f, i) => (i === 0 ? { ...f, isChampion: true } : f));
+        }
+        timeline.push({ type: "interim", id: `int-${s.year}`, interimName });
+      }
     } else {
       fightsThisYear = Math.max(1, fightsThisYear - 1);
       timeline.push({ type: "injury", id: `inj-${s.year}`, major: false });
@@ -1008,11 +1055,29 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   s.champion = champion;
 
-  // Optional light weight-class move: brief adjustment penalty, then normal.
+  // Weight-class move: a genuine division change, not just a flavor line
+  // and a temporary stat hit. New division name, a freshly generated
+  // roster for it (a different weight class's Top 15 has nothing to do
+  // with the one just left behind), and starting back at the bottom there
+  // -- rank, rankPoints, and a held title don't follow you across weight
+  // classes any more than they would in real life. The circuit tier
+  // itself (Regional/National/Premier) is untouched -- this is a lateral
+  // move, not a promotion or demotion. Bounded at the ends of the weight
+  // class list (no moving "up" from Heavyweight or "down" from Flyweight).
   if (s.weightPenaltyFightsLeft <= 0 && Math.random() < 0.05) {
-    const direction = Math.random() < 0.5 ? "up" : "down";
-    s.weightPenaltyFightsLeft = 2;
-    timeline.push({ type: "weightMove", id: `wm-${s.year}`, direction });
+    const classIdx = WEIGHT_CLASSES.indexOf(s.division);
+    const canGoUp = classIdx !== -1 && classIdx < WEIGHT_CLASSES.length - 1;
+    const canGoDown = classIdx !== -1 && classIdx > 0;
+    if (canGoUp || canGoDown) {
+      const direction = canGoUp && (!canGoDown || Math.random() < 0.5) ? "up" : "down";
+      s.division = WEIGHT_CLASSES[direction === "up" ? classIdx + 1 : classIdx - 1];
+      s.divisionRoster = buildDivision();
+      s.playerRank = null;
+      s.rankPoints = 0;
+      s.champion = false;
+      s.weightPenaltyFightsLeft = 2;
+      timeline.push({ type: "weightMove", id: `wm-${s.year}`, direction, division: s.division });
+    }
   }
 
   s.timeline = timeline;
@@ -1044,10 +1109,36 @@ function pickWeakestSkill(base) {
   return worst.key;
 }
 
-// A permanent, modest improvement if the player chooses to address the gap.
+// A real trade either way -- "Address It" used to be a free permanent
+// stat with no cost at all, which made "Stay the Course" pointless. Now
+// both options cost something and gain something, just on different
+// timescales: shore up the weakness permanently at the cost of a sliver
+// of your strengths, or bank a one-fight sharpness edge on your best
+// weapon by keeping camp rhythm intact instead.
 function resolveTrainingEvent(state, attr, addressed) {
   const s = { ...state };
-  if (addressed) s.base = { ...s.base, [attr]: clamp(s.base[attr] + 3, 30, 99) };
+  if (addressed) {
+    s.base = { ...s.base, [attr]: clamp(s.base[attr] + 3, 30, 99) };
+    // Extra mat time on the weak spot comes from somewhere -- the two
+    // attributes furthest ahead of it take a small permanent hit. Pulling
+    // from strengths (not other weaknesses, like camp planning's own focus
+    // trade-off does) keeps this feeling like a different mechanic, not a
+    // second copy of the same one.
+    const strongest = SKILL_KEYS.filter((k) => k !== attr)
+      .sort((a, b) => s.base[b] - s.base[a])
+      .slice(0, 2);
+    strongest.forEach((k) => { s.base = { ...s.base, [k]: clamp(s.base[k] - 1, 30, 99) }; });
+  } else {
+    // Staying the course keeps camp rhythm intact -- a one-fight sharpness
+    // bump to the fighter's current best weapon for the very next fight,
+    // instead of gambling mat time patching the weak spot. Shares the same
+    // one-fight buff slot fight-week media handling uses (see
+    // resolveMediaEvent) -- both represent "what's dialed in for the next
+    // walkout," so if both somehow fire before the next fight, the more
+    // recent one is what carries in, same as it already works today.
+    const best = SKILL_KEYS.reduce((a, b) => (s.base[b] > s.base[a] ? b : a));
+    s.mediaBuff = { attr: best, delta: 3 };
+  }
   s.timeline = [...s.timeline, { type: "trainingEvent", id: `train-${s.year}-${s.fightGlobalIndex}`, attr, addressed }];
   s.pendingDecision = null;
   return s;
@@ -1109,7 +1200,7 @@ function prepareFight(state, choiceTag) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
@@ -1300,12 +1391,26 @@ function commitFight(state) {
       // normal contender with their real record intact. The player's own
       // champion status lives on career state (s.champion), never as a
       // divisionRoster entry, so rankings render must check that flag first.
+      // They also get moved out of the reserved index-0 slot -- left there,
+      // index 0 becomes a frozen "vacant champion" seat nothing else ever
+      // draws into, and the very next title defense would end up rebooked
+      // against the exact fighter the player just dethroned. A beaten
+      // former champion is still elite, so the drop is modest.
+      const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
       nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
+      if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
       s.playerRank = 0;
     } else if (isTitleDefense && !result.win) {
       // You lost the belt -- the opponent who just beat you becomes champion.
       // (s.playerRank already moved to 1 above, same as any other title loss.)
       nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
+    } else if (isTitleDefense && result.win) {
+      // You defended -- the challenger who just lost needs to rebuild
+      // before getting another crack at the title, same as real UFC
+      // booking. A bigger drop than the ex-champion case above: this
+      // fighter didn't hold the belt, they just lost a title fight.
+      const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
+      if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
     }
     s.divisionRoster = simulateDivisionRound(nextDivision);
   }

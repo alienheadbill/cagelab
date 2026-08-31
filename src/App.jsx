@@ -538,6 +538,18 @@ export default function CageLab() {
   // full gold as the tier climbs, instead of every tier looking the same.
   const tierRampCls = (tierName) => `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
 
+  // What actually gets you promoted off the tier you're currently on --
+  // mirrors the real gate logic in career.js's commitFight exactly, so this
+  // text can never drift out of sync with what the game actually checks.
+  function circuitNextRequirement(tierName, isChampion) {
+    if (tierName === "CLF Regional") return "Win the Regional title to move up to National.";
+    if (tierName === "CLF National") return "Win the National title, or string together a serious win streak on its own, to earn a shot in the Contender Series.";
+    if (tierName === "CLF Contender Series") return "One showcase fight decides it -- win it and the Premier contract is waiting. Lose it and it's back to National, standing untouched.";
+    return isChampion
+      ? "You hold the Premier title -- the top of the ladder. Defend it and build the legacy."
+      : "You've reached Premier -- the top of the ladder. Win the title and defend it to build the legacy.";
+  }
+
   // Last few results at a glance, oldest-to-newest so the strip reads like a
   // trend -- part of the decision-first career hub, so "how am I doing"
   // doesn't require scrolling the full history.
@@ -927,8 +939,8 @@ export default function CageLab() {
               <div className="decision-title"><Target size={15} /> Training Camp</div>
               <div className="decision-sub">Your coaches see a real weakness in {ATTR_BY_KEY[careerState.pendingDecision.attr].label}.</div>
               <div className="choice-row">
-                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, this camp's focus</span></button>
-                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>No change, no risk</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, costs a sliver of your sharpest attributes</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>Sharpens your best weapon for the next fight only</span></button>
               </div>
             </div>
           )}
@@ -1104,7 +1116,14 @@ export default function CageLab() {
             if (e.type === "campPlan") {
               const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
               const showLeap = e.year >= 3 && e.year <= 5;
-              const madeTheLeap = e.rankSnapshot >= 60;
+              // rankPoints alone resets to 0 on every tier promotion, so a
+              // player who just broke into National or Premier -- the real
+              // leap -- would otherwise read as "still waiting" the moment
+              // their fresh climb starts back at zero. Already being out of
+              // Regional (or holding a title) counts as the leap on its own;
+              // short of that, fall back to real momentum inside the current
+              // tier's own ladder.
+              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || e.rankSnapshot >= 60;
               return (
                 <div className="event-card" style={{ alignItems: "flex-start" }} key={e.id}>
                   <Sparkles size={15} style={{ marginTop: 2 }} />
@@ -1154,7 +1173,10 @@ export default function CageLab() {
             if (e.type === "interim") {
               return (
                 <div className="event-card bad" key={e.id}>
-                  <Crown size={15} /> Title vacated while sidelined — the promotion books an interim title fight.
+                  <Crown size={15} />
+                  {e.interimName
+                    ? `Title vacated while sidelined — ${e.interimName} wins the interim belt. Beat them to reclaim it for real.`
+                    : "Title vacated while sidelined — the promotion books an interim title fight."}
                 </div>
               );
             }
@@ -1199,8 +1221,8 @@ export default function CageLab() {
                 <div className={`event-card ${e.addressed ? "good" : ""}`} key={e.id}>
                   <Target size={15} />
                   {e.addressed
-                    ? `Camp addresses the ${ATTR_BY_KEY[e.attr].label} weakness — a small, permanent gain.`
-                    : `Coaches flagged a ${ATTR_BY_KEY[e.attr].label} weakness, but camp stayed the course.`}
+                    ? `Camp addresses the ${ATTR_BY_KEY[e.attr].label} weakness — a small permanent gain, at the cost of a sliver of your two sharpest attributes.`
+                    : `Coaches flagged a ${ATTR_BY_KEY[e.attr].label} weakness, but camp stayed the course — rhythm intact, best weapon sharpened for the next walkout.`}
                 </div>
               );
             }
@@ -1214,9 +1236,11 @@ export default function CageLab() {
             }
             if (e.type === "weightMove") {
               return (
-                <div className="event-card" key={e.id}>
+                <div className="event-card bad" key={e.id}>
                   {e.direction === "up" ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
-                  Moving {e.direction} a weight class — a short adjustment period follows.
+                  {/* A real division change now, not flavor text -- new
+                      weight class, fresh roster, back to Unranked there. */}
+                  Moving {e.direction} to {e.division} — a new division means a fresh Top 15 and starting back at Unranked, plus a short physical adjustment period.
                 </div>
               );
             }
@@ -1240,6 +1264,44 @@ export default function CageLab() {
           )}
 
           {careerTab === "rankings" && careerState.divisionRoster && (
+            <>
+              {/* The circuit ladder -- explains the whole tier system at a
+                  glance instead of leaving it to be inferred from the odd
+                  promotion banner. Only the CURRENT tier gets a real roster
+                  below; earlier/later tiers are shown by blurb only -- each
+                  one gets its own fresh champion + Top 15 + prospects the
+                  moment you actually arrive there, not before, so there's
+                  nothing real to preview for a tier you haven't reached. */}
+              <div className="circuit-ladder">
+                <div className="circuit-ladder-title">The Climb</div>
+                <div className="circuit-ladder-steps">
+                  {CLF_TIERS.map((t, i) => {
+                    const currentIdx = CLF_TIERS.findIndex((ct) => ct.name === careerState.circuitTier);
+                    const status = i === currentIdx ? "current" : i < currentIdx ? "cleared" : "locked";
+                    return (
+                      <div className={`circuit-step ${status} ${tierRampCls(t.name)}`} key={t.name}>
+                        <div className="circuit-step-num mono">{i + 1}</div>
+                        <div className="circuit-step-body">
+                          <div className="circuit-step-name">{t.short}</div>
+                          <div className="circuit-step-blurb">{t.blurb}</div>
+                          {status === "current" && <div className="circuit-step-here mono">YOU ARE HERE</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="circuit-next">
+                  <span className="circuit-next-label mono">NEXT</span>
+                  {circuitNextRequirement(careerState.circuitTier, careerState.champion)}
+                </div>
+                <div className="circuit-note">
+                  Regional, National, and Premier each run their own independent roster --
+                  a champion, a ranked Top 15, and a deeper pool of prospects below them,
+                  all fighting for position while you're away. Contender Series is a single
+                  showcase fight against another prospect, not a ladder of its own.
+                </div>
+              </div>
+
             <div className="rankings-list rankings-list-tab">
               {careerState.playerRank === 0 && (
                 <div className="ranking-row you champ">
@@ -1282,6 +1344,7 @@ export default function CageLab() {
                 </div>
               )}
             </div>
+            </>
           )}
 
           {careerTab === "stats" && (
@@ -1450,6 +1513,10 @@ export default function CageLab() {
             </button>
           </div>
 
+          {/* Just one way back to Home down here -- the top-nav Home icon
+              (always visible whenever phase !== "home") already covers the
+              other case, so a second Home button in this row was pure
+              duplication on every single career verdict screen. */}
           <div className="btn-row">
             {mode === "daily" ? (
               <button className="btn btn-primary" onClick={goHome}>
@@ -1460,9 +1527,6 @@ export default function CageLab() {
                 <RotateCw size={16} /> Play Again
               </button>
             )}
-            <button className="btn btn-ghost" onClick={goHome}>
-              <Home size={16} /> Home
-            </button>
           </div>
         </div>
         );

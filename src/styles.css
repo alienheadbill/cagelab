@@ -696,6 +696,37 @@
           position: absolute; top: -2px; right: -4px; width: 8px; height: 8px;
           border-radius: 50%; background: var(--blood); border: 1.5px solid var(--card-bg);
         }
+        /* ---- Circuit ladder: the whole tier system at a glance, using the
+           same four-step gold ramp as the fight-tier-tag/promotion-card
+           colors above so "closer to gold" reads consistently everywhere. ---- */
+        .circuit-ladder { margin-bottom: 16px; padding: 14px; border-radius: 10px;
+          border: 1.5px solid rgba(154,143,125,0.22); background: rgba(154,143,125,0.04); }
+        .circuit-ladder-title { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; margin-bottom: 10px; }
+        .circuit-ladder-steps { display: flex; flex-direction: column; gap: 2px; }
+        .circuit-step { display: flex; align-items: flex-start; gap: 10px; padding: 8px 6px;
+          border-left: 2px solid rgba(154,143,125,0.18); position: relative; }
+        .circuit-step.cleared { opacity: 0.55; }
+        .circuit-step.locked { opacity: 0.4; }
+        .circuit-step.current { border-left-color: var(--brass); background: rgba(224,172,58,0.07); border-radius: 0 6px 6px 0; }
+        .circuit-step-num { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; display: flex;
+          align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+          background: rgba(154,143,125,0.14); color: var(--slate); margin-top: 1px; }
+        .circuit-step.tier-ramp-0 .circuit-step-num { color: #ADA290; }
+        .circuit-step.tier-ramp-1 .circuit-step-num { color: #C4A05C; }
+        .circuit-step.tier-ramp-2 .circuit-step-num { color: #DBB259; }
+        .circuit-step.tier-ramp-3 .circuit-step-num { color: var(--brass); background: rgba(224,172,58,0.2); }
+        .circuit-step-name { font-family: 'Anton', sans-serif; font-size: 13px; letter-spacing: 0.02em; }
+        .circuit-step.tier-ramp-0 .circuit-step-name { color: #ADA290; }
+        .circuit-step.tier-ramp-1 .circuit-step-name { color: #C4A05C; }
+        .circuit-step.tier-ramp-2 .circuit-step-name { color: #DBB259; }
+        .circuit-step.tier-ramp-3 .circuit-step-name { color: var(--brass); }
+        .circuit-step-blurb { font-size: 11px; color: var(--slate); margin-top: 1px; }
+        .circuit-step-here { font-size: 8.5px; letter-spacing: 0.1em; color: var(--brass); font-weight: 700; margin-top: 4px; }
+        .circuit-next { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; padding-top: 10px;
+          border-top: 1px dashed rgba(154,143,125,0.18); font-size: 12px; color: var(--ink); }
+        .circuit-next-label { flex-shrink: 0; font-size: 9px; letter-spacing: 0.1em; color: var(--brass); font-weight: 700; }
+        .circuit-note { font-size: 10.5px; color: var(--slate); margin-top: 10px; line-height: 1.45; }
+
         .rankings-list.rankings-list-tab { max-height: none; margin-top: 0; }
         .camp-idle-view { margin-top: 4px; }
 
