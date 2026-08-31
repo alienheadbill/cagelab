@@ -1450,6 +1450,10 @@ export default function CageLab() {
             </button>
           </div>
 
+          {/* Just one way back to Home down here -- the top-nav Home icon
+              (always visible whenever phase !== "home") already covers the
+              other case, so a second Home button in this row was pure
+              duplication on every single career verdict screen. */}
           <div className="btn-row">
             {mode === "daily" ? (
               <button className="btn btn-primary" onClick={goHome}>
@@ -1460,9 +1464,6 @@ export default function CageLab() {
                 <RotateCw size={16} /> Play Again
               </button>
             )}
-            <button className="btn btn-ghost" onClick={goHome}>
-              <Home size={16} /> Home
-            </button>
           </div>
         </div>
         );

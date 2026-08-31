@@ -843,6 +843,24 @@ function simulateDivisionRound(division) {
   return d;
 }
 
+// Moves the fighter at `fromIdx` out of the front of the ranked ladder and
+// reinserts them `dropBy` spots lower (clamped to stay inside the ranked
+// pool) -- used right after a title fight so the SAME contender doesn't
+// keep getting rebooked as the next challenger fight after fight. Without
+// this, index 0 (the "next in line" slot once the player holds the belt)
+// only ever moves when the background sim happens to pick it for one of
+// its two random ranked-neighbour bouts and the incumbent happens to lose
+// -- rare enough that a beaten challenger could realistically get 4+
+// straight rematches by pure chance, same as the record you fought.
+function demoteInDivision(division, fromIdx, dropBy) {
+  if (fromIdx < 0 || fromIdx >= division.length) return division;
+  const d = division.slice();
+  const [moved] = d.splice(fromIdx, 1);
+  const insertAt = clamp(fromIdx + dropBy, fromIdx + 1, Math.min(DIVISION_SIZE, d.length));
+  d.splice(insertAt, 0, moved);
+  return d;
+}
+
 // Picks who you fight next out of the real division, based on where you stand.
 // Higher rank = you face people nearer the top.
 // avoidIds (optional): opponent ids faced in the last few fights -- reroll a
@@ -1300,12 +1318,26 @@ function commitFight(state) {
       // normal contender with their real record intact. The player's own
       // champion status lives on career state (s.champion), never as a
       // divisionRoster entry, so rankings render must check that flag first.
+      // They also get moved out of the reserved index-0 slot -- left there,
+      // index 0 becomes a frozen "vacant champion" seat nothing else ever
+      // draws into, and the very next title defense would end up rebooked
+      // against the exact fighter the player just dethroned. A beaten
+      // former champion is still elite, so the drop is modest.
+      const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
       nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
+      if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
       s.playerRank = 0;
     } else if (isTitleDefense && !result.win) {
       // You lost the belt -- the opponent who just beat you becomes champion.
       // (s.playerRank already moved to 1 above, same as any other title loss.)
       nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
+    } else if (isTitleDefense && result.win) {
+      // You defended -- the challenger who just lost needs to rebuild
+      // before getting another crack at the title, same as real UFC
+      // booking. A bigger drop than the ex-champion case above: this
+      // fighter didn't hold the belt, they just lost a title fight.
+      const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
+      if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
     }
     s.divisionRoster = simulateDivisionRound(nextDivision);
   }
