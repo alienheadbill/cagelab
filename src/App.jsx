@@ -53,6 +53,15 @@ import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
 
+// Framing for the 3 real candidates the matchmaking panel offers -- same
+// risk/reward promise the old abstract Easy/Ranked/Step-Up buttons made,
+// just attached to an actual named fighter now instead of a hidden draw.
+const MATCHMAKER_TAG_META = {
+  easy: { label: "Easy Fight", sub: "Lower risk & reward" },
+  ranked: { label: "Ranked Fight", sub: "Moderate risk, better reward" },
+  stepUp: { label: "Step-Up Fight", sub: "Tough test, major reward" },
+};
+
 export default function CageLab() {
   const [phase, setPhase] = useState("home");
   const [mode, setMode] = useState("classic"); // classic | blind | daily | challenge
@@ -954,11 +963,39 @@ export default function CageLab() {
           {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
-              <div className="decision-sub">The promotion offers you a choice for the next booking.</div>
-              <div className="choice-grid">
-                <button className="choice-btn" onClick={() => handleFightChoice("easy")}>Easy Fight<span>Lower opponent, lower risk &amp; reward</span></button>
-                <button className="choice-btn" onClick={() => handleFightChoice("ranked")}>Ranked Fight<span>Moderate risk, better ranking reward</span></button>
-                <button className="choice-btn" onClick={() => handleFightChoice("stepUp")}>Step-Up Fight<span>Very tough, major reward</span></button>
+              <div className="decision-sub">The promotion offers you a choice for the next booking &mdash; pick who you fight.</div>
+              <div className="matchmaker-grid">
+                {(careerState.pendingDecision.options || []).map((opt) => {
+                  const meta = MATCHMAKER_TAG_META[opt.tag];
+                  const wins = opt.recentForm.filter((r) => r === "W").length;
+                  const losses = opt.recentForm.length - wins;
+                  return (
+                    <button
+                      key={opt.fighterId}
+                      className={`matchmaker-card tag-${opt.tag}`}
+                      onClick={() => handleFightChoice(opt.tag, opt.fighterId)}
+                    >
+                      <div className="matchmaker-tag mono">{meta.label}</div>
+                      <div className="matchmaker-name">{opt.name}</div>
+                      <div className="matchmaker-archetype mono">{opt.archetype}</div>
+                      <div className="matchmaker-form-row">
+                        <span className="matchmaker-form-label mono">LAST 5</span>
+                        <div className="matchmaker-form-pips">
+                          {opt.recentForm.length > 0
+                            ? opt.recentForm.map((r, i) => (
+                              <span key={i} className={`form-pip ${r === "W" ? "win" : "loss"}`}>{r}</span>
+                            ))
+                            : <span className="matchmaker-form-empty mono">DEBUT</span>}
+                        </div>
+                        {opt.recentForm.length > 0 && <span className="matchmaker-form-ratio mono">{wins}-{losses}</span>}
+                      </div>
+                      <div className="matchmaker-meta mono">
+                        {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
+                      </div>
+                      <div className="matchmaker-sub">{meta.sub}</div>
+                    </button>
+                  );
+                })}
                 {!careerState.champion && careerState.rankPoints >= 85 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
                 )}

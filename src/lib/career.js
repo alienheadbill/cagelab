@@ -603,15 +603,47 @@ const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0]
 const CHAMPION_WIN_FLOOR = 0.68;
 const RANKED_WIN_FLOOR = 0.55;
 
+// Shared by generateOpponentRecord (the career-long W-L) and
+// generateRecentForm (a fresh roster fighter's starting last-5) so both
+// read off the same underlying quality, not two independently-rolled ideas
+// of how good this fighter actually is.
+function winRateFor(overall, tier) {
+  if (tier === "champion") return clamp(0.72 + (overall - 85) / 200, CHAMPION_WIN_FLOOR, 0.92);
+  if (tier === "ranked") return clamp(0.58 + (overall - 70) / 150, RANKED_WIN_FLOOR, 0.85);
+  return clamp(0.4 + (overall - 60) / 120, 0.3, 0.75);
+}
+
 function generateOpponentRecord(overall, fightIndexContext, tier) {
   const experience = clamp(Math.round(fightIndexContext * 0.6 + (overall - 50) * 0.3), 3, 40);
-  let winRate;
-  if (tier === "champion") winRate = clamp(0.72 + (overall - 85) / 200, CHAMPION_WIN_FLOOR, 0.92);
-  else if (tier === "ranked") winRate = clamp(0.58 + (overall - 70) / 150, RANKED_WIN_FLOOR, 0.85);
-  else winRate = clamp(0.4 + (overall - 60) / 120, 0.3, 0.75);
+  const winRate = winRateFor(overall, tier);
   const wins = Math.round(experience * winRate);
   const losses = Math.max(0, experience - wins);
   return { w: wins, l: losses };
+}
+
+// A fresh roster fighter's last-5 form, newest first -- shown in the
+// matchmaking picker (see generateMatchmakerOptions) so "who should I
+// fight" has a hot/cold-streak signal, not just a career-long W-L. Drawn
+// straight from the fighter's own record (not a fresh independent roll off
+// winRate) so the last-5 can never show more losses than the fighter has
+// ever actually recorded -- a shuffled sample of their real career, not a
+// second, uncorrelated coin flip that could contradict it.
+function generateRecentForm(wins, losses, count = 5) {
+  const pool = [];
+  for (let i = 0; i < wins; i++) pool.push("W");
+  for (let i = 0; i < losses; i++) pool.push("L");
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
+// Appends one result to a fighter's rolling last-5, newest first, capped
+// at 5 -- the single place every win/loss touching a division fighter's
+// record also updates their form, so the two can never drift apart.
+function pushForm(fighter, win) {
+  fighter.recentForm = [win ? "W" : "L", ...(fighter.recentForm || [])].slice(0, 5);
 }
 
 // ---- Fighting-style choice: gives the archetype system real teeth ---------
@@ -761,6 +793,7 @@ const UNRANKED_COUNT = 24;     // prospects below the rankings you fight on the 
 
 function createDivisionFighter(name, baseRating, seedIndex, tier) {
   const profile = generateOpponentProfile(baseRating);
+  const record = generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12), tier);
   return {
     id: `div-${seedIndex}-${slugify(name)}`,
     name,
@@ -768,7 +801,8 @@ function createDivisionFighter(name, baseRating, seedIndex, tier) {
     overall: profile.overall,
     archetype: profile.archetype,
     traits: profile.traits,
-    record: generateOpponentRecord(profile.overall, 8 + Math.floor(Math.random() * 12), tier),
+    record,
+    recentForm: generateRecentForm(record.w, record.l),
     isChampion: false,
   };
 }
@@ -827,6 +861,7 @@ function applyRoundLoss(fighter) {
   const total = fighter.record.w + fighter.record.l + 1;
   if (fighter.record.w / total < floor) return;
   fighter.record.l += 1;
+  pushForm(fighter, false);
 }
 
 // Simulates the fights you weren't part of. Adjacent ranks meet, the winner
@@ -847,9 +882,11 @@ function simulateDivisionRound(division) {
     const champWins = Math.random() < 0.5 + (champ.overall - challenger.overall) / 60;
     if (champWins) {
       champ.record.w += 1;
+      pushForm(champ, true);
       applyRoundLoss(challenger);
     } else {
       challenger.record.w += 1;
+      pushForm(challenger, true);
       applyRoundLoss(champ);
       champ.isChampion = false;
       challenger.isChampion = true;
@@ -872,9 +909,11 @@ function simulateDivisionRound(division) {
     const aWins = Math.random() < 0.5 + (d[i].overall - d[j].overall) / 60;
     if (aWins) {
       d[i].record.w += 1;
+      pushForm(d[i], true);
       applyRoundLoss(d[j]);
     } else {
       d[j].record.w += 1;
+      pushForm(d[j], true);
       applyRoundLoss(d[i]);
       const tmp = d[i]; d[i] = d[j]; d[j] = tmp; // upset moves them up the ladder
     }
@@ -962,6 +1001,29 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
     // "unranked" rather than a fake #27 ranking.
     rank: displayRank <= DIVISION_SIZE ? displayRank : null,
   };
+}
+
+// Three REAL, named candidates for the matchmaking panel -- replaces
+// picking a hidden difficulty label with actually seeing who you'd be
+// fighting: their name, archetype, and real last-5 form, before
+// committing to anything. Reuses selectDivisionOpponent's own easy/ranked/
+// stepUp bias, so the risk/reward promise behind each tag is exactly what
+// it already was -- just visible now instead of hidden behind the label.
+// The draws are chained through a growing avoid-list so the three options
+// are never the same person twice.
+function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds) {
+  const tags = ["easy", "ranked", "stepUp"];
+  const avoid = [...(recentOpponentIds || [])];
+  return tags.map((tag) => {
+    const picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+    avoid.push(picked.fighter.id);
+    return {
+      tag, fighterId: picked.fighter.id, rank: picked.rank,
+      name: picked.fighter.name, archetype: picked.fighter.archetype,
+      overall: picked.fighter.overall, record: picked.fighter.record,
+      recentForm: picked.fighter.recentForm || [],
+    };
+  });
 }
 
 // ---- Rivals ---------------------------------------------------------------
@@ -1256,7 +1318,13 @@ function maybeFightChoice(state) {
   const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.rankPoints >= 40);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
-  if (roll < 0.22) return { ...state, pendingDecision: { type: "fightChoice" } };
+  if (roll < 0.22) {
+    // Computed once, right here -- fixed for the life of this decision
+    // (same convention as trainingEvent's attr below), not re-rolled on
+    // every render.
+    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds);
+    return { ...state, pendingDecision: { type: "fightChoice", options } };
+  }
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
   if (roll < 0.36) return { ...state, pendingDecision: { type: "mediaEvent" } };
   // Off-cycle content -- not tied to any particular fight, just building
@@ -1354,6 +1422,11 @@ function prepareFight(state, choiceTag, targetId) {
   // roster to re-meet them in).
   const isContenderSeriesFight = choiceTag === "contenderSeries";
   const isCallout = choiceTag === "callout" && !!targetId;
+  // The matchmaking panel now shows 3 real, named candidates (see
+  // generateMatchmakerOptions) instead of a hidden difficulty label --
+  // picking one passes its id through here so the fight that happens is
+  // exactly the fighter the player saw and picked, not a fresh re-draw.
+  const isMatchmakerPick = !!targetId && (choiceTag === "easy" || choiceTag === "ranked" || choiceTag === "stepUp");
   const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.rankPoints >= 40) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
@@ -1373,6 +1446,14 @@ function prepareFight(state, choiceTag, targetId) {
     // (streak+ranking, or Demand/Short-Notice) with its own stakes.
     const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
     picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
+  } else if (isMatchmakerPick) {
+    const target = s.divisionRoster.find((f) => f.id === targetId);
+    // Falls back to a fresh draw with the same difficulty bias if the
+    // targeted fighter somehow isn't in the roster anymore (e.g. the
+    // division regenerated between the offer being shown and picked --
+    // shouldn't happen inside one decision, but never leave the player
+    // stuck on a dead pick).
+    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -1588,7 +1669,11 @@ function commitFight(state) {
   if (!isContenderSeriesFight) {
     let nextDivision = s.divisionRoster.map((f) => (
       f.id === oppEntry.id
-        ? { ...f, record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) } }
+        ? {
+            ...f,
+            record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) },
+            recentForm: [result.win ? "L" : "W", ...(f.recentForm || [])].slice(0, 5),
+          }
         : f
     ));
     // Beating someone ranked above you takes their spot.
@@ -2060,6 +2145,7 @@ export {
   deriveTraits,
   estimatePhaseControl,
   fastForwardCareer,
+  generateMatchmakerOptions,
   generateOpponentProfile,
   initCareer,
   maybeFightChoice,
