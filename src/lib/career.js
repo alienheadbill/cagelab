@@ -867,7 +867,7 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // handful of times to dodge landing on the same person back-to-back by pure
 // chance. Bounded, so a thin division can't spin forever, and never applies
 // to the title-fight path (that's resolved by flag, not by this draw).
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds) {
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -883,7 +883,17 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds) 
   // Map rank points onto a slot in the ladder. Low-ranked fighters draw from
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
-  const centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
+  // actually gets drawn -- lower array index is a stronger fighter (index 0
+  // is the champion), so easy pushes the centre toward a higher index
+  // (weaker) and step-up pulls it toward a lower one (tougher). Legacy gain
+  // and win probability both already scale off the opponent's real overall
+  // rating, so shifting who gets drawn is the whole fix: it's what makes
+  // those buttons' "lower risk & reward" / "very tough, major reward"
+  // promises real instead of purely cosmetic labels on an identical draw.
+  if (difficulty === "easy") centre = clamp(centre + 8, 1, span);
+  else if (difficulty === "stepUp") centre = clamp(centre - 8, 1, span);
   const avoid = avoidIds || [];
   let target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
   if (avoid.includes(division[target].id)) {
@@ -1127,7 +1137,7 @@ function prepareFight(state, choiceTag) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
