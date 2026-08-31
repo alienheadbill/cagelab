@@ -290,13 +290,99 @@ function buildInterviewLine(oppName, { win, winProb }, flags) {
   );
 }
 
-function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits) {
+// American-odds formatting from a raw win probability -- the standard
+// sportsbook convention (favorites negative, underdogs positive), so the
+// pre-fight screen reads like a real odds board instead of a bare percent.
+// Deliberately not exported: it's display formatting for pendingFight's
+// already-computed winProb, not a piece of the simulation itself.
+function formatOdds(prob) {
+  const p = clamp(prob, 0.01, 0.99);
+  if (p >= 0.5) return `-${Math.round((100 * p) / (1 - p))}`;
+  return `+${Math.round((100 * (1 - p)) / p)}`;
+}
+
+// Fight-week flavor -- the countdown/weigh-in beat before a booked fight
+// actually happens. Mostly texture, but it does surface the weight-cut
+// penalty when one is active, since that's a real, felt effect the player
+// chose to live with (a weight-class move) rather than just flavor.
+function buildFightWeekLine(state, isTitleFight, isRivalry) {
+  const pick = (a, b) => (Math.random() < 0.5 ? a : b);
+  if (state.weightPenaltyFightsLeft > 0) {
+    return "Fight week. The scale wasn't kind during the cut -- this one comes with a cost.";
+  }
+  if (isTitleFight) {
+    return pick(
+      "Fight week. Championship weigh-ins, cameras everywhere, one shot at the belt.",
+      "Fight week. Everything comes down to this walk to the cage.",
+    );
+  }
+  if (isRivalry) {
+    return pick(
+      "Fight week. Both corners made weight without incident -- the bad blood is the real story.",
+      "Fight week. No love lost at staredowns -- this one's personal.",
+    );
+  }
+  return pick(
+    "Fight week. Both fighters made weight -- nothing left to do now but fight.",
+    "Fight week. Weigh-ins are done, the stare-down's over, fight night is here.",
+  );
+}
+
+// Pre-fight trash talk -- the opponent's voice, not the player's (that's
+// buildInterviewLine, spoken after). Same cascading-by-stakes shape, using
+// only signals already known before the fight (title stakes, rivalry, the
+// odds themselves), never anything the coin flip decides.
+function buildTrashTalk(oppName, winProb, isTitleFight, isRivalry) {
+  const pick = (a, b) => (Math.random() < 0.5 ? a : b);
+  if (isRivalry) {
+    return pick(
+      `"${oppName}: 'We've done this before. I know exactly how it ends.'"`,
+      `"${oppName}: 'This is personal. He knows why.'"`,
+    );
+  }
+  if (isTitleFight) {
+    return pick(
+      `"${oppName}: 'The belt's coming home with me. Simple as that.'"`,
+      `"${oppName}: 'Everything I've worked for comes down to this.'"`,
+    );
+  }
+  if (winProb <= 0.4) {
+    // The opponent is favored here (this is the player's win probability).
+    return pick(
+      `"${oppName}: 'No disrespect, but I don't see how he wins this.'"`,
+      `"${oppName}: 'I've fought better than him. This should be easy.'"`,
+    );
+  }
+  if (winProb >= 0.6) {
+    return pick(
+      `"${oppName}: 'Everyone's overlooking me. Watch what happens.'"`,
+      `"${oppName}: 'I've got nothing to lose in there. That's dangerous.'"`,
+    );
+  }
+  return pick(
+    `"${oppName}: 'May the best man win. That's me, by the way.'"`,
+    `"${oppName}: 'I respect him. Doesn't mean I'm losing to him.'"`,
+  );
+}
+
+// The RNG-free half of a fight's resolution -- phase control, the matchup
+// read, and win probability are all pure functions of the two fighters'
+// stats, with no coin flip yet. Split out so a pre-fight screen can show
+// real odds ahead of the result, computed the exact same way the engine
+// itself will use them a moment later -- not a second, possibly-drifted
+// estimate.
+function computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, oppTraits) {
   const phase = estimatePhaseControl(player, opp, stanceBias);
   const pMod = traitModifiers(playerTraits);
   const oMod = traitModifiers(oppTraits);
   const winProb = clamp(computeWinProbability(player, opp, phase, reachScore) + pMod.winProbDelta - oMod.winProbDelta, 0.05, 0.95);
-  const win = Math.random() < winProb;
   const matchup = buildMatchup(player, opp);
+  return { phase, matchup, winProb, pMod, oMod };
+}
+
+function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits) {
+  const { phase, matchup, winProb, pMod, oMod } = computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, oppTraits);
+  const win = Math.random() < winProb;
 
   if (win) {
     const odds = computeFinishOdds(player, opp, phase);
@@ -743,7 +829,7 @@ function initCareer(picks, options) {
       { type: "year", id: "y-1", year: 1 },
     ],
     fightGlobalIndex: 0,
-    pendingDecision: { type: "campPlanning" },
+    pendingDecision: { type: "campPlanning" }, pendingFight: null,
     finished: false, legacyScore: 0, verdict: null, totalFightCount: 0,
   };
 }
@@ -799,12 +885,12 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 // rather than constant, and title fights always skip straight to the fight.
 function maybeFightChoice(state) {
   const wouldBeTitle = state.champion || (!state.champion && state.streak >= 4 && state.rankPoints >= 70);
-  if (wouldBeTitle) return runFight(state, "default");
+  if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) return { ...state, pendingDecision: { type: "fightChoice" } };
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
   if (roll < 0.36) return { ...state, pendingDecision: { type: "mediaEvent" } };
-  return runFight(state, "default");
+  return prepareFight(state, "default");
 }
 
 function pickWeakestSkill(base) {
@@ -881,7 +967,16 @@ function generateFightStats(player, opp, phase, result, totalRounds) {
   };
 }
 
-function runFight(state, choiceTag) {
+// Sets up everything a fight needs -- opponent selection, hype rolls, the
+// camp/style/media modifiers baked into "effective" stats, and a real odds
+// preview -- but does NOT roll the outcome. That happens in commitFight,
+// once the player has actually seen the pre-fight screen (opponent, odds,
+// fight-week flavor, trash talk) and chosen to go through with it.
+// Splitting these apart is what makes a pre-fight buildup possible at all:
+// previously opponent selection and the coin flip happened in the same
+// atomic call, so there was never a moment where "who's next" was known
+// but "who won" wasn't.
+function prepareFight(state, choiceTag) {
   const s = { ...state };
   s.fightGlobalIndex += 1;
 
@@ -951,9 +1046,44 @@ function runFight(state, choiceTag) {
     }
   }
   const playerTraits = deriveTraits(effective);
+  const stanceBias = s.yearStance === "ground" ? 0.08 : s.yearStance === "standup" ? -0.08 : 0;
+
+  // Pre-fight odds -- the exact same deterministic computation resolveFight
+  // itself will use a moment later at commit time, so what's shown here is
+  // guaranteed to match what actually decides the fight, not a second,
+  // possibly-drifted estimate.
+  const preview = computeFightPreview(effective, s.reachScore, opp.attrs, stanceBias, playerTraits, opp.traits);
+
+  s.pendingDecision = { type: "preFight" };
+  s.pendingFight = {
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight,
+    oppEntry, oppName, oppRank, opp, oppRecord,
+    hype, effective, playerTraits, stanceBias, playerOverallNow,
+    winProb: preview.winProb, matchup: preview.matchup,
+    fightWeekLine: buildFightWeekLine(s, isTitleFight, isRivalFight),
+    trashTalk: buildTrashTalk(oppName, preview.winProb, isTitleFight, isRivalFight),
+    youOdds: formatOdds(preview.winProb), oppOdds: formatOdds(1 - preview.winProb),
+  };
+  return s;
+}
+
+// Resolves a fight that prepareFight already set up -- the actual coin
+// flip, then every bit of post-fight bookkeeping (record, rankings, the
+// persistent division, rivalries, bonuses, legacy, the timeline entry).
+// Reads its setup from state.pendingFight rather than recomputing any of
+// it, so the fight that happens is exactly the one the pre-fight screen
+// showed -- same opponent, same odds.
+function commitFight(state) {
+  if (!state.pendingFight) return state;
+  const s = { ...state };
+  const pf = s.pendingFight;
+  const {
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight,
+    oppEntry, oppName, oppRank, opp, oppRecord,
+    hype, effective, playerTraits, stanceBias, playerOverallNow,
+  } = pf;
 
   const tierBefore = s.circuitTier;
-  const stanceBias = s.yearStance === "ground" ? 0.08 : s.yearStance === "standup" ? -0.08 : 0;
   const result = resolveFight(effective, s.reachScore, opp.attrs, stanceBias, playerTraits, opp.traits);
   const totalRounds = isTitleFight ? 5 : 3;
   // Computed here (rather than inline in the timeline push below) so the
@@ -1079,6 +1209,10 @@ function runFight(state, choiceTag) {
   const isEmphaticFinish = stats.finishRound === 1 && dominance >= 0.55;
   const isNailBiter = stats.finishRound == null && Math.abs(result.winProb - 0.5) <= 0.12;
   const bonusType = (result.win && isEmphaticFinish) ? "performance" : (isNailBiter ? "fotn" : null);
+  // Betting odds are shown before the fight now (see prepareFight) --
+  // winning as a real underdog against the odds the player actually saw
+  // earns its own bump on top of the performance/statement bonuses above.
+  const isUnderdogWin = result.win && result.winProb < 0.35;
 
   let legacyDelta = 0;
   if (result.win) {
@@ -1092,6 +1226,7 @@ function runFight(state, choiceTag) {
     // up but more memorable when it lands -- a "proved them wrong" bonus.
     if (s.careerStyle && s.careerStyle !== "Balanced" && !s.styleIsNaturalFit) legacyDelta += 3;
     if (bonusType) legacyDelta += 6;
+    if (isUnderdogWin) legacyDelta += 4;
   } else {
     legacyDelta = result.method === "KO/TKO Loss" ? -6 : result.method === "Submission Loss" ? -5 : -3;
     if (isTitleDefense) legacyDelta -= 4;
@@ -1139,7 +1274,7 @@ function runFight(state, choiceTag) {
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
-    rivalry: isRivalry, statement: isStatement, bonusType, interview,
+    rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
     // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
     // at display time, same convention as yearEnd's rankBefore/rankAfter.
     rankBefore: rankPointsBefore, championBefore, rankAfter: s.rankPoints, championAfter: s.champion,
@@ -1152,7 +1287,15 @@ function runFight(state, choiceTag) {
   if (s.weightPenaltyFightsLeft > 0) s.weightPenaltyFightsLeft -= 1;
   s.mediaBuff = null;
   s.pendingDecision = null;
+  s.pendingFight = null;
   return s;
+}
+
+// Convenience wrapper for callers that want a fight fully resolved in one
+// step with no interactive pre-fight screen in between (fast-forward, and
+// title fights that skip straight past the matchmaker-choice decision).
+function runFight(state, choiceTag) {
+  return commitFight(prepareFight(state, choiceTag));
 }
 
 // A short reflective beat before the final numbers, tuned to how the career actually went.
@@ -1255,6 +1398,10 @@ function fastForwardCareer(state) {
         s = resolveCampPlanning(s, { focusAttr: null, campQuality: "full", stance: "balanced" });
       } else if (s.pendingDecision.type === "fightChoice") {
         s = runFight(s, "default");
+      } else if (s.pendingDecision.type === "preFight") {
+        // Fast-forward skips the interactive pre-fight screen entirely --
+        // commit whatever prepareFight already set up.
+        s = commitFight(s);
       } else if (s.pendingDecision.type === "trainingEvent") {
         s = resolveTrainingEvent(s, s.pendingDecision.attr, true);
       } else if (s.pendingDecision.type === "mediaEvent") {
@@ -1390,6 +1537,7 @@ export {
   calculateLegacy,
   circuitTierFor,
   clfTier,
+  commitFight,
   computeAchievements,
   computePlayerProfile,
   computeWinProbability,
@@ -1402,6 +1550,7 @@ export {
   metaRankFor,
   phaseWeightedOutput,
   playSfxForTransition,
+  prepareFight,
   rankLabel,
   rankToTierCls,
   resolveCampPlanning,
