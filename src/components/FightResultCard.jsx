@@ -98,6 +98,22 @@ function FightResultCard({ e, playerName }) {
           event, not a row you have to click to unfold. */}
       {stats && (
         <div className="fight-breakdown">
+          {/* Round-by-round tracker -- who actually won each round, straight
+              from the simulation itself (not synthesized separately from
+              the result), stopping at the finish round for a stoppage. */}
+          {e.rounds && e.rounds.length > 0 && (
+            <div className="round-tracker">
+              {e.rounds.map((r) => (
+                <div
+                  key={r.round}
+                  className={`round-pip ${r.playerWon ? "you" : "opp"} ${stats.finishRound === r.round ? "finish" : ""}`}
+                  title={`Round ${r.round}: ${r.playerWon ? "You" : "Opponent"}${stats.finishRound === r.round ? " -- fight-ending round" : ""}`}
+                >
+                  R{r.round}
+                </div>
+              ))}
+            </div>
+          )}
           {stats.scorecards && (
             <div className="scorecards-row">
               <span className="scorecard-label mono">JUDGES</span>

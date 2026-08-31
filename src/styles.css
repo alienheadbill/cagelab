@@ -464,6 +464,12 @@
         .fight-tag.trait { background: rgba(154,143,125,0.14); color: var(--ink); font-weight: 600; }
 
         .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.18); }
+        .round-tracker { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+        .round-pip { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700; padding: 3px 7px;
+          border-radius: 5px; background: rgba(154,143,125,0.1); color: var(--slate); }
+        .round-pip.you { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .round-pip.opp { background: rgba(214,54,43,0.12); color: var(--blood); }
+        .round-pip.finish { box-shadow: 0 0 0 1.5px currentColor inset; }
         .scorecard-row span:last-child { color: var(--ink); font-weight: 600; }
         .stat-compare-grid { display: flex; flex-direction: column; gap: 3px; }
         .stat-compare-header { display: grid; grid-template-columns: 1fr 1.4fr 1fr; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate); margin-bottom: 2px; }

@@ -488,7 +488,9 @@ export default function CageLab() {
     const snap = careerState.definingLoss && careerState.definingLoss.fightSnapshot;
     if (!snap) return;
     sfx("select");
-    const result = resolveFight(snap.effective, snap.reachScore, snap.oppAttrs, snap.stanceBias, snap.playerTraits, snap.oppTraits);
+    // snap.totalRounds falls back to 3 for a snapshot saved before this
+    // field existed (an in-progress career already in someone's browser).
+    const result = resolveFight(snap.effective, snap.reachScore, snap.oppAttrs, snap.stanceBias, snap.playerTraits, snap.oppTraits, snap.totalRounds || 3);
     sfx(result.win ? "win" : "loss");
     setWhatIf({ ...result, oppName: careerState.definingLoss.oppName });
   }
