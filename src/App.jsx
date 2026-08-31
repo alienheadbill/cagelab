@@ -67,6 +67,14 @@ export default function CageLab() {
   // view; camp planning specifically lives under "camp" (see the auto-switch
   // effect below), rather than sharing the hub with fight-related decisions.
   const [careerTab, setCareerTab] = useState("career");
+  // The fight that was just committed stays "spotlighted" at the top of the
+  // Career tab (right where the pre-fight screen was) instead of dropping
+  // straight into the bottom of the ever-growing history feed -- otherwise
+  // every single fight meant scrolling all the way down to read the result,
+  // then all the way back up to keep going. It settles into the normal
+  // history list (and stops being spotlighted) the moment the player moves
+  // on, same tap as advancing the career.
+  const [spotlightFightId, setSpotlightFightId] = useState(null);
   const [goatScore, setGoatScore] = useState(null);
   const [statOrderOverride, setStatOrderOverride] = useState(null);
   const [buildSaved, setBuildSaved] = useState(false);
@@ -417,10 +425,17 @@ export default function CageLab() {
     }));
     setWhatIf(null);
     setCareerTab("career");
+    // A brand-new career's fight ids restart from f-1, so a spotlight left
+    // over from a previous career could otherwise collide with (and wrongly
+    // hide) an unrelated fight here.
+    setSpotlightFightId(null);
     setPhase("sim");
   }
 
   function handleAdvance() {
+    // Whatever was spotlighted has been seen -- let it settle into the
+    // normal history feed as we move on to whatever's next.
+    setSpotlightFightId(null);
     const next = advanceCareer(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
@@ -448,6 +463,10 @@ export default function CageLab() {
     const next = commitFight(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
+    // Spotlight the fight that just happened -- commitFight always appends
+    // exactly one "fight" timeline entry, so the last entry is it.
+    const lastEntry = next.timeline[next.timeline.length - 1];
+    if (lastEntry && lastEntry.type === "fight") setSpotlightFightId(lastEntry.id);
     if (next.finished && !careerState.finished) saveCareerToHistory(next);
   }
   function handleTrainingEvent(addressed) {
@@ -459,6 +478,7 @@ export default function CageLab() {
     setCareerState(resolveMediaEvent(careerState, fireBack));
   }
   function handleFastForward() {
+    setSpotlightFightId(null);
     const next = fastForwardCareer(careerState);
     sfx("whoosh");
     setCareerState(next);
@@ -965,6 +985,16 @@ export default function CageLab() {
               </div>
             </div>
           )}
+          {/* The fight that was just committed, spotlighted right here
+              instead of only living at the bottom of the history feed --
+              same FightResultCard the timeline itself uses below, just
+              filtered out of that list (see the timeline .filter below)
+              while it's spotlighted so it isn't shown twice at once. It
+              settles into the history the moment the player advances. */}
+          {!careerState.pendingDecision && spotlightFightId && (() => {
+            const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
+            return spotlightEntry ? <FightResultCard e={spotlightEntry} playerName={name} /> : null;
+          })()}
           {(!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") && (
             <div className="btn-row sim-advance-bar">
               {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" ? (
@@ -1056,7 +1086,7 @@ export default function CageLab() {
           )}
 
           <div className="section-divider" style={{ marginTop: 6 }}>Career History</div>
-          {careerState.timeline.map((e) => {
+          {careerState.timeline.filter((e) => e.id !== spotlightFightId).map((e) => {
             if (e.type === "year") return <div className="year-divider" key={e.id}>Year {e.year}</div>;
             if (e.type === "campPlan") {
               const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
