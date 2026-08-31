@@ -19,14 +19,20 @@ function FightResultCard({ e, playerName }) {
     ? `R${stats.finishRound} ${stats.finishTime || ""}`.trim()
     : stats ? `${stats.totalRounds} RDS` : "";
 
-  // rankBefore/rankAfter are raw rankPoints (+ champion flags), same
-  // convention as the yearEnd recap -- only worth a line when the label
-  // actually moved, so a string of "still Unranked" fights doesn't clutter
-  // every card.
-  const rankBeforeLabel = e.rankBefore != null ? rankLabel(e.rankBefore, e.championBefore) : null;
-  const rankAfterLabel = e.rankAfter != null ? rankLabel(e.rankAfter, e.championAfter) : null;
-  const rankMoved = rankBeforeLabel && rankAfterLabel && rankBeforeLabel !== rankAfterLabel;
-  const rankImproved = rankMoved && (e.championAfter || (!e.championBefore && e.rankAfter > e.rankBefore));
+  // rankBefore/rankAfter are the real division ladder position (+ champion
+  // flags), same convention as the yearEnd recap -- rankLabel already
+  // renders a null playerRank as "Unranked" on its own, so this is only
+  // worth a line when the label actually moved, so a string of "still
+  // Unranked" fights doesn't clutter every card.
+  const rankBeforeLabel = rankLabel(e.rankBefore, e.championBefore);
+  const rankAfterLabel = rankLabel(e.rankAfter, e.championAfter);
+  const rankMoved = rankBeforeLabel !== rankAfterLabel;
+  // playerRank is lower-is-better (0 = champion, null = unranked/worst),
+  // the opposite of the old rankPoints scale this used to compare -- treat
+  // null as the worst possible value so "Unranked -> #11" still reads as
+  // an improvement.
+  const rankSortValue = (r) => (r == null ? 999 : r);
+  const rankImproved = rankMoved && (e.championAfter || (!e.championBefore && rankSortValue(e.rankAfter) < rankSortValue(e.rankBefore)));
 
   return (
     <div className={`event-card-wrap ${isTitle ? "title-event" : ""} ${e.win ? "won" : "lost"} ${isFinish ? "finish" : "decision"}`}>

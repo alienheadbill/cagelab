@@ -588,13 +588,21 @@ function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
   return clamp(rankPoints - delta, 0, 100);
 }
 
-function rankLabel(rankPoints, champion) {
+// Reads off playerRank -- the actual division ladder position -- not
+// rankPoints. rankPoints is a hidden/continuous competitive-momentum value
+// used internally (matchmaking calibration, Legacy Score); it used to also
+// drive this label, which let it climb from farmed wins over opponents who
+// never moved the real ladder at all -- the HUD could say "Top 15" while
+// the Rankings tab still showed Unranked. playerRank can't be farmed like
+// that: it only moves by actually beating a ranked opponent (see the climb
+// logic in commitFight), so the label and the ladder now always agree.
+function rankLabel(playerRank, champion) {
   if (champion) return "Champion";
-  if (rankPoints >= 88) return "#1 Contender";
-  if (rankPoints >= 75) return "Top 5";
-  if (rankPoints >= 60) return "Top 10";
-  if (rankPoints >= 40) return "Top 15";
-  return "Unranked";
+  if (playerRank == null) return "Unranked";
+  if (playerRank === 1) return "#1 Contender";
+  if (playerRank <= 5) return "Top 5";
+  if (playerRank <= 10) return "Top 10";
+  return "Top 15";
 }
 
 // ---- Career-stage progression (the promotional "ladder") ------------------
@@ -1211,7 +1219,14 @@ function initCareer(picks, options) {
     // The persistent world: 15 ranked contenders + a champion who exist and
     // fight each other between your bouts.
     divisionRoster: buildDivision(),
-    playerRank: null,
+    // playerRank is the real ladder position (0 = champion, 1-15 = ranked,
+    // null = unranked) -- the single source of truth for anything the
+    // player sees as "my ranking." peakPlayerRank is its high-water mark
+    // (lower is better, so it tracks via Math.min, not Math.max -- see
+    // commitFight). rankPoints stays as an internal, hidden continuous
+    // value -- matchmaking calibration and a Legacy Score input -- it is
+    // never shown to the player as a rank.
+    playerRank: null, peakPlayerRank: null,
     record: { w: 0, l: 0 }, finishes: { ko: 0, sub: 0, dec: 0 },
     rankPoints: 0, peakRankPoints: 0, rankedFightCount: 0,
     circuitTier: "CLF Regional",
@@ -1226,7 +1241,11 @@ function initCareer(picks, options) {
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
       && options.careerStyle === bestFitArchetypeFlat(base)),
-    yearStartRank: 0, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
+    // null, not 0 -- 0 is playerRank's own "champion" value, so a bare 0
+    // default here would misrender as Top 5 (0 <= 5) for a fighter who
+    // hasn't even fought yet. null correctly means "unranked/no fight
+    // played this year" the same way playerRank itself uses it.
+    yearStartRank: null, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
@@ -1263,7 +1282,7 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   s.yearStance = stance;
   // Snapshot rank/title status right as the year begins, so the year-end
   // recap can show what changed over the course of the year.
-  s.yearStartRank = state.rankPoints;
+  s.yearStartRank = state.playerRank;
   s.yearStartChampion = state.champion;
   s.yearStartTier = state.circuitTier;
   s.yearStartLegacy = state.runningLegacy;
@@ -1277,8 +1296,8 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   // circuitTier/champion ride along too -- the "made the leap" read in the
   // UI needs to know whether a tier was already broken into, not just the
-  // raw rankPoints number, since that resets to 0 on every promotion.
-  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints, circuitTier: state.circuitTier, champion: state.champion }];
+  // raw playerRank number, since that resets to null on every promotion.
+  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.playerRank, circuitTier: state.circuitTier, champion: state.champion }];
   let champion = s.champion;
   if (injury) {
     s.wear = { chin: s.wear.chin + (injury.major ? 3 : 1), speed: s.wear.speed + (injury.major ? 3 : 1) };
@@ -1388,7 +1407,10 @@ function maybeFightChoice(state) {
   // prepareFight's "contenderSeries" branch) standing between here and
   // the Premier contract.
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.rankPoints >= 40);
+  // Mirrors prepareFight's isTitleShot gate exactly -- must stay in sync,
+  // or this could skip straight to what it thinks is a title fight while
+  // prepareFight itself decides otherwise (or vice versa).
+  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.playerRank != null && state.playerRank <= 5);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
@@ -1500,7 +1522,13 @@ function prepareFight(state, choiceTag, targetId) {
   // picking one passes its id through here so the fight that happens is
   // exactly the fighter the player saw and picked, not a fresh re-draw.
   const isMatchmakerPick = !!targetId && (choiceTag === "easy" || choiceTag === "ranked" || choiceTag === "stepUp");
-  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.rankPoints >= 40) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  // Gated on playerRank (the real division ladder), not rankPoints --
+  // rankPoints is farmable via wins that never touch a ranked opponent, so
+  // it used to let a fighter qualify for a title shot without ever having
+  // beaten anyone actually ranked. playerRank can only move by beating a
+  // ranked opponent, so this now genuinely requires having climbed the
+  // ladder into the top 5, on top of the existing streak requirement.
+  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.playerRank != null && s.playerRank <= 5) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
@@ -1661,10 +1689,17 @@ function commitFight(state) {
   // one fight instead of one year.
   const rankPointsBefore = s.rankPoints;
   const championBefore = s.champion;
+  const playerRankBefore = s.playerRank;
 
   s.rankPoints = updateRanking(s.rankPoints, result.win, opp.overall, isTitleFight);
   s.peakRankPoints = Math.max(s.peakRankPoints, s.rankPoints);
-  if (s.rankPoints >= 40) s.rankedFightCount += 1;
+  // A fight counts toward Legacy's "ranked competition" bonus because the
+  // player already held a ranked position going in, or the opponent
+  // actually did (a callout upset over a ranked name counts even from
+  // Unranked) -- not because the internal rankPoints value crossed a
+  // threshold, which could be farmed with wins that never touched the real
+  // ladder at all.
+  if (playerRankBefore != null || (oppRank != null && oppRank > 0)) s.rankedFightCount += 1;
 
   if (isTitleShot && result.win) {
     s.titleReigns += 1;
@@ -1782,10 +1817,21 @@ function commitFight(state) {
     // capped, so one callout upset over the #1 contender doesn't teleport a
     // total unknown straight to #1. Even a shocking win only climbs so far
     // in one night; closing a big gap takes several real wins, not one.
-    const RANK_CLIMB_CAP = 5;
+    // The cap itself still holds for a normal, nearby-rank win (unchanged
+    // from before) -- it only widens for a genuine mismatch, and a finish
+    // adds one further place on top of that -- opponent quality is the
+    // primary driver, performance a small modifier, never the reverse.
+    // Always floored at oppRank: a single win can never rank you better
+    // than the person you just beat.
     if (result.win && oppRank > 0) {
       const startRank = s.playerRank != null ? s.playerRank : DIVISION_SIZE + 1;
-      if (oppRank < startRank) s.playerRank = Math.max(oppRank, startRank - RANK_CLIMB_CAP);
+      if (oppRank < startRank) {
+        const gap = startRank - oppRank;
+        const mismatchBonus = gap >= 13 ? 5 : gap >= 9 ? 3 : gap >= 6 ? 1 : 0;
+        const isFinish = result.method === "KO/TKO" || result.method === "Submission";
+        const climb = 5 + mismatchBonus + (isFinish ? 1 : 0);
+        s.playerRank = Math.max(oppRank, startRank - climb);
+      }
     } else if (!result.win && s.playerRank != null) {
       s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
     }
@@ -1835,6 +1881,23 @@ function commitFight(state) {
       }
     }
     s.divisionRoster = simulateDivisionRound(nextDivision);
+  }
+
+  // playerRank is fully settled for this fight now (climb/drop above, the
+  // champion-swap block just above that, and -- for a title-winning fight
+  // that also triggers a tier promotion -- the fresh-tier reset earlier in
+  // this function all had their say). Snapshot it for the fight card.
+  const playerRankAfterFight = s.playerRank;
+  // Fold it into the career-long high-water mark: lower is better here (0 =
+  // champion), so this tracks via min, not max. Use championAfterFight (the
+  // pre-reset flag) rather than the post-reset s.playerRank directly -- a
+  // title win that ALSO triggers a same-fight tier promotion already
+  // zeroed s.playerRank back to null for the fresh climb by this point, but
+  // the player genuinely did hold the belt this fight and that peak is
+  // real regardless of what the very next tier resets it to.
+  const peakCandidate = championAfterFight ? 0 : s.playerRank;
+  if (peakCandidate != null) {
+    s.peakPlayerRank = s.peakPlayerRank == null ? peakCandidate : Math.min(s.peakPlayerRank, peakCandidate);
   }
 
   // A rivalry is earned: 2+ meetings, at least one of them genuinely
@@ -1990,9 +2053,14 @@ function commitFight(state) {
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
     contenderSeries: isContenderSeriesFight, calledOut: isCallout,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
-    // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
-    // at display time, same convention as yearEnd's rankBefore/rankAfter.
-    rankBefore: rankPointsBefore, championBefore, rankAfter: rankPointsAfterFight, championAfter: championAfterFight,
+    // Raw playerRank/champion flags, not labels -- rankLabel() renders
+    // these at display time, same convention as yearEnd's
+    // rankBefore/rankAfter. playerRank is the real ladder position (the
+    // single source of truth for anything shown as "my ranking"); the
+    // internal rankPoints snapshots are kept too, unrendered, purely for
+    // anything that still legitimately wants the hidden momentum value.
+    rankBefore: playerRankBefore, championBefore, rankAfter: playerRankAfterFight, championAfter: championAfterFight,
+    rankPointsBefore, rankPointsAfter: rankPointsAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
     roundNarratives: result.roundNarratives, moments: result.moments, howItHappened: result.howItHappened,
     stats, rounds, purseGain,
@@ -2083,7 +2151,7 @@ function finishCareerState(state) {
     {
       type: "summary", id: "summary",
       finishRate: Math.round(finishRate * 100), strengthOfSchedule: Math.round(strengthOfSchedule),
-      peakRankPoints: state.peakRankPoints, rankedFightCount: state.rankedFightCount,
+      peakRankPoints: state.peakRankPoints, peakPlayerRank: state.peakPlayerRank, rankedFightCount: state.rankedFightCount,
       statementWins: state.statementWins, rivalryWins: state.rivalryWins, bonus,
       peakYearLegacy, peakYearNumber, yearsActive: state.year, topWins: topCareerWins(state.timeline),
     },
@@ -2095,7 +2163,7 @@ function advanceCareer(state) {
   if (state.finished || state.pendingDecision) return state;
   if (state.fightsRemainingThisYear > 0) return maybeFightChoice(state);
   if (state.year >= state.totalYears) return finishCareerState(state);
-  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.rankPoints, state.champion, state.yearStartTier, state.circuitTier);
+  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.playerRank, state.champion, state.yearStartTier, state.circuitTier);
   // How much Legacy Score this year alone was worth -- kept as a running
   // peak so "Legacy Score" (the whole career, uneven years and all) and
   // "Best Year" (your single best stretch) can be shown side by side at

@@ -978,7 +978,7 @@ export default function CageLab() {
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
               <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{careerState.record.w}{"–"}{careerState.record.l}</div>
-              <div className="sim-rank">{rankLabel(careerState.rankPoints, careerState.champion)}</div>
+              <div className="sim-rank">{rankLabel(careerState.playerRank, careerState.champion)}</div>
             </div>
             <div className="legacy-box">
               <div className="legacy-num" key={careerState.runningLegacy}>{careerState.runningLegacy}</div>
@@ -1042,10 +1042,15 @@ export default function CageLab() {
                     </button>
                   );
                 })}
-                {!careerState.champion && careerState.rankPoints >= 85 && (
+                {/* Gated on the real division ladder (playerRank), not the
+                    hidden rankPoints momentum value -- these cash in an
+                    ACTUAL ranked standing, so they need to track the same
+                    ladder the Rankings tab shows, same as the automatic
+                    title-shot gate in prepareFight. */}
+                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 3 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
                 )}
-                {!careerState.champion && careerState.rankPoints >= 65 && (
+                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 10 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
@@ -1302,7 +1307,7 @@ export default function CageLab() {
               // Regional (or holding a title) counts as the leap on its own;
               // short of that, fall back to real momentum inside the current
               // tier's own ladder.
-              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || e.rankSnapshot >= 60;
+              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || (e.rankSnapshot != null && e.rankSnapshot <= 10);
               return (
                 <div className="event-card" style={{ alignItems: "flex-start" }} key={e.id}>
                   <Sparkles size={15} style={{ marginTop: 2 }} />
@@ -1475,7 +1480,7 @@ export default function CageLab() {
                   <div className="summary-title">Career Complete — Legacy Finalized</div>
                   <div className="summary-row"><span>Finish rate</span><b>{e.finishRate}%</b></div>
                   <div className="summary-row"><span>Strength of schedule</span><b>{e.strengthOfSchedule} avg opp</b></div>
-                  <div className="summary-row"><span>Peak ranking</span><b>{rankLabel(e.peakRankPoints, false)}</b></div>
+                  <div className="summary-row"><span>Peak ranking</span><b>{rankLabel(e.peakPlayerRank, e.peakPlayerRank === 0)}</b></div>
                   <div className="summary-row"><span>Fights as a contender</span><b>{e.rankedFightCount}</b></div>
                   <div className="summary-row"><span>Statement wins</span><b>{e.statementWins}</b></div>
                   <div className="summary-row"><span>Rivalries won</span><b>{e.rivalryWins}</b></div>
@@ -1583,7 +1588,7 @@ export default function CageLab() {
                 { num: careerState.finishes.dec, lbl: "Decisions" },
                 { num: careerState.titleReigns, lbl: "Title Reigns" },
                 { num: careerState.titleDefenses, lbl: "Title Defenses" },
-                { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+                { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
                 { num: careerState.runningLegacy, lbl: "Legacy Score" },
@@ -1700,7 +1705,7 @@ export default function CageLab() {
               { num: careerState.titleReigns, lbl: "Title Reigns" },
               { num: careerState.titleDefenses, lbl: "Title Defenses" },
               { num: careerState.longestStreak, lbl: "Best Streak" },
-              { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+              { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
               { num: careerState.statementWins, lbl: "Statement Wins" },
               { num: careerState.rivalryWins, lbl: "Rivalries Won" },
               { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
