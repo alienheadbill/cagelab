@@ -304,6 +304,21 @@
         .result-goat-num { font-size: 68px; line-height: 1; color: var(--brass); margin-top: 10px; text-shadow: 0 2px 22px rgba(224,172,58,0.35); }
         .result-goat-lbl { font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-top: 2px; }
         .result-tier-badge { margin-top: 12px; display: inline-flex; font-size: 11.5px; padding: 5px 12px; }
+        /* One-line question under each axis's label -- GOAT Score and Build
+           Value answer two different questions, and this is the plainest
+           way to say so without relying on the reader to infer it. */
+        .result-axis-question { font-size: 10px; color: var(--slate); font-style: italic; }
+        /* Deliberately NOT a second hero number -- small, left-aligned,
+           neutral card treatment (same family as .contract-option/
+           .camp-stat), not the big centered gold display type GOAT Score
+           gets. The visual job here is "here's an analysis," not "here's
+           another rating to compare against the first one." */
+        .build-value-callout { margin-top: 16px; padding: 10px 14px; border: 1.5px solid rgba(154,143,125,0.28);
+          border-radius: 10px; background: var(--card-bg); display: flex; align-items: center; gap: 10px; text-align: left; }
+        .build-value-callout svg { color: var(--slate); flex-shrink: 0; }
+        .build-value-num { font-size: 24px; font-weight: 700; color: var(--ink); min-width: 32px; text-align: center; flex-shrink: 0; }
+        .build-value-text { display: flex; flex-direction: column; gap: 1px; }
+        .build-value-lbl { font-size: 10.5px; letter-spacing: 0.12em; font-weight: 700; color: var(--ink); }
         .result-identity { margin-top: 20px; padding-top: 18px; border-top: 1px dashed rgba(154,143,125,0.22); }
         .result-archetype-name { font-size: 22px; color: var(--ink); }
         .result-archetype-tagline { font-size: 12.5px; color: var(--slate); margin-top: 4px; max-width: 340px; margin-left: auto; margin-right: auto; }
