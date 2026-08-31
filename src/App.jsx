@@ -31,7 +31,7 @@ import {
 import {
   DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
-  resolveContractNegotiation, prepareFight, commitFight,
+  resolveContractNegotiation, resolveWeightMoveOffer, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
@@ -534,6 +534,10 @@ export default function CageLab() {
   function handleOffCycleEvent(choice) {
     sfx("select");
     setCareerState(resolveOffCycleEvent(careerState, choice));
+  }
+  function handleWeightMoveOffer(accept) {
+    sfx("select");
+    setCareerState(resolveWeightMoveOffer(careerState, accept));
   }
   function handleContractNegotiation(contractId) {
     sfx("select");
@@ -1074,6 +1078,25 @@ export default function CageLab() {
               </div>
             </div>
           )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "weightMoveOffer" && (
+            <div className="decision-panel">
+              <div className="decision-title">
+                {careerState.pendingDecision.direction === "up" ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
+                {" "}Weight Class Change
+              </div>
+              <div className="decision-sub">
+                Your team thinks a move {careerState.pendingDecision.direction} to {careerState.pendingDecision.targetDivision} could pay off. It's your call.
+              </div>
+              <div className="choice-row">
+                <button className="choice-btn danger" onClick={() => handleWeightMoveOffer(true)}>
+                  Make the Move<span>New division, fresh Top 15, back to Unranked -- rank and rankPoints don't carry over</span>
+                </button>
+                <button className="choice-btn" onClick={() => handleWeightMoveOffer(false)}>
+                  Stay in {careerState.division}<span>Keep your ranking and everything you've built here</span>
+                </button>
+              </div>
+            </div>
+          )}
           {careerState.pendingDecision && careerState.pendingDecision.type === "contractNegotiation" && (
             <div className="decision-panel contract-panel">
               <div className="decision-title"><FileSignature size={15} /> You've Made Premier</div>
@@ -1380,6 +1403,14 @@ export default function CageLab() {
                   {/* A real division change now, not flavor text -- new
                       weight class, fresh roster, back to Unranked there. */}
                   Moving {e.direction} to {e.division} — a new division means a fresh Top 15 and starting back at Unranked, plus a short physical adjustment period.
+                </div>
+              );
+            }
+            if (e.type === "weightMoveDeclined") {
+              return (
+                <div className="event-card" key={e.id}>
+                  <Megaphone size={15} />
+                  Stayed in {e.division} -- the team's suggestion to change weight classes went nowhere.
                 </div>
               );
             }

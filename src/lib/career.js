@@ -1277,28 +1277,23 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   s.champion = champion;
 
-  // Weight-class move: a genuine division change, not just a flavor line
-  // and a temporary stat hit. New division name, a freshly generated
-  // roster for it (a different weight class's Top 15 has nothing to do
-  // with the one just left behind), and starting back at the bottom there
-  // -- rank, rankPoints, and a held title don't follow you across weight
-  // classes any more than they would in real life. The circuit tier
-  // itself (Regional/National/Premier) is untouched -- this is a lateral
-  // move, not a promotion or demotion. Bounded at the ends of the weight
-  // class list (no moving "up" from Heavyweight or "down" from Flyweight).
+  // Weight-class move used to apply itself silently and unconditionally --
+  // a 1-in-20 chance every year, no warning, wiping rank/rankPoints/title
+  // status the instant it rolled true. A player could have a real 9-1 run
+  // going, never see it coming, and have no idea why they were suddenly
+  // "Unranked" again. Now it's an offer, not a fait accompli: the roll
+  // still decides whether the opportunity comes up at all, but applying it
+  // -- and eating the reset that comes with it -- is the player's call,
+  // same as every other career decision. See resolveWeightMoveOffer.
+  let weightMoveOffer = null;
   if (s.weightPenaltyFightsLeft <= 0 && Math.random() < 0.05) {
     const classIdx = WEIGHT_CLASSES.indexOf(s.division);
     const canGoUp = classIdx !== -1 && classIdx < WEIGHT_CLASSES.length - 1;
     const canGoDown = classIdx !== -1 && classIdx > 0;
     if (canGoUp || canGoDown) {
       const direction = canGoUp && (!canGoDown || Math.random() < 0.5) ? "up" : "down";
-      s.division = WEIGHT_CLASSES[direction === "up" ? classIdx + 1 : classIdx - 1];
-      s.divisionRoster = buildDivision();
-      s.playerRank = null;
-      s.rankPoints = 0;
-      s.champion = false;
-      s.weightPenaltyFightsLeft = 2;
-      timeline.push({ type: "weightMove", id: `wm-${s.year}`, direction, division: s.division });
+      const targetDivision = WEIGHT_CLASSES[direction === "up" ? classIdx + 1 : classIdx - 1];
+      weightMoveOffer = { direction, targetDivision };
     }
   }
 
@@ -1322,6 +1317,32 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   s.timeline = timeline;
   s.fightsRemainingThisYear = fightsThisYear;
+  s.pendingDecision = weightMoveOffer ? { type: "weightMoveOffer", ...weightMoveOffer } : null;
+  return s;
+}
+
+// Accepting moves divisions for real: new division name, a freshly built
+// roster (a different weight class's Top 15 has nothing to do with the one
+// just left behind), and starting back at the bottom there -- rank,
+// rankPoints, and a held title don't follow you across weight classes any
+// more than they would in real life. The circuit tier itself (Regional/
+// National/Premier) is untouched -- this is a lateral move, not a
+// promotion or demotion. Declining costs nothing -- same division, same
+// standing, camp just moves on.
+function resolveWeightMoveOffer(state, accept) {
+  const s = { ...state };
+  if (accept) {
+    const { direction, targetDivision } = state.pendingDecision;
+    s.division = targetDivision;
+    s.divisionRoster = buildDivision();
+    s.playerRank = null;
+    s.rankPoints = 0;
+    s.champion = false;
+    s.weightPenaltyFightsLeft = 2;
+    s.timeline = [...s.timeline, { type: "weightMove", id: `wm-${s.year}-${s.fightGlobalIndex}`, direction, division: s.division }];
+  } else {
+    s.timeline = [...s.timeline, { type: "weightMoveDeclined", id: `wmd-${s.year}-${s.fightGlobalIndex}`, division: s.division }];
+  }
   s.pendingDecision = null;
   return s;
 }
@@ -2087,6 +2108,11 @@ function fastForwardCareer(state) {
         s = resolveMediaEvent(s, false);
       } else if (s.pendingDecision.type === "offCycleEvent") {
         s = resolveOffCycleEvent(s, "charityWork");
+      } else if (s.pendingDecision.type === "weightMoveOffer") {
+        // Decline by default -- a fast-forwarded career has no player
+        // actually weighing the trade-off, and the safe default is the one
+        // that doesn't wipe rank/rankPoints progress out from under them.
+        s = resolveWeightMoveOffer(s, false);
       } else if (s.pendingDecision.type === "contractNegotiation") {
         // Show Money is the safe, no-regrets default for a fast-forwarded
         // career with no player actually weighing the trade-off.
@@ -2245,6 +2271,7 @@ export {
   resolveMediaEvent,
   resolveOffCycleEvent,
   resolveTrainingEvent,
+  resolveWeightMoveOffer,
   runFight,
   verdictFor,
 };
