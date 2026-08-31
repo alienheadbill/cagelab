@@ -1676,11 +1676,14 @@ function commitFight(state) {
           }
         : f
     ));
-    // Beating someone ranked above you takes their spot.
-    if (result.win && oppRank > 0 && s.playerRank != null && oppRank < s.playerRank) {
-      s.playerRank = oppRank;
-    } else if (result.win && s.playerRank == null) {
-      s.playerRank = Math.max(1, oppRank);
+    // Beating someone ranked above you moves you toward their spot -- but
+    // capped, so one callout upset over the #1 contender doesn't teleport a
+    // total unknown straight to #1. Even a shocking win only climbs so far
+    // in one night; closing a big gap takes several real wins, not one.
+    const RANK_CLIMB_CAP = 5;
+    if (result.win && oppRank > 0) {
+      const startRank = s.playerRank != null ? s.playerRank : DIVISION_SIZE + 1;
+      if (oppRank < startRank) s.playerRank = Math.max(oppRank, startRank - RANK_CLIMB_CAP);
     } else if (!result.win && s.playerRank != null) {
       s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
     }
