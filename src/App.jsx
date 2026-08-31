@@ -2,15 +2,15 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Trophy, ChevronRight, Lock, RotateCw, Shuffle, Users, MapPin, AlertTriangle,
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
-  Moon, Sun, Home, ArrowLeft, Download, Volume2, VolumeX, Link2, Repeat, HelpCircle,
-  Target, Megaphone, Award, Globe, Loader2, Swords, Eye, BarChart3, ListOrdered, Dumbbell,
+  Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
+  Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
 } from "lucide-react";
 
 import "./styles.css";
 
-import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
-import { MASTER_FIGHTERS, BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
-import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, decodeSeed, shuffle } from "./lib/rng.js";
+import { ATTRS, ATTR_BY_KEY, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
+import { BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
+import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -21,7 +21,7 @@ import {
   submitChallengeScore, fetchChallengeLeaderboard,
 } from "./lib/supabase.js";
 import { sfx } from "./lib/audio.js";
-import { formatHeight, formatReach, clamp } from "./lib/utils.js";
+import { formatHeight, formatReach } from "./lib/utils.js";
 import {
   tierOf, computeGoatScore, computeGoatScoreBreakdown, relativeHeightScore,
   relativeReachScore, relativeNoteFor, archetypeFor, synergiesFor,
@@ -31,7 +31,7 @@ import {
   DIVISION_SIZE, CLF_TIERS, rankLabel, clfTier, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
-  computeAchievements, rankToTierCls, ARCHETYPE_TAGLINES, calculateLegacy, verdictFor,
+  computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
 
 import TierIcon from "./components/TierIcon.jsx";
@@ -974,6 +974,17 @@ export default function CageLab() {
                   </div>
                 </div>
               </div>
+
+              {careerState.pendingFight.matchup && (() => {
+                const m = careerState.pendingFight.matchup;
+                const warn = m.label === "Dangerous Matchup" || m.label === "Nightmare Matchup";
+                return (
+                  <div className={`matchup-line ${warn ? "warn" : ""}`}>
+                    {warn && <AlertTriangle size={12} />}
+                    Your {ATTR_BY_KEY[m.yourStrength.key].label} {Math.round(m.yourStrength.value)} vs their {ATTR_BY_KEY[m.oppStrength.key].label} {Math.round(m.oppStrength.value)} &mdash; {m.label}
+                  </div>
+                );
+              })()}
 
               <div className="prefight-odds-row">
                 <div className={`odds-chip ${careerState.pendingFight.winProb >= 0.5 ? "favorite" : ""}`}>{careerState.pendingFight.youOdds}</div>

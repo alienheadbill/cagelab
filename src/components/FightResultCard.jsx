@@ -131,13 +131,18 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {(e.rivalry || e.statement || e.bonusType || (e.playerTraits && e.playerTraits.length > 0)) && (
+      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || (e.playerTraits && e.playerTraits.length > 0)) && (
         <div className="fight-bottom-row">
           <div className="fight-tags">
             {e.rivalry && <div className="fight-tag rivalry">RIVALRY</div>}
             {e.statement && <div className="fight-tag statement">STATEMENT WIN</div>}
             {e.bonusType === "performance" && <div className="fight-tag bonus">PERFORMANCE BONUS</div>}
             {e.bonusType === "fotn" && <div className="fight-tag bonus">FIGHT OF THE NIGHT</div>}
+            {/* Betting odds are shown pre-fight now -- a real underdog win
+                (winProb < .35 at the odds the player actually saw) earns a
+                Legacy Score bump (see career.js) and, so that bonus isn't
+                invisible, this tag. */}
+            {e.underdogWin && <div className="fight-tag bonus">UPSET WIN</div>}
             {(e.playerTraits || []).map((t) => (
               <div className="fight-tag trait" key={t} title={TRAIT_DEFS[t] ? TRAIT_DEFS[t].desc : ""}>
                 {TRAIT_DEFS[t] ? TRAIT_DEFS[t].label : t}
