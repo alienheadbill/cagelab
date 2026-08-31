@@ -143,7 +143,18 @@ export default function CageLab() {
   const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
   const preferredMode = loadJSON(LS_PREF_MODE, "classic");
 
-  function goHome() { setPhase("home"); }
+  function goHome() {
+    // Abandoning a draft before it produced a real GOAT score shouldn't
+    // leave its `mode` tag hanging around in state for whatever happens
+    // next -- e.g. an accidental tap on the Daily card, backed out of
+    // immediately via this exact button, used to silently carry "daily"
+    // into an unrelated Career started right after (nothing else ever
+    // resets `mode` on its own). A draft that actually finished (goatScore
+    // set) is a real result, so its mode is left alone -- the player might
+    // still come back and start a Career from it correctly tagged.
+    if (goatScore === null) setMode("classic");
+    setPhase("home");
+  }
   function toggleDark() { setDarkMode((v) => { const n = !v; saveJSON(LS_DARK_MODE, n); return n; }); }
   function toggleSound() { setSoundOn((v) => { const n = !v; saveJSON(LS_SOUND_ON, n); if (n) sfx("select"); return n; }); }
   function toggleReducedMotion() { setReducedMotion((v) => { const n = !v; saveJSON(LS_REDUCED_MOTION, n); return n; }); }
@@ -419,6 +430,11 @@ export default function CageLab() {
 
   function launchCareer(opts) {
     sfx("select");
+    // Re-sync `mode` to whichever build is actually being launched, rather
+    // than trusting whatever the app's live mode happens to be -- picking a
+    // saved build here (originally drafted Daily, say) shouldn't leave a
+    // Classic run afterward mislabeled, and vice versa.
+    setMode(opts.originMode || "classic");
     setPicks(opts.picks);
     setFighterName(opts.name);
     setCareerState(initCareer(opts.picks, {
@@ -637,6 +653,7 @@ export default function CageLab() {
           currentPicks={Object.keys(picks).length === ATTRS.length ? picks : null}
           currentName={name}
           currentDivision={lockedDivision}
+          currentMode={mode}
           onLaunch={launchCareer}
           onBack={() => setPhase(goatScore !== null ? "draftDone" : "home")}
         />
