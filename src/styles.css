@@ -152,6 +152,43 @@
         .collection-row-sub { font-size: 11px; color: var(--slate); margin-top: 1px; }
         .empty-txt { font-size: 12px; color: var(--slate); }
 
+        /* ---- My Legacy: Hall of Fame cards + detail view ---- */
+        .saved-build-scores { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+        .build-value-chip { font-size: 9.5px; color: var(--slate); font-weight: 600; }
+        .legacy-empty { text-align: center; padding: 30px 10px; color: var(--slate); }
+        .legacy-empty svg { color: var(--brass); opacity: 0.8; margin-bottom: 8px; }
+        .legacy-empty-title { font-family: 'Anton', sans-serif; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+        .legacy-empty-text { font-size: 12px; max-width: 260px; margin: 0 auto; }
+
+        .legacy-card { display: block; width: 100%; text-align: left; border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px;
+          background: var(--card-bg); padding: 12px 14px; margin-bottom: 10px; cursor: pointer; touch-action: manipulation; color: var(--ink); }
+        .legacy-card:active { transform: scale(0.98); }
+        /* Bronze/silver stay understated; gold/legend pick up the same
+           brass glow the rest of the app already reserves for real
+           accomplishments (see .event-card-wrap.title-event) -- the best
+           careers should visually read as the best careers. */
+        .legacy-card.legacy-gold { border-color: rgba(224,172,58,0.5); }
+        .legacy-card.legacy-legend { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 16px rgba(224,172,58,0.16); }
+        .legacy-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .legacy-card-name { font-weight: 700; font-size: 15px; }
+        .legacy-card-score { text-align: right; flex-shrink: 0; }
+        .legacy-card-score-num { font-size: 20px; font-weight: 800; color: var(--brass); line-height: 1; }
+        .legacy-card-score-lbl { font-size: 8px; letter-spacing: 0.06em; color: var(--slate); text-transform: uppercase; }
+        .legacy-card-sub { font-size: 12px; color: var(--slate); margin-top: 2px; }
+        .legacy-card-stats { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--slate); }
+        .legacy-card-stats b { color: var(--ink); font-size: 13px; margin-right: 3px; }
+        .legacy-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+        .legacy-champ-tag { display: inline-flex; align-items: center; gap: 3px; background: rgba(224,172,58,0.22); color: var(--brass); }
+        .legacy-rank-tag, .legacy-division-tag { background: rgba(154,143,125,0.12); color: #ADA290; }
+
+        .legacy-detail-back { margin-bottom: 10px; display: inline-flex; align-items: center; gap: 4px; }
+        .legacy-detail-head { text-align: center; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed rgba(154,143,125,0.2); }
+        .legacy-detail-name { font-size: 22px; }
+        .legacy-detail-sub { font-size: 12px; color: var(--slate); margin-top: 2px; }
+        .legacy-detail-champ-badge { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 10.5px;
+          font-weight: 700; color: var(--brass); background: rgba(224,172,58,0.14); padding: 3px 9px; border-radius: 5px; }
+        .legacy-detail-verdict { text-align: center; font-size: 12px; color: var(--slate); margin-top: 8px; font-style: italic; }
+
         .tape-card { padding: 13px 15px; }
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }

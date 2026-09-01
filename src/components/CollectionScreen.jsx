@@ -1,11 +1,28 @@
 import React, { useState, useRef } from "react";
-import { ArrowLeft, Star, Eye, Download, Upload } from "lucide-react";
+import { ArrowLeft, Star, Eye, Download, Upload, Award } from "lucide-react";
 import { computePlayerProfile } from "../lib/career.js";
-import { buildScorecardText } from "../lib/scoring.js";
+import { buildScorecardText, computeBuildValueBreakdown } from "../lib/scoring.js";
 import { exportAllData, importAllData } from "../lib/storage.js";
 import { sfx } from "../lib/audio.js";
+import LegacyCareerCard from "./LegacyCareerCard.jsx";
+import LegacyCareerDetail from "./LegacyCareerDetail.jsx";
 
-// ---------- Trophy Case / Collection screen ----------
+// Build Value needs the keyed-picks shape (computeBuildValueBreakdown reads
+// picks[key].scoreValue); saved builds -- old and new alike -- always store
+// the flat array with scoreValue on every entry, so this works for every
+// build ever saved with no schema change and no backward-compat gap.
+function buildValueForSavedBuild(build) {
+  const keyed = {};
+  (build.picks || []).forEach((p) => { keyed[p.key] = { scoreValue: p.scoreValue }; });
+  if (Object.keys(keyed).length < 10) return null; // incomplete/malformed entry -- don't guess
+  try {
+    return computeBuildValueBreakdown(keyed).buildValue;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- My Legacy / Collection screen ----------
 function CollectionScreen({
   onBack, dailyStats, savedBuilds, careerHistory, dailyLog, achievements,
   reducedMotion, onToggleReducedMotion, onLoadBuild, onClearBuilds, onClearCareers, onImportFile,
@@ -16,9 +33,16 @@ function CollectionScreen({
   // Default straight to the Builds tab when there's anything saved -- that's
   // the thing people come back for most, so it shouldn't need a tap+scroll.
   const [activeTab, setActiveTab] = useState(savedBuilds.length > 0 ? "builds" : "profile");
+  // Which historical career, if any, is currently opened in the Legacy
+  // detail view. Local to this screen -- no App-level phase needed.
+  const [selectedCareerId, setSelectedCareerId] = useState(null);
   const profile = computePlayerProfile({ dailyStats, savedBuilds, careerHistory });
+  // CageLab's own existing holistic "how great was this career" number --
+  // sorting by it is reuse, not a new ranking algorithm.
+  const sortedCareers = [...careerHistory].sort((a, b) => (b.legacyScore || 0) - (a.legacyScore || 0));
+  const selectedCareer = selectedCareerId ? careerHistory.find((c) => c.id === selectedCareerId) : null;
 
-  // Quick clipboard copy straight from Trophy Case, without leaving the screen --
+  // Quick clipboard copy straight from My Legacy, without leaving the screen --
   // reconstructs just enough of the picks shape for buildScorecardText to read.
   function copyBuildScorecard(build) {
     const picksForText = {};
@@ -41,7 +65,7 @@ function CollectionScreen({
     <div className="panel">
       <div className="section-head-row">
         <button className="icon-btn" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button>
-        <div className="attr-name">Trophy Case</div>
+        <div className="attr-name">My Legacy</div>
       </div>
 
       <div className="tab-bar">
@@ -112,14 +136,24 @@ function CollectionScreen({
             {savedBuilds.length > 0 && <button className="text-btn" onClick={onClearBuilds}>Clear</button>}
           </div>
           {savedBuilds.length === 0 && <div className="empty-txt">No builds saved yet — finish a draft and hit "Save Build" to see it here.</div>}
-          {savedBuilds.map((b) => (
+          {savedBuilds.map((b) => {
+            const bv = buildValueForSavedBuild(b);
+            return (
             <div className="saved-build-card" key={b.id}>
               <div className="collection-row" style={{ borderTop: "none", padding: "0 0 8px" }}>
                 <div>
                   <div className="collection-row-title">{b.fighterName}</div>
                   <div className="collection-row-sub mono">{b.mode} &middot; {new Date(b.savedAt).toLocaleDateString()}</div>
                 </div>
-                <div className="tier-badge tier-gold"><Star size={11} /> {b.goatScore}</div>
+                <div className="saved-build-scores">
+                  <div className="tier-badge tier-gold"><Star size={11} /> {b.goatScore}</div>
+                  {/* GOAT Score stays visually primary (matches the build-reveal
+                      screen's own hierarchy) -- Build Value is a smaller,
+                      secondary chip alongside it, not a second hero number.
+                      Derived on the fly from the build's own stored picks, so
+                      every saved build (old or new) already has what it needs. */}
+                  {bv != null && <div className="build-value-chip mono">{bv} BV</div>}
+                </div>
               </div>
               <div className="saved-build-actions">
                 <button className="text-btn" onClick={() => onLoadBuild(b)}>Load into Career</button>
@@ -128,26 +162,37 @@ function CollectionScreen({
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {activeTab === "careers" && (
         <div className="collection-block">
-          <div className="collection-block-title-row">
-            <div className="collection-block-title">Recent Careers ({careerHistory.length})</div>
-            {careerHistory.length > 0 && <button className="text-btn" onClick={onClearCareers}>Clear</button>}
-          </div>
-          {careerHistory.length === 0 && <div className="empty-txt">No careers played yet.</div>}
-          {careerHistory.map((c) => (
-            <div className="collection-row" key={c.id}>
-              <div>
-                <div className="collection-row-title">{c.fighterName}</div>
-                <div className="collection-row-sub mono">{c.record.w}-{c.record.l} &middot; {c.verdict}</div>
+          {selectedCareer ? (
+            <LegacyCareerDetail career={selectedCareer} onBack={() => setSelectedCareerId(null)} />
+          ) : (
+            <>
+              <div className="collection-block-title-row">
+                <div className="collection-block-title">Career Archive ({careerHistory.length})</div>
+                {careerHistory.length > 0 && <button className="text-btn" onClick={onClearCareers}>Clear</button>}
               </div>
-              <div className="mono" style={{ fontWeight: 600 }}>{c.legacyScore}</div>
-            </div>
-          ))}
+              {careerHistory.length === 0 ? (
+                <div className="legacy-empty">
+                  <Award size={28} />
+                  <div className="legacy-empty-title">Your Legacy Starts Here</div>
+                  <div className="legacy-empty-text">Build a fighter. Take them to the top. Their career will live here.</div>
+                </div>
+              ) : (
+                <>
+                  <div className="help-text" style={{ marginBottom: 10 }}>Sorted by Legacy Score — your greatest careers first.</div>
+                  {sortedCareers.map((c) => (
+                    <LegacyCareerCard key={c.id} career={c} onOpen={() => setSelectedCareerId(c.id)} />
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -172,7 +217,7 @@ function CollectionScreen({
                 const file = e.target.files && e.target.files[0];
                 if (!file) return;
                 importAllData(file, (ok) => {
-                  setImportMsg(ok ? "Imported! Reopen Trophy Case to refresh." : "Import failed — invalid file.");
+                  setImportMsg(ok ? "Imported! Reopen My Legacy to refresh." : "Import failed — invalid file.");
                   if (ok) onImportFile();
                 });
               }}

@@ -430,6 +430,17 @@ export default function CageLab() {
   }
 
 
+  // Flat, storable snapshot of a picks object -- shared by saveCurrentBuild
+  // and saveCareerToHistory so a historical career's build looks exactly
+  // like a normally-saved one and can reuse the same reconstruction/render
+  // path (see AttributeBarList usage in CollectionScreen).
+  function picksSnapshotArray(picksObj) {
+    return ATTRS.map((a) => ({
+      key: a.key, label: a.label, fighter: picksObj[a.key].fighter,
+      display: picksObj[a.key].display, scoreValue: picksObj[a.key].scoreValue, raw: picksObj[a.key].raw,
+    }));
+  }
+
   function saveCurrentBuild() {
     sfx("select");
     const builds = loadJSON(LS_SAVED_BUILDS, []);
@@ -444,7 +455,7 @@ export default function CageLab() {
       // those two rounds -- both now carry straight into Career Setup
       // instead of being re-picked there (see CareerSetupPanel).
       division: lockedDivision,
-      picks: ATTRS.map((a) => ({ key: a.key, label: a.label, fighter: picks[a.key].fighter, display: picks[a.key].display, scoreValue: picks[a.key].scoreValue, raw: picks[a.key].raw })),
+      picks: picksSnapshotArray(picks),
     };
     saveJSON(LS_SAVED_BUILDS, [entry, ...builds].slice(0, 20));
     setBuildSaved(true);
@@ -480,6 +491,25 @@ export default function CageLab() {
     setPhase("draftDone");
   }
 
+  // Careers kept in history, newest first -- raised from 10. Ten was too
+  // small to feel like an archive, and computePlayerProfile's lifetime
+  // totals (careersCompleted, championships, hofCareers) already read this
+  // array's full length/contents, so anyone past 10 completed careers was
+  // silently undercounting their own lifetime stats even before My Legacy
+  // existed -- this also fixes that.
+  const CAREER_HISTORY_CAP = 50;
+
+  // Snapshots a finished career for My Legacy. Everything here is read
+  // straight off `result` (the just-finished careerState) or the current
+  // `picks`/`goatScore` closure -- both are guaranteed to still describe
+  // THIS career, since a new draft can't start while one is in progress.
+  // No new career.js state was added to support this: peakPlayerRank,
+  // peakCircuitTier, division, careerStyle, and the final champion flag
+  // were already being computed and held on careerState, just never
+  // persisted past the session. This is a one-time snapshot, not a live
+  // value -- if ranking or scoring formulas change later, this entry does
+  // not recompute or drift; it stays exactly what was true when this
+  // career ended.
   function saveCareerToHistory(result) {
     const history = loadJSON(LS_CAREER_HISTORY, []);
     const entry = {
@@ -489,8 +519,12 @@ export default function CageLab() {
       titleDefenses: result.titleDefenses, rivalryWins: result.rivalryWins,
       statementWins: result.statementWins, longestStreak: result.longestStreak,
       totalFightCount: result.totalFightCount, wonTitleAsUnderdog: result.wonTitleAsUnderdog,
+      peakPlayerRank: result.peakPlayerRank, peakCircuitTier: result.peakCircuitTier,
+      division: result.division, careerStyle: result.careerStyle, champion: result.champion,
+      goatScore, buildValue: buildValueInfo ? buildValueInfo.buildValue : null,
+      picks: picksSnapshotArray(picks),
     };
-    saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, 10));
+    saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, CAREER_HISTORY_CAP));
   }
 
   // "Start Career" routes through the setup screen rather than launching

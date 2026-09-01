@@ -2376,4 +2376,5 @@ export {
   resolveWeightMoveOffer,
   runFight,
   verdictFor,
+  VERDICT_ORDER,
 };

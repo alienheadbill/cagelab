@@ -172,7 +172,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
 
       <div className="home-footer-row">
         <button className="btn btn-ghost small-btn" onClick={onCareer}><Swords size={14} /> {hasActiveCareer ? "Continue Career" : "Career"}</button>
-        <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> Trophy Case</button>
+        <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> My Legacy</button>
         <button className="btn btn-ghost small-btn" onClick={onHelp}><HelpCircle size={14} /> How to Play</button>
       </div>
     </div>
