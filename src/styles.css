@@ -218,6 +218,33 @@
         .lab-derived-score { color: var(--slate); font-weight: 400; }
         .lab-slider { width: 100%; accent-color: var(--brass); height: 20px; touch-action: manipulation; }
 
+        /* Phase 2: two fighters side by side on desktop, stacked on mobile --
+           same >=900px convention .draft-flex already uses. */
+        .lab-fighters-flex { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
+        .lab-fighters-flex > .lab-fighter-panel, .lab-fighters-flex > .lab-empty { margin-bottom: 0; }
+        @media (min-width: 900px) {
+          .lab-fighters-flex { flex-direction: row; align-items: flex-start; }
+          .lab-fighters-flex > * { flex: 1; min-width: 0; }
+        }
+
+        .lab-comparison { padding: 16px; }
+        .lab-compare-identity { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .lab-compare-name { font-weight: 700; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lab-compare-name:last-child { text-align: right; }
+        .lab-compare-vs { font-size: 10px; color: var(--slate); flex-shrink: 0; }
+        .lab-compare-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px;
+          padding: 7px 0; border-top: 1px dashed rgba(154,143,125,0.15); }
+        .lab-compare-row:first-of-type { border-top: none; }
+        .lab-compare-val { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+        .lab-compare-val:last-child { justify-content: flex-end; }
+        .lab-compare-val.adv b { color: var(--brass); }
+        .lab-compare-sub { font-size: 9.5px; color: var(--slate); }
+        .lab-compare-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate);
+          text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1px; white-space: nowrap; }
+        .lab-compare-diff { font-size: 9px; color: var(--slate); }
+        .lab-compare-text-row .lab-compare-text { font-size: 11.5px; font-weight: 600; text-align: left; }
+        .lab-compare-text-row .lab-compare-text:last-child { text-align: right; }
+
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }
         .tape-sub-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
@@ -294,6 +321,10 @@
         .radar-spoke { stroke: rgba(154,143,125,0.18); stroke-width: 1; }
         .radar-benchmark { fill: none; stroke: var(--brass); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0.7; animation: radarDraw 0.9s ease; }
         .radar-build { fill: rgba(224,172,58,0.22); stroke: var(--ember); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 0; animation: radarDraw 0.9s ease 0.15s backwards; }
+        /* Same "you = brass/ember, opponent = blood" language FightResultCard
+           already uses -- Fighter B in a comparison reads as an opponent,
+           not a second benchmark. */
+        .radar-opponent { fill: rgba(214,54,43,0.14); stroke: var(--blood); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; animation: radarDraw 0.9s ease; }
         /* The draw-in "hidden" state lives only inside the keyframe, not as a
            static rule -- with .reduced-motion cancelling the animation
            (animation: none !important), the shape falls back to the plain
@@ -305,6 +336,7 @@
         .radar-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
         .radar-swatch.build { background: var(--ember); }
         .radar-swatch.benchmark { border: 1.5px dashed var(--brass); }
+        .radar-swatch.opponent { background: var(--blood); }
         .build-board-caption { font-size: 10.5px; letter-spacing: 0.06em; color: var(--slate); text-align: center; text-transform: uppercase; }
         .build-board.compact .build-board-caption { font-size: 10px; }
 
