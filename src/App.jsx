@@ -325,7 +325,7 @@ export default function CageLab() {
       return { fighter: fighter.n, raw: fighter.rc, display: formatReach(fighter.rc), scoreValue, relativeNote: relativeNoteFor("reach", scoreValue) };
     }
     const rating = fighter[attrKey];
-    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating };
+    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating, relativeNote: relativeNoteFor("skill", rating) };
   }
 
   function recordDailyCompletion(score) {
@@ -344,9 +344,15 @@ export default function CageLab() {
 
   function handlePick(fighter) {
     if (pickedFighterId || isRolling) return; // ignore taps mid-animation
-    sfx("select");
-    setPickedFighterId(fighter.id);
     const value = valueFor(fighter, currentAttrKey);
+    // A 96+ pick is the one moment GOAT Score itself calls special (the
+    // full elite bonus, see computeGoatScoreBreakdown) -- give it a
+    // distinct chime instead of the same tone every pick gets. Gated on
+    // !blind: the real rating is still computed under the hood there (the
+    // display just hides it), so this can't fire without leaking exactly
+    // the number Blind mode is built to hide.
+    sfx(!blind && value.scoreValue >= 96 ? "elite" : "select");
+    setPickedFighterId(fighter.id);
     const nextPicks = { ...picks, [currentAttrKey]: value };
     const isFinalRound = round >= ATTRS.length;
 

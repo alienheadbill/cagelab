@@ -12,6 +12,12 @@ function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selecte
   // so color communicates quality at a glance instead of just rotating for variety.
   const band = blind ? "pc-blind" : `pc-${tier.cls.replace("tier-", "")}`;
   const related = RELATED_ATTRS[currentAttrKey] || [];
+  // A 96+ pick earns the full elite bonus in GOAT Score (see
+  // computeGoatScoreBreakdown) -- give the moment a stronger pop than an
+  // ordinary pick, on top of the shared selectPop every pick already gets.
+  // Never in Blind: the real value is still there under the hood, and this
+  // would visually announce it the instant the number itself is hidden.
+  const eliteSelect = selected && !blind && value.scoreValue >= 96;
 
   function relatedValue(key) {
     const relAttr = ATTR_BY_KEY[key];
@@ -22,7 +28,7 @@ function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selecte
 
   return (
     <div
-      className={`pick-card ${band} ${selected ? "selected" : ""} ${disabled && !selected ? "dimmed" : ""}`}
+      className={`pick-card ${band} ${selected ? "selected" : ""} ${eliteSelect ? "elite-select" : ""} ${disabled && !selected ? "dimmed" : ""}`}
       onClick={disabled ? undefined : onPick}
       role="button" tabIndex={disabled ? -1 : 0}
       aria-label={`Pick ${fighter.n}, ${attr.label} ${blind ? "hidden" : value.display}`}

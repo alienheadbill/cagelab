@@ -159,10 +159,13 @@
         .tape-sub { font-size: 10px; color: var(--slate); letter-spacing: 0.1em; display: flex; align-items: center; }
         .live-goat { display: flex; align-items: baseline; gap: 3px; background: rgba(154,143,125,0.1); border: 1px solid rgba(154,143,125,0.28);
           border-radius: 6px; padding: 2px 7px; }
-        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--ink); display: inline-block; animation: pulseScale 0.4s ease; }
         .live-goat.hidden-value { background: rgba(154,143,125,0.08); border-color: rgba(154,143,125,0.22); }
         .live-goat.hidden-value .live-goat-num, .live-goat.hidden-value .live-goat-lbl { color: var(--slate); }
         .live-goat-lbl { font-size: 8px; letter-spacing: 0.05em; color: var(--slate); }
+        .live-goat-delta { font-size: 10.5px; font-weight: 700; margin-left: 2px; animation: cardIn 0.2s ease; }
+        .live-goat-delta.up { color: var(--brass); }
+        .live-goat-delta.down { color: var(--blood); }
 
         .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
         .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0; }
@@ -280,6 +283,16 @@
            flash, which stays reserved for the handful of true hero moments. */
         .pick-card.selected { animation: selectPop 0.3s ease; border-color: var(--brass); z-index: 1; position: relative; }
         .pick-card.dimmed { opacity: 0.35; pointer-events: none; }
+        @keyframes eliteSelectPop {
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(204,106,46,0); }
+          35% { transform: scale(1.06); box-shadow: 0 0 0 10px rgba(224,172,58,0.35); }
+          70% { transform: scale(1.02); box-shadow: 0 0 0 4px rgba(204,106,46,0.2); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
+        }
+        /* One of the true hero moments the comment above reserves the
+           full-strength flash for -- a 96+ pick earns the full elite bonus
+           in GOAT Score, so it earns a bigger pop than the routine one. */
+        .pick-card.selected.elite-select { animation: eliteSelectPop 0.45s ease; border-color: var(--ember); }
 
         .btn { font-family: 'Anton', sans-serif; letter-spacing: 0.03em; border: none; border-radius: 8px; padding: 14px 18px; font-size: 16px;
           cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: transform 0.1s ease, opacity 0.15s ease;

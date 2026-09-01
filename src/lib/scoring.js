@@ -21,9 +21,20 @@ function relativeNoteFor(kind, scoreValue) {
     if (scoreValue <= 60) return "Short for class";
     return null;
   }
-  if (scoreValue >= 90) return "Massive reach";
-  if (scoreValue >= 80) return "Long arms";
-  if (scoreValue <= 60) return "Short arms";
+  if (kind === "reach") {
+    if (scoreValue >= 90) return "Massive reach";
+    if (scoreValue >= 80) return "Long arms";
+    if (scoreValue <= 60) return "Short arms";
+    return null;
+  }
+  // Standard skill ratings -- flags the two GOAT Score breakpoints that
+  // the tier color alone doesn't show (see computeGoatScoreBreakdown):
+  // 96+ earns the FULL elite bonus (90-95 only earns half, despite both
+  // reading as the same "legendary" tier color), and sub-65 ratings start
+  // actually costing points, not just reading as a plain bronze number.
+  if (scoreValue >= 96) return "Max elite bonus";
+  if (scoreValue < 55) return "Real weak spot";
+  if (scoreValue < 65) return "Costs you in GOAT Score";
   return null;
 }
 
