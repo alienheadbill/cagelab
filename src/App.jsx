@@ -54,6 +54,7 @@ import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
+import LabScreen from "./components/LabScreen.jsx";
 
 // Career History used to render strictly oldest-first, so on anything but a
 // brand-new career the most recent fight or event -- the thing you'd
@@ -751,6 +752,7 @@ export default function CageLab() {
           onStart={startDraft}
           onJoinChallenge={(seed) => startDraft("challenge", seed)}
           onCollection={() => setPhase("collection")}
+          onLab={() => setPhase("lab")}
           // A career already in progress resumes straight into it instead of
           // re-entering Career Setup -- that screen's height/reach sliders
           // are for creating a NEW career, and launching from there always
@@ -784,6 +786,14 @@ export default function CageLab() {
           onClearBuilds={() => { saveJSON(LS_SAVED_BUILDS, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onClearCareers={() => { saveJSON(LS_CAREER_HISTORY, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onImportFile={() => { setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
+        />
+      )}
+
+      {phase === "lab" && (
+        <LabScreen
+          onBack={goHome}
+          savedBuilds={loadJSON(LS_SAVED_BUILDS, [])}
+          careerHistory={loadJSON(LS_CAREER_HISTORY, [])}
         />
       )}
 

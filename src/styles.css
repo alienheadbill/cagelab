@@ -107,7 +107,7 @@
         .start-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--brass); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
         .welcome-banner { display: flex; gap: 10px; align-items: flex-start; }
         .welcome-banner svg { flex-shrink: 0; margin-top: 1px; }
-        .home-footer-row { display: flex; gap: 10px; margin-top: 6px; }
+        .home-footer-row { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
         .mode-chip { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 5px; margin-left: 8px; }
 
         .challenge-block { border: 1.5px dashed rgba(154,143,125,0.35); border-radius: 10px; padding: 14px; margin-bottom: 14px; background: rgba(154,143,125,0.05); }
@@ -189,7 +189,35 @@
           font-weight: 700; color: var(--brass); background: rgba(224,172,58,0.14); padding: 3px 9px; border-radius: 5px; }
         .legacy-detail-verdict { text-align: center; font-size: 12px; color: var(--slate); margin-top: 8px; font-style: italic; }
 
-        .tape-card { padding: 13px 15px; }
+        /* ---- The Lab: fighter experimentation workbench ---- */
+        .lab-intro { margin-bottom: 14px; }
+        .lab-empty { text-align: center; padding: 10px 0; }
+        .lab-empty svg { color: var(--brass); opacity: 0.85; margin-bottom: 8px; }
+        .lab-empty-title { font-family: 'Anton', sans-serif; font-size: 15px; color: var(--ink); margin-bottom: 14px; }
+        .lab-source-choices { display: flex; flex-direction: column; gap: 8px; }
+        .lab-source-list { text-align: left; }
+        .lab-source-back { margin-bottom: 8px; }
+        .lab-source-row { width: 100%; background: none; border: none; border-top: 1px dashed rgba(154,143,125,0.18); cursor: pointer;
+          color: var(--ink); touch-action: manipulation; }
+        .lab-source-row:first-of-type { border-top: none; }
+
+        .lab-fighter-panel { padding: 16px; }
+        .lab-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .lab-name-input { flex: 1; border: none; border-bottom: 2px solid var(--ink); background: transparent;
+          font-family: 'Anton', sans-serif; font-size: 17px; padding: 3px 2px 5px; color: var(--ink); outline: none; min-width: 0; }
+        .lab-division-select { width: 100%; border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px;
+          padding: 8px 10px; font-size: 11.5px; color: var(--ink); margin-bottom: 12px; }
+        .lab-stat-grid { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+        .lab-archetype { text-align: center; font-size: 15px; color: var(--brass); margin: 10px 0 6px; }
+
+        .lab-slider-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+        .lab-slider-row { width: 100%; }
+        .lab-slider-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+        .lab-slider-label { font-size: 12px; font-weight: 600; }
+        .lab-slider-value { font-size: 12.5px; font-weight: 700; color: var(--brass); }
+        .lab-derived-score { color: var(--slate); font-weight: 400; }
+        .lab-slider { width: 100%; accent-color: var(--brass); height: 20px; touch-action: manipulation; }
+
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }
         .tape-sub-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }

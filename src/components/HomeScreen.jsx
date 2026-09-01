@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles } from "lucide-react";
+import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles, FlaskConical } from "lucide-react";
 import { todayStr, decodeSeed } from "../lib/rng.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
 import LeaderboardList from "./LeaderboardList.jsx";
 
-function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
+function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
   const [dailyNotice, setDailyNotice] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
@@ -173,6 +173,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
       <div className="home-footer-row">
         <button className="btn btn-ghost small-btn" onClick={onCareer}><Swords size={14} /> {hasActiveCareer ? "Continue Career" : "Career"}</button>
         <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> My Legacy</button>
+        <button className="btn btn-ghost small-btn" onClick={onLab}><FlaskConical size={14} /> The Lab</button>
         <button className="btn btn-ghost small-btn" onClick={onHelp}><HelpCircle size={14} /> How to Play</button>
       </div>
     </div>
