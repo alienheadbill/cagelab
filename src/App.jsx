@@ -15,6 +15,7 @@ import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffl
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
+  LS_HAS_VISITED, LS_SEEN_DRAFT_HINT,
   loadJSON, saveJSON, defaultDailyStats,
 } from "./lib/storage.js";
 import {
@@ -116,6 +117,18 @@ export default function CageLab() {
   const [soundOn, setSoundOn] = useState(() => loadJSON(LS_SOUND_ON, false));
   const [reducedMotion, setReducedMotion] = useState(() => loadJSON(LS_REDUCED_MOTION, false));
   const [displayName, setDisplayName] = useState(() => loadJSON(LS_DISPLAY_NAME, ""));
+  // First-ever visit to this browser -- read once (pure, so it's safe if
+  // StrictMode double-invokes this initializer in dev), stays true in
+  // memory for the rest of THIS session so the welcome treatment doesn't
+  // vanish the instant they navigate away from the home screen and back.
+  // The actual "mark as seen" write happens in the effect below instead of
+  // here -- a side effect inside a lazy initializer is exactly what
+  // StrictMode's double-invoke is designed to catch.
+  const [isFirstVisit] = useState(() => !loadJSON(LS_HAS_VISITED, false));
+  useEffect(() => {
+    if (isFirstVisit) saveJSON(LS_HAS_VISITED, true);
+  }, [isFirstVisit]);
+  const [seenDraftHint, setSeenDraftHint] = useState(() => loadJSON(LS_SEEN_DRAFT_HINT, false));
   const [challengeBoard, setChallengeBoard] = useState([]);
   const [challengeBoardLoading, setChallengeBoardLoading] = useState(false);
   const [dailyResultBoard, setDailyResultBoard] = useState([]);
@@ -674,6 +687,7 @@ export default function CageLab() {
           displayName={displayName}
           onChangeDisplayName={(v) => { setDisplayName(v); saveJSON(LS_DISPLAY_NAME, v); }}
           profile={computePlayerProfile({ dailyStats, savedBuilds: loadJSON(LS_SAVED_BUILDS, []), careerHistory: loadJSON(LS_CAREER_HISTORY, []) })}
+          isFirstVisit={isFirstVisit}
         />
       )}
 
@@ -746,6 +760,29 @@ export default function CageLab() {
                 </div>
               </div>
 
+              {/* Shown once, in place, the first time a player actually
+                  hits round 1 -- not front-loaded into a tutorial wall
+                  before they've seen anything. Covers exactly what the
+                  audit found unexplained: the round mechanic, tier colors
+                  (skipped in Blind, where there's nothing to color), and
+                  respins (skipped in seeded modes, where none exist). */}
+              {!isRolling && round === 1 && !seenDraftHint && (
+                <div className="daily-note draft-hint">
+                  <span className="draft-hint-text">
+                    <Sparkles size={12} />
+                    Pick one fighter each round to lend their {currentAttr.label} rating to your build.
+                    {!blind && " Card color shows the rating tier, bronze to legendary."}
+                    {!isSeeded && " Wrong era or attribute? Each can be re-rolled once, below."}
+                  </span>
+                  <button
+                    className="hint-dismiss"
+                    aria-label="Dismiss hint"
+                    onClick={() => { setSeenDraftHint(true); saveJSON(LS_SEEN_DRAFT_HINT, true); }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               {!isRolling && lockedDivision && (
                 <div className="daily-note division-note">
                   <Lock size={12} /> <b>{lockedDivision}</b> — every round drafts from this division. Era rotates each round.

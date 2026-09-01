@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon } from "lucide-react";
+import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles } from "lucide-react";
 import { todayStr, decodeSeed } from "../lib/rng.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
 import LeaderboardList from "./LeaderboardList.jsx";
 
-function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile }) {
+function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
   const [dailyNotice, setDailyNotice] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
@@ -46,6 +46,20 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
           <TierIcon cls={rankToTierCls(profile.metaRank)} size={12} /> {profile.metaRank.toUpperCase()}
         </div>
       </div>
+
+      {/* First-ever visit to this browser only -- a returning player (even
+          one with zero saved builds yet) never sees this again once they've
+          been here once. Points at one clear starting action (Classic
+          mode) without hiding anything else already on this screen. */}
+      {isFirstVisit && (
+        <div className="event-card good welcome-banner">
+          <Sparkles size={15} />
+          <div>
+            Draft 10 rounds, one fighter's rating per round, and see what you built.
+            New here? <b>Classic</b> below shows every rating as you pick — the fastest way to get a feel for it.
+          </div>
+        </div>
+      )}
 
       {(profile.totalBuilds > 0 || profile.careersCompleted > 0 || profile.dailyStreak > 0) && (
         <div className="progression-strip">
@@ -120,7 +134,13 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
           <Users size={18} />
           <div className="mode-card-title">Classic</div>
           <div className="mode-card-sub">Ratings visible</div>
-          {preferredMode === "classic" && <div className="pref-tag">Last played</div>}
+          {/* preferredMode defaults to "classic" before anyone has actually
+              played, so gate the "Last played" claim behind isFirstVisit --
+              otherwise a brand-new browser sees a false claim of history,
+              right on the card the welcome banner is pointing them at. */}
+          {isFirstVisit ? (
+            <div className="start-tag">Start here</div>
+          ) : preferredMode === "classic" && <div className="pref-tag">Last played</div>}
         </button>
         <button className="mode-card compact" onClick={() => onStart("blind")}>
           <ShieldCheck size={18} />

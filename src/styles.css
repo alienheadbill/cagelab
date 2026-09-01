@@ -104,6 +104,9 @@
         .mode-card-title { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; margin-top: 6px; color: var(--ink); }
         .mode-card-sub { font-size: 11.5px; color: var(--slate); margin-top: 2px; }
         .pref-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.06em; }
+        .start-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--brass); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+        .welcome-banner { display: flex; gap: 10px; align-items: flex-start; }
+        .welcome-banner svg { flex-shrink: 0; margin-top: 1px; }
         .home-footer-row { display: flex; gap: 10px; margin-top: 6px; }
         .mode-chip { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 5px; margin-left: 8px; }
 
@@ -193,6 +196,10 @@
         .division-note b { color: var(--ink); }
 
         .daily-note { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--brass); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .draft-hint { justify-content: space-between; }
+        .draft-hint-text { display: flex; align-items: center; gap: 6px; }
+        .hint-dismiss { background: none; border: none; color: var(--slate); cursor: pointer; padding: 2px 4px; line-height: 1; font-size: 13px; touch-action: manipulation; }
+        .hint-dismiss:active { color: var(--brass); }
         .code-pill { background: rgba(224,172,58,0.14); border: 1px solid var(--brass); border-radius: 5px; padding: 2px 8px; font-weight: 600; }
 
         .respin-row { display: flex; gap: 6px; margin-bottom: 8px; }
