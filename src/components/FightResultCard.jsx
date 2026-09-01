@@ -1,5 +1,5 @@
 import React from "react";
-import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap } from "lucide-react";
+import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical } from "lucide-react";
 import { ATTR_BY_KEY } from "../data/attrs.js";
 import { clfTier, TRAIT_DEFS, rankLabel } from "../lib/career.js";
 
@@ -36,10 +36,24 @@ function FightResultCard({ e, playerName }) {
 
   return (
     <div className={`event-card-wrap ${isTitle ? "title-event" : ""} ${e.win ? "won" : "lost"} ${isFinish ? "finish" : "decision"}`}>
-      {/* Event header -- every fight is a card on a numbered CLF event */}
+      {/* Event header -- every fight is a card on a numbered CLF event,
+          except a Lab simulation, which was never booked on any real card
+          (no eventNumber/circuitTier/cardPosition exist for it) -- the one
+          place this component needed to know it might not be in a Career
+          context, isolated to just this line rather than duplicating the
+          rest of the card for it. */}
       <div className="event-header">
-        <div className="event-name mono">CLF {e.eventNumber} &middot; {tier.short}</div>
-        <div className={`event-position mono ${e.cardPosition === "MAIN EVENT" ? "headline" : ""}`}>{e.cardPosition}</div>
+        {e.labSim ? (
+          <>
+            <div className="event-name mono"><FlaskConical size={12} style={{ verticalAlign: -2, marginRight: 4 }} />THE LAB</div>
+            <div className="event-position mono">SIMULATION</div>
+          </>
+        ) : (
+          <>
+            <div className="event-name mono">CLF {e.eventNumber} &middot; {tier.short}</div>
+            <div className={`event-position mono ${e.cardPosition === "MAIN EVENT" ? "headline" : ""}`}>{e.cardPosition}</div>
+          </>
+        )}
       </div>
 
       {isTitle && (

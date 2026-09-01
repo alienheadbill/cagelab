@@ -245,6 +245,11 @@
         .lab-compare-text-row .lab-compare-text { font-size: 11.5px; font-weight: 600; text-align: left; }
         .lab-compare-text-row .lab-compare-text:last-child { text-align: right; }
 
+        .lab-simulation { padding: 16px; }
+        .lab-sim-intro { margin-bottom: 12px; }
+        .lab-sim-result { margin-top: 14px; }
+
+
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }
         .tape-sub-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }

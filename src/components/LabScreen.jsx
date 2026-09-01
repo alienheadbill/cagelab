@@ -3,6 +3,7 @@ import { ArrowLeft, FlaskConical, Save, Award, Wand2 } from "lucide-react";
 import { hypotheticalFighter, picksFromSnapshotArray, ensurePhysicals, DEFAULT_LAB_DIVISION } from "../lib/lab.js";
 import LabFighterPanel from "./LabFighterPanel.jsx";
 import LabComparison from "./LabComparison.jsx";
+import LabSimulation from "./LabSimulation.jsx";
 
 // Builds a fresh, independent working fighter from a Saved Build or a
 // Legacy career snapshot. picksFromSnapshotArray already builds new
@@ -123,7 +124,12 @@ function LabScreen({ onBack, savedBuilds, careerHistory }) {
         </div>
       )}
 
-      {fighterA && fighterB && <LabComparison fighterA={fighterA} fighterB={fighterB} />}
+      {fighterA && fighterB && (
+        <>
+          <LabComparison fighterA={fighterA} fighterB={fighterB} />
+          <LabSimulation fighterA={fighterA} fighterB={fighterB} />
+        </>
+      )}
     </div>
   );
 }
