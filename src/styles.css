@@ -322,6 +322,13 @@
         .result-eyebrow { font-size: 10px; letter-spacing: 0.16em; color: var(--slate); text-transform: uppercase; }
         .result-fighter-name { font-size: 20px; margin-top: 4px; color: var(--ink); }
         .result-goat-num { font-size: 68px; line-height: 1; color: var(--brass); margin-top: 10px; text-shadow: 0 2px 22px rgba(224,172,58,0.35); }
+        /* Blind mode's brief "still hidden" beat before the real number
+           pops in -- muted like the rest of Blind's hidden-value language
+           (see .live-goat.hidden-value), with the same soft flicker the
+           draft's own "Rolling..." state already uses, so it reads as
+           "resolving" rather than a static placeholder. */
+        .blind-goat-obscured { color: var(--slate); text-shadow: none; animation: rollFlicker 0.5s linear infinite; }
+        .blind-goat-revealed { animation: popIn 0.4s ease; }
         .result-goat-lbl { font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-top: 2px; }
         .result-tier-badge { margin-top: 12px; display: inline-flex; font-size: 11.5px; padding: 5px 12px; }
         /* One-line question under each axis's label -- GOAT Score and Build

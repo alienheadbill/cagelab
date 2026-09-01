@@ -42,6 +42,7 @@ import CopyScorecardButton from "./components/CopyScorecardButton.jsx";
 import ShareCardCanvas from "./components/ShareCardCanvas.jsx";
 import RadarChart from "./components/RadarChart.jsx";
 import AnimatedGoatScore from "./components/AnimatedGoatScore.jsx";
+import BlindGoatReveal from "./components/BlindGoatReveal.jsx";
 import AttributeBarList from "./components/AttributeBarList.jsx";
 import TapeCard from "./components/TapeCard.jsx";
 import FighterPickCard from "./components/FighterPickCard.jsx";
@@ -138,9 +139,24 @@ export default function CageLab() {
   const [pickedFighterId, setPickedFighterId] = useState(null);
   const [isRolling, setIsRolling] = useState(false);
   const [rollPreview, setRollPreview] = useState(null);
+  // True for a brief beat between the final pick landing and the reveal
+  // screen actually mounting -- the "LOCKING IN YOUR BUILD..." interstitial.
+  // Every other round transition already gets one (see isRolling); the
+  // final one, the most important transition in the whole draft, used to
+  // hard-cut straight into the reveal with no anticipation beat at all.
+  const [revealPending, setRevealPending] = useState(false);
   const rollTimeoutRef = useRef(null);
   const pickTimeoutRef = useRef(null);
+  const revealTimeoutRef = useRef(null);
   const dailyRngRef = useRef(null);
+
+  useEffect(() => {
+    if (!revealPending) return undefined;
+    // Reduced Motion removes the wait itself, not just the animation --
+    // same convention as AnimatedGoatScore's own count-up.
+    revealTimeoutRef.current = setTimeout(() => setRevealPending(false), reducedMotion ? 0 : 700);
+    return () => clearTimeout(revealTimeoutRef.current);
+  }, [revealPending, reducedMotion]);
 
   useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
@@ -216,6 +232,8 @@ export default function CageLab() {
   function startDraft(selectedMode, explicitSeed) {
     clearTimeout(pickTimeoutRef.current);
     clearTimeout(rollTimeoutRef.current);
+    clearTimeout(revealTimeoutRef.current);
+    setRevealPending(false);
     setPickedFighterId(null);
     setIsRolling(false);
     setRollPreview(null);
@@ -372,6 +390,12 @@ export default function CageLab() {
         if (mode === "challenge" && challengeSeed != null) {
           submitChallengeScore(encodeSeed(challengeSeed), score, loadJSON(LS_DISPLAY_NAME, ""));
         }
+        // The final pick's own select-pop animation already had its full
+        // 300ms above -- this brief interstitial is the deliberate beat
+        // AFTER that, before the reveal itself mounts (see revealPending
+        // effect). All reveal data is ready and set above; only the
+        // render is held back a moment.
+        setRevealPending(true);
         setPhase("draftDone");
       } else {
         startRoundRoll(round + 1, lockedDivision);
@@ -841,12 +865,31 @@ export default function CageLab() {
         </div>
       )}
 
-      {phase === "draftDone" && goatScore !== null && (
+      {/* The anticipation beat between the final pick and the reveal --
+          reuses the exact "Rolling..." interstitial language the draft
+          itself already uses for every other round transition, so this
+          reads as a natural extension of it rather than a new animation
+          system. Brief on purpose: it's the moment the game is processing
+          the fighter just built, not a loading screen. */}
+      {phase === "draftDone" && goatScore !== null && revealPending && (
+        <div className="panel">
+          <div className="rolling-box">
+            <RotateCw size={26} className="spin-icon" />
+            <div className="rolling-label mono">Locking in your build&hellip;</div>
+          </div>
+        </div>
+      )}
+
+      {phase === "draftDone" && goatScore !== null && !revealPending && (
         <>
           <div className="panel result-hero-panel">
             <div className="result-eyebrow mono">YOUR FIGHTER</div>
             <div className="result-fighter-name display">{name}</div>
-            <div className="result-goat-num display"><AnimatedGoatScore score={goatScore} reducedMotion={reducedMotion} /></div>
+            {blind ? (
+              <BlindGoatReveal score={goatScore} reducedMotion={reducedMotion} />
+            ) : (
+              <div className="result-goat-num display"><AnimatedGoatScore score={goatScore} reducedMotion={reducedMotion} /></div>
+            )}
             <div className="result-goat-lbl mono">GOAT SCORE</div>
             <div className="result-axis-question">How complete is this fighter?</div>
             <div className={`tier-badge result-tier-badge ${goatTier} reveal-stagger reveal-delay-1`}>
