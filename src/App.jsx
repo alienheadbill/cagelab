@@ -676,6 +676,19 @@ export default function CageLab() {
     ? [...careerState.timeline].reverse().find((e) => e.type === "campPlan")
     : null;
 
+  // Season-at-a-glance: how THIS year is going, not the whole career.
+  // Scans back to the most recent "year" divider -- same convention
+  // career.js's own summarizeYear() uses for the year-end recap -- so this
+  // reads as "this year so far" without waiting for the year to actually
+  // end. lastCampPlan above already lands inside this same window (a camp
+  // is planned once, right as each year starts), so it doubles as this
+  // year's plan with no separate lookup needed.
+  const thisYearFights = careerState
+    ? careerState.timeline.slice(careerState.timeline.map((e) => e.type).lastIndexOf("year") + 1).filter((e) => e.type === "fight")
+    : [];
+  const thisYearWins = thisYearFights.filter((f) => f.win).length;
+  const thisYearLosses = thisYearFights.length - thisYearWins;
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -1083,6 +1096,33 @@ export default function CageLab() {
             <div className="progress-bar-fill" style={{ width: `${progressPct}%` }} />
           </div>
           <div className="sim-progress mono">Year {careerState.year} of {careerState.totalYears}</div>
+
+          {/* Season-at-a-glance: "how is THIS year going" used to mean
+              either a trip to the Camp tab (for the plan) or scrolling/
+              counting the timeline yourself (for the record) -- everyone
+              always sees the answer here now, on every tab, not just
+              Career's own. Sits above the tab switch on purpose. */}
+          {!careerState.finished && (
+            <div className="season-glance">
+              <div className="season-glance-row">
+                <span className="season-glance-lbl">This Season</span>
+                <span className="season-glance-record mono">{thisYearWins}-{thisYearLosses}</span>
+              </div>
+              {lastCampPlan && (
+                <div className="season-glance-camp">
+                  {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {lastCampPlan.stance === "standup" ? "Stand-Up" : lastCampPlan.stance === "ground" ? "Ground" : "Balanced"}
+                  {lastCampPlan.focusAttr ? ` · focused on ${ATTR_BY_KEY[lastCampPlan.focusAttr].label}` : ""}
+                </div>
+              )}
+              <div className="season-glance-remaining mono">
+                {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning"
+                  ? "Planning next camp…"
+                  : careerState.fightsRemainingThisYear > 0
+                    ? `${careerState.fightsRemainingThisYear} fight${careerState.fightsRemainingThisYear === 1 ? "" : "s"} remaining this year`
+                    : null}
+              </div>
+            </div>
+          )}
 
           {/* Bottom tab nav (see the fixed bar below) splits the sim screen
               into four views. Decision-first still holds within each: a

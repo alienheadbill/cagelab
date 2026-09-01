@@ -441,6 +441,12 @@
         .legacy-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate); }
         .progress-bar-track { height: 5px; border-radius: 3px; background: rgba(154,143,125,0.15); overflow: hidden; margin: 10px 0 4px; }
         .progress-bar-fill { height: 100%; background: var(--brass); border-radius: 3px; transition: width 0.4s ease; }
+        .season-glance { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; padding: 8px 12px; margin: 10px 0 6px; background: rgba(154,143,125,0.04); }
+        .season-glance-row { display: flex; justify-content: space-between; align-items: baseline; }
+        .season-glance-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate); font-weight: 700; }
+        .season-glance-record { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .season-glance-camp { font-size: 11px; color: var(--slate); margin-top: 3px; }
+        .season-glance-remaining { font-size: 10px; color: var(--brass); margin-top: 3px; }
 
         .year-divider { text-align: center; margin: 16px 0 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
           letter-spacing: 0.16em; color: var(--brass); text-transform: uppercase; animation: cardIn 0.3s ease; }
