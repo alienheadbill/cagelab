@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet, Flame, FlaskConical, Mic,
+  FileSignature, GraduationCap, Wallet, Flame, FlaskConical, Mic, Zap,
 } from "lucide-react";
 
 import "./styles.css";
@@ -32,7 +32,7 @@ import {
 import {
   DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
-  resolveContractNegotiation, resolveWeightMoveOffer, prepareFight, commitFight,
+  resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
@@ -92,6 +92,34 @@ const MATCHMAKER_TAG_META = {
 const MATCHMAKER_UNAVAILABLE_META = {
   ranked: { title: "No Ranked Opponent Available", blurb: "Nobody in the Top 15 is bookable right now." },
   stepUp: { title: "No Step-Up Available", blurb: "No contender has enough momentum to justify the booking right now." },
+};
+
+// Live presentation copy for the four circuitMove transitions -- keyed by
+// the exact from->to the engine already produces, so a new/unexpected
+// pairing just fails the lookup (defensive no-op) instead of ever
+// mismatching a transition to the wrong copy. Only these four exist in the
+// current ladder (see career.js's tier-promotion block).
+const MILESTONE_COPY = {
+  "CLF Regional->CLF National": {
+    eyebrow: "THE CALL CAME IN", showTitle: true, title: "SIGNED — MOVING UP", tierLabel: null,
+    blurb: "Televised cards. Bigger crowds. The division knows your name now.",
+    showTransition: true, cta: "ENTER NATIONAL",
+  },
+  "CLF National->CLF Contender Series": {
+    eyebrow: "YOU GOT THE INVITE", showTitle: false, tierLabel: null,
+    blurb: "ONE FIGHT. ONE CONTRACT. Win here and you're on the Premier roster.",
+    showTransition: true, cta: "ACCEPT THE OPPORTUNITY",
+  },
+  "CLF Contender Series->CLF PREMIER": {
+    eyebrow: "CONTRACT EARNED", showTitle: true, title: "WELCOME TO", tierLabel: null,
+    blurb: "You made the show. The main roster is waiting.",
+    showTransition: false, cta: "CONTINUE",
+  },
+  "CLF Contender Series->CLF National": {
+    eyebrow: "NOT TONIGHT", showTitle: false, tierLabel: "CONTENDER SERIES",
+    blurb: "The contract doesn't come. You're heading back to National — but your standing isn't erased.",
+    showTransition: true, cta: "BACK TO WORK",
+  },
 };
 
 export default function CageLab() {
@@ -618,9 +646,12 @@ export default function CageLab() {
   }
 
   function handleAdvance() {
-    // Whatever was spotlighted has been seen -- let it settle into the
-    // normal history feed as we move on to whatever's next.
-    setSpotlightFightId(null);
+    // Dismissing the spotlight reveals whatever's next -- a pending
+    // milestone, an existing pendingDecision (contract negotiation,
+    // chiefly), or normal flow -- without ever skipping past any of them
+    // by advancing the underlying career state in the same click. The
+    // fight settles into the normal history feed the moment it clears.
+    if (spotlightFightId) { setSpotlightFightId(null); return; }
     const next = advanceCareer(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
@@ -673,6 +704,10 @@ export default function CageLab() {
   function handleContractNegotiation(contractId) {
     sfx("select");
     setCareerState(resolveContractNegotiation(careerState, contractId));
+  }
+  function handleAcknowledgeMilestone() {
+    sfx("select");
+    setCareerState(resolveMilestone(careerState));
   }
   function handleFastForward() {
     setSpotlightFightId(null);
@@ -1208,7 +1243,7 @@ export default function CageLab() {
 
       {phase === "sim" && careerState && (
         <>
-        <div className={`panel sim-panel ${careerTab === "career" && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
+        <div className={`panel sim-panel ${careerTab === "career" && !spotlightFightId && !careerState.pendingMilestone && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
@@ -1267,6 +1302,87 @@ export default function CageLab() {
               auto-switch effect (and a badge on the tab button) makes sure
               neither is ever missed just because the player was elsewhere. */}
           {careerTab === "career" && (
+          <>
+          {/* The fight that was just committed, spotlighted right here
+              instead of only living at the bottom of the history feed --
+              same FightResultCard the timeline itself uses below, just
+              filtered out of that list (see the timeline .filter below)
+              while it's spotlighted so it isn't shown twice at once. Shown
+              unconditionally on spotlightFightId -- NOT gated on
+              pendingDecision -- so a same-fight pendingDecision (contract
+              negotiation on the Contender Series win -> Premier fight,
+              chiefly) can never suppress it the way it used to. Required
+              order is spotlight -> milestone -> pending decision -> normal
+              flow; see the milestone block and the wrapped decision
+              cluster below for the rest of that sequencing. */}
+          {spotlightFightId && (() => {
+            const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
+            if (!spotlightEntry) return null;
+            return (
+              <>
+                <FightResultCard e={spotlightEntry} playerName={name} />
+                {/* Mic Time -- an optional post-fight beat, not a blocking
+                    decision: the targets are read straight off the fight
+                    entry's own micTimeTargets (computed once in commitFight,
+                    never re-derived here). Doing nothing and tapping Next
+                    below is the decline path -- there's no separate dismiss
+                    control needed since the panel disappears with the
+                    spotlight the moment the player moves on. */}
+                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (
+                  <div className="mic-time-panel">
+                    <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
+                    <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
+                    <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
+                    <div className="mic-time-targets">
+                      {spotlightEntry.micTimeTargets.map((t) => (
+                        <button
+                          className="mic-time-target"
+                          key={t.fighterId}
+                          onClick={() => handleFightChoice("callout", t.fighterId)}
+                        >
+                          <span className="mic-time-target-rank mono">{t.rank ? `#${t.rank}` : "UNRANKED"}</span>
+                          <span className="mic-time-target-name">{t.name}</span>
+                          <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
+                  Continue <ChevronRight size={16} />
+                </button>
+              </>
+            );
+          })()}
+          {/* Career Milestone -- "this happened, acknowledge it," distinct
+              from a pendingDecision ("what do you choose"). Only shown
+              once the spotlight above has been dismissed, and always
+              before whatever pendingDecision (contract negotiation, most
+              notably) the same fight-commit may also have set. Reuses the
+              existing promotion-card look (History's circuitMove card) --
+              same up/down border treatment and tier-ramp accent, just
+              blocking here with its own acknowledge button instead of
+              sitting passively in a scroll feed. */}
+          {!spotlightFightId && careerState.pendingMilestone && (() => {
+            const m = careerState.pendingMilestone;
+            const copy = MILESTONE_COPY[`${m.from}->${m.to}`];
+            if (!copy) return null; // defensive only -- every real transition has copy
+            const t = clfTier(m.to);
+            return (
+              <div className={`promotion-card milestone-live ${m.promoted ? "up" : "down"}`}>
+                <div className="promotion-eyebrow mono">
+                  {m.promoted ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                  {copy.eyebrow}
+                </div>
+                {copy.showTitle && <div className="milestone-subtitle">{copy.title}</div>}
+                <div className={`promotion-tier display ${tierRampCls(m.to)}`}>{copy.tierLabel || t.short}</div>
+                <div className="promotion-blurb">{copy.blurb}</div>
+                {copy.showTransition && <div className="promotion-from mono">{clfTier(m.from).short} &rarr; {clfTier(m.to).short}</div>}
+                <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>{copy.cta}</button>
+              </div>
+            );
+          })()}
+          {!spotlightFightId && !careerState.pendingMilestone && (
           <>
           {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
             <div className="decision-panel">
@@ -1432,6 +1548,24 @@ export default function CageLab() {
                   {careerState.pendingFight.choiceTag === "shortNoticeTitle" ? "SHORT-NOTICE TITLE FIGHT" : careerState.pendingFight.isTitleShot ? "FOR THE TITLE" : "TITLE DEFENSE"}
                 </div>
               )}
+              {/* Contender Series is a one-fight showcase, not another
+                  normal booking -- the stakes need to be visible up front,
+                  not buried in the fight-week line below. */}
+              {careerState.pendingFight.isContenderSeriesFight && (
+                <div className="cs-stakes-strap">
+                  <div className="cs-stakes-title mono"><Zap size={14} /> CONTENDER SERIES SHOWCASE</div>
+                  <div className="cs-stakes-row">
+                    <div className="cs-stakes-item win">
+                      <div className="cs-stakes-label mono">WIN</div>
+                      <div className="cs-stakes-value">CLF PREMIER CONTRACT</div>
+                    </div>
+                    <div className="cs-stakes-item loss">
+                      <div className="cs-stakes-label mono">LOSS</div>
+                      <div className="cs-stakes-value">RETURN TO NATIONAL</div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="decision-title"><Calendar size={15} /> Fight Night</div>
               <div className="decision-sub">{careerState.pendingFight.fightWeekLine}</div>
 
@@ -1476,48 +1610,6 @@ export default function CageLab() {
               </div>
             </div>
           )}
-          {/* The fight that was just committed, spotlighted right here
-              instead of only living at the bottom of the history feed --
-              same FightResultCard the timeline itself uses below, just
-              filtered out of that list (see the timeline .filter below)
-              while it's spotlighted so it isn't shown twice at once. It
-              settles into the history the moment the player advances. */}
-          {!careerState.pendingDecision && spotlightFightId && (() => {
-            const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
-            if (!spotlightEntry) return null;
-            return (
-              <>
-                <FightResultCard e={spotlightEntry} playerName={name} />
-                {/* Mic Time -- an optional post-fight beat, not a blocking
-                    decision: the targets are read straight off the fight
-                    entry's own micTimeTargets (computed once in commitFight,
-                    never re-derived here). Doing nothing and tapping Next
-                    below is the decline path -- there's no separate dismiss
-                    control needed since the panel disappears with the
-                    spotlight the moment the player moves on. */}
-                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (
-                  <div className="mic-time-panel">
-                    <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
-                    <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
-                    <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
-                    <div className="mic-time-targets">
-                      {spotlightEntry.micTimeTargets.map((t) => (
-                        <button
-                          className="mic-time-target"
-                          key={t.fighterId}
-                          onClick={() => handleFightChoice("callout", t.fighterId)}
-                        >
-                          <span className="mic-time-target-rank mono">{t.rank ? `#${t.rank}` : "UNRANKED"}</span>
-                          <span className="mic-time-target-name">{t.name}</span>
-                          <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
           {(!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") && (
             <div className="btn-row sim-advance-bar">
               {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" ? (
@@ -1544,6 +1636,8 @@ export default function CageLab() {
                 </button>
               )}
             </div>
+          )}
+          </>
           )}
 
           {/* Recent form: last few results at a glance, no scrolling required. */}

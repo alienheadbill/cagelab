@@ -893,6 +893,27 @@
         .promotion-tier { font-size: 30px; line-height: 1.05; margin: 8px 0 6px; letter-spacing: 0.03em; }
         .promotion-blurb { font-size: 12px; color: var(--slate); max-width: 320px; margin: 0 auto; }
         .promotion-from { font-size: 9.5px; color: var(--slate); margin-top: 10px; opacity: 0.8; }
+        /* Live milestone: same card, blocking instead of passive -- a real
+           acknowledge button, slightly larger tier text than the History
+           card gets. */
+        .promotion-card.milestone-live { padding: 24px 18px; margin-bottom: 14px; }
+        .promotion-card.milestone-live .promotion-tier { font-size: 34px; }
+        .milestone-subtitle { font-size: 11px; letter-spacing: 0.1em; color: var(--slate); font-weight: 600; margin-top: 2px; }
+        .milestone-cta { margin-top: 16px; }
+
+        /* ---- Contender Series pre-fight stakes -- visually distinct from
+           an ordinary booking, not buried in the fight-week line. ---- */
+        .cs-stakes-strap { border: 1.5px solid var(--brass); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+          background: linear-gradient(160deg, rgba(224,172,58,0.14), var(--card-bg) 75%); }
+        .cs-stakes-title { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.08em;
+          color: var(--brass); font-weight: 700; margin-bottom: 8px; }
+        .cs-stakes-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .cs-stakes-item { text-align: center; border-radius: 6px; padding: 6px 4px; }
+        .cs-stakes-item.win { background: rgba(224,172,58,0.12); }
+        .cs-stakes-item.loss { background: rgba(154,143,125,0.1); }
+        .cs-stakes-label { font-size: 8.5px; letter-spacing: 0.1em; color: var(--slate); margin-bottom: 2px; }
+        .cs-stakes-item.win .cs-stakes-label { color: var(--brass); }
+        .cs-stakes-value { font-family: 'Anton', sans-serif; font-size: 12.5px; letter-spacing: 0.01em; line-height: 1.2; }
 
         /* ---- Circuit tier ramp: four saturation steps of the SAME gold, not
            four competing hues -- Regional (dimmest) through PREMIER (full

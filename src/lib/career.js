@@ -1418,6 +1418,18 @@ function resolveContractNegotiation(state, contractId) {
   return s;
 }
 
+// Acknowledges the live circuitMove milestone commitFight set. Nothing to
+// decide here -- the tier already changed, the timeline entry already
+// exists -- this only clears the presentation flag so the next render
+// falls through to whatever's actually next (a pendingDecision the same
+// fight-commit may also have set, e.g. contract negotiation, or normal
+// flow). A no-op past `!pendingMilestone` guards against a stray
+// double-acknowledge.
+function resolveMilestone(state) {
+  if (!state.pendingMilestone) return state;
+  return { ...state, pendingMilestone: null };
+}
+
 function initCareer(picks, options) {
   const base = {};
   SKILL_KEYS.forEach((k) => { base[k] = picks[k].scoreValue; });
@@ -1497,6 +1509,14 @@ function initCareer(picks, options) {
     ],
     fightGlobalIndex: 0,
     pendingDecision: { type: "campPlanning" }, pendingFight: null,
+    // "This happened, acknowledge it" -- deliberately separate from
+    // pendingDecision ("what do you choose"), so a circuitMove promotion
+    // and a same-fight pendingDecision (contract negotiation on the
+    // Contender Series win, chiefly) never compete for the same slot. Set
+    // only in commitFight, alongside the circuitMove timeline entry it
+    // presents; cleared by resolveMilestone. Missing on an old save
+    // behaves exactly like null (never inferred/retroactively promoted).
+    pendingMilestone: null,
     finished: false, legacyScore: 0, verdict: null, totalFightCount: 0,
   };
 }
@@ -1858,7 +1878,7 @@ function prepareFight(state, choiceTag, targetId) {
 
   s.pendingDecision = { type: "preFight" };
   s.pendingFight = {
-    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout,
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout, isContenderSeriesFight,
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
     winProb: preview.winProb, matchup: preview.matchup,
@@ -2295,9 +2315,15 @@ function commitFight(state) {
     : null;
 
   const timeline = [...s.timeline];
+  // pendingMilestone mirrors the exact same computation as the circuitMove
+  // timeline entry below -- one truth, two presentations (live acknowledge
+  // screen now, History card forever after). Never a second progression
+  // engine: circuitTier already changed above, this only presents it.
+  s.pendingMilestone = null;
   if (tierChanged) {
     const promoted = CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(tierBefore);
     timeline.push({ type: "circuitMove", id: `circuit-${s.fightGlobalIndex}`, promoted, from: tierBefore, to: s.circuitTier });
+    s.pendingMilestone = { type: "circuitMove", promoted, from: tierBefore, to: s.circuitTier };
   }
   if (rivalryJustBorn) timeline.push({ type: "rivalEvent", id: `rival-${s.fightGlobalIndex}`, oppName });
   if (hype) timeline.push({ type: "hypeEvent", id: `hype-${s.fightGlobalIndex}`, ...hype });
@@ -2467,7 +2493,13 @@ function fastForwardCareer(state) {
   let s = state;
   let guard = 0;
   while (!s.finished && guard < 600) {
-    if (s.pendingDecision) {
+    if (s.pendingMilestone) {
+      // Presentation-only -- nothing to decide, never hold fast-forward
+      // waiting on a UI acknowledgment that can't happen here. Doesn't
+      // change the underlying progression outcome at all, only whether a
+      // live screen was shown for it.
+      s = resolveMilestone(s);
+    } else if (s.pendingDecision) {
       if (s.pendingDecision.type === "campPlanning") {
         s = resolveCampPlanning(s, { focusAttr: null, campQuality: "full", stance: "balanced" });
       } else if (s.pendingDecision.type === "fightChoice") {
@@ -2650,6 +2682,7 @@ export {
   resolveContractNegotiation,
   resolveFight,
   resolveMediaEvent,
+  resolveMilestone,
   resolveOffCycleEvent,
   resolveTrainingEvent,
   resolveWeightMoveOffer,
