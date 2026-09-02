@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES } from "../data/attrs.js";
 import { formatHeight, formatReach } from "../lib/utils.js";
 import {
@@ -115,10 +115,10 @@ function LabFighterPanel({ fighter, onChange, onClear }) {
 
       {synergies.length > 0 && (
         <div className="synergy-block">
-          <div className="decision-group-label">Synergies</div>
+          <div className="decision-group-label">Build Qualities</div>
           {synergies.map((s) => (
-            <div className="synergy-chip" key={s.label}>
-              <Sparkles size={12} /> <b>{s.label}</b> &mdash; {s.desc}
+            <div className="build-quality-chip" key={s.label}>
+              <b>{s.label}</b> &mdash; {s.desc}
             </div>
           ))}
         </div>

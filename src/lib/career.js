@@ -280,16 +280,20 @@ function deriveTraits(a) {
 }
 
 // Small, capped deltas applied on top of the normal engine -- never large
-// enough to overturn a stat mismatch on their own.
+// enough to overturn a stat mismatch on their own. PACE_SETTER and
+// IRON_CHIN are derived traits but don't add a modifier here -- there's no
+// decision-weighting step anywhere in simulateRounds for one to feed
+// (decisions are just whatever's left when no finish happens), so the two
+// stay identity/narrative-only rather than pretending to grant a bonus
+// that doesn't exist. The CHIN/CARDIO/IQ stats behind them already have
+// their own real, continuous effects elsewhere in this engine.
 function traitModifiers(traits) {
-  const m = { winProbDelta: 0, koBoost: 0, subBoost: 0, decBoost: 0 };
+  const m = { winProbDelta: 0, koBoost: 0, subBoost: 0 };
   (traits || []).forEach((t) => {
     if (t === "KO_THREAT") m.koBoost += 6;
     if (t === "SUB_THREAT") m.subBoost += 6;
-    if (t === "PACE_SETTER") m.decBoost += 5;
     if (t === "COUNTER_STRIKER") m.winProbDelta += 0.02;
     if (t === "PRESSURE_FIGHTER") m.winProbDelta += 0.015;
-    if (t === "IRON_CHIN") m.decBoost += 2;
   });
   return m;
 }

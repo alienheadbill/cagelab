@@ -1056,12 +1056,17 @@ export default function CageLab() {
             <div className="section-label">Full Attribute Breakdown</div>
             <AttributeBarList picks={picks} />
 
+            {/* "Build Qualities" -- audited and confirmed purely descriptive
+                (see synergiesFor in scoring.js): restates what the
+                underlying attributes already do, grants nothing itself.
+                Styled as informational analysis (.build-quality-chip), not
+                as an unlocked bonus -- no Sparkles, no brass/bonus tint. */}
             {synergiesFor(picks).length > 0 && (
               <div className="synergy-block">
-                <div className="decision-group-label" style={{ margin: "14px 0 6px" }}>Synergies</div>
+                <div className="decision-group-label" style={{ margin: "14px 0 6px" }}>Build Qualities</div>
                 {synergiesFor(picks).map((s) => (
-                  <div className="synergy-chip" key={s.label}>
-                    <Sparkles size={12} /> <b>{s.label}</b> &mdash; {s.desc}
+                  <div className="build-quality-chip" key={s.label}>
+                    <b>{s.label}</b> &mdash; {s.desc}
                   </div>
                 ))}
               </div>

@@ -14,6 +14,13 @@ function FightResultCard({ e, playerName }) {
   // change, just a louder presentation for the fights that earned it.
   const isFinish = e.method.startsWith("KO/TKO") || e.method.startsWith("Submission");
 
+  // FAST_STARTER is a confirmed fully-inert trait (audited: no modifier,
+  // no narrative hook, nothing downstream reads it) -- deriveTraits still
+  // computes it unchanged (touching that logic risks reshuffling which
+  // OTHER traits a fighter gets, since the derivation caps at 4), this
+  // just stops presenting it to the player as if it meant something.
+  const visibleTraits = (e.playerTraits || []).filter((t) => t !== "FAST_STARTER");
+
   // Broadcast-style result line: "R2 3:42" for finishes, method for decisions.
   const resultLine = stats && stats.finishRound
     ? `R${stats.finishRound} ${stats.finishTime || ""}`.trim()
@@ -199,7 +206,7 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || (e.playerTraits && e.playerTraits.length > 0)) && (
+      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0) && (
         <div className="fight-bottom-row">
           <div className="fight-tags">
             {e.calledOut && <div className="fight-tag rivalry">CALLED OUT</div>}
@@ -212,7 +219,7 @@ function FightResultCard({ e, playerName }) {
                 Legacy Score bump (see career.js) and, so that bonus isn't
                 invisible, this tag. */}
             {e.underdogWin && <div className="fight-tag bonus">UPSET WIN</div>}
-            {(e.playerTraits || []).map((t) => (
+            {visibleTraits.map((t) => (
               <div className="fight-tag trait" key={t} title={TRAIT_DEFS[t] ? TRAIT_DEFS[t].desc : ""}>
                 {TRAIT_DEFS[t] ? TRAIT_DEFS[t].label : t}
               </div>
