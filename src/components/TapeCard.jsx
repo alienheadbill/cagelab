@@ -1,18 +1,39 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ATTRS, ATTR_BY_KEY } from "../data/attrs.js";
 import { estimateGoatSoFar } from "../lib/scoring.js";
 import FighterSilhouette from "./FighterSilhouette.jsx";
 
 // ---------- Tale of the tape build panel (blind-aware) ----------
-function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editableName, nameValue, onChangeName }) {
+// lastPick ({key, value}) and newestSlotKey are both sourced from App.jsx's
+// single lastPick state, set the instant a pick actually commits -- not
+// derived from `round`, so the caption and the slot grid can never
+// disagree about which pick is "current" the way an order[round-2]-based
+// lookup could (it only advanced a full round transition late).
+function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compact, editableName, nameValue, onChangeName }) {
   const filledCount = Object.keys(picks).length;
   const fillPct = filledCount / ATTRS.length;
-  const lastPick = lastPickedKey ? picks[lastPickedKey] : null;
   const liveGoat = estimateGoatSoFar(picks);
+
+  // Answers "what did that pick just do" directly instead of leaving the
+  // player to notice the estimate moved and do the subtraction themselves --
+  // NUMBERS -> INTERPRETATION. Tracked locally off the same liveGoat value
+  // TapeCard already derives, so nothing upstream needs to change.
+  const [delta, setDelta] = useState(null);
+  const prevGoatRef = useRef(liveGoat);
+  useEffect(() => {
+    if (liveGoat != null && prevGoatRef.current != null && liveGoat !== prevGoatRef.current) {
+      setDelta(liveGoat - prevGoatRef.current);
+      const t = setTimeout(() => setDelta(null), 2200);
+      prevGoatRef.current = liveGoat;
+      return () => clearTimeout(t);
+    }
+    prevGoatRef.current = liveGoat;
+    return undefined;
+  }, [liveGoat]);
   const caption = filledCount >= ATTRS.length
     ? "BUILD COMPLETE"
     : lastPick
-      ? `${ATTR_BY_KEY[lastPickedKey].label.toUpperCase()}: ${blind ? lastPick.fighter.split(" ")[0] : lastPick.fighter} (${blind ? "?" : lastPick.display})`
+      ? `${ATTR_BY_KEY[lastPick.key].label.toUpperCase()}: ${blind ? lastPick.value.fighter.split(" ")[0] : lastPick.value.fighter} (${blind ? "?" : lastPick.value.display})`
       : "— AWAITING FIRST PICK —";
 
   return (
@@ -43,8 +64,18 @@ function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editab
               className={`live-goat ${blind ? "hidden-value" : ""}`}
               title={blind ? "Hidden in Blind mode" : "Rough estimate based on picks so far"}
             >
-              <span className="live-goat-num mono">{blind ? "?" : liveGoat}</span>
+              {/* Keyed on the value itself so it remounts (and re-plays its
+                  pulse animation) on every real change -- same pattern as
+                  the Career screen's legacy-num. */}
+              <span className="live-goat-num mono" key={blind ? "blind" : liveGoat}>{blind ? "?" : liveGoat}</span>
               <span className="live-goat-lbl">EST</span>
+              {/* Blind mode hides this too -- a delta would leak exactly
+                  what the hidden number itself would (see comment above). */}
+              {!blind && delta != null && delta !== 0 && (
+                <span className={`live-goat-delta mono ${delta > 0 ? "up" : "down"}`}>
+                  {delta > 0 ? `+${delta}` : delta}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -60,7 +91,7 @@ function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editab
           const p = picks[a.key];
           const Icon = a.icon;
           return (
-            <div className={`slot-box ${p ? "filled" : ""}`} key={a.key}>
+            <div className={`slot-box ${p ? "filled" : ""} ${a.key === newestSlotKey ? "newest" : ""}`} key={a.key}>
               <div className="slot-box-label"><Icon size={11} /> {a.label}</div>
               {p ? (
                 <div className="slot-box-value">

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon } from "lucide-react";
+import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles, FlaskConical } from "lucide-react";
 import { todayStr, decodeSeed } from "../lib/rng.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
 import LeaderboardList from "./LeaderboardList.jsx";
 
-function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile }) {
+function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
   const [dailyNotice, setDailyNotice] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
@@ -37,25 +37,54 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
     onJoinChallenge(seed);
   }
 
-  return (
-    <div className="panel home-panel">
-      <div className="home-hero">
-        <div className="display home-hero-title">CAGE//LAB</div>
-        <div className="mono home-hero-sub">FIGHTER CONSTRUCTION LABORATORY</div>
-        <div className={`tier-badge rank-badge ${rankToTierCls(profile.metaRank)}`}>
-          <TierIcon cls={rankToTierCls(profile.metaRank)} size={12} /> {profile.metaRank.toUpperCase()}
-        </div>
-      </div>
-
-      {(profile.totalBuilds > 0 || profile.careersCompleted > 0 || profile.dailyStreak > 0) && (
-        <div className="progression-strip">
-          <div className="progression-item"><div className="progression-num">{profile.bestGoat}</div><div className="progression-lbl">Best Score</div></div>
-          <div className="progression-item"><div className="progression-num">{profile.dailyStreak}</div><div className="progression-lbl">Daily Streak</div></div>
-          <div className="progression-item"><div className="progression-num">{profile.championships}</div><div className="progression-lbl">Championships</div></div>
-          <div className="progression-item"><div className="progression-num">{profile.hofCareers}</div><div className="progression-lbl">HOF Careers</div></div>
+  // Welcome + Build Modes as one unit, and the Daily Challenge section
+  // (name field, hero button, leaderboard) as another -- so the two can
+  // trade places by visit type without duplicating either block's JSX.
+  // First-time visitors need to understand what CageLab even is before
+  // being pushed toward the retention hook; returning visitors already
+  // know that and want Daily front and center, same as before this pass.
+  const welcomeAndModes = (
+    <>
+      {/* First-ever visit to this browser only -- a returning player (even
+          one with zero saved builds yet) never sees this again once they've
+          been here once. Points at one clear starting action (Classic
+          mode) without hiding anything else already on this screen. */}
+      {isFirstVisit && (
+        <div className="event-card good welcome-banner">
+          <Sparkles size={15} />
+          <div>
+            Draft 10 rounds, one fighter's rating per round. At the end, CageLab reveals what you built — then you save it, test it, or take it into a Career.
+            New here? <b>Classic</b> below shows every rating as you pick — the fastest way to get a feel for it.
+          </div>
         </div>
       )}
 
+      <div className="section-divider mono">BUILD MODES</div>
+      <div className="mode-grid">
+        <button className="mode-card compact" onClick={() => onStart("classic")}>
+          <Users size={18} />
+          <div className="mode-card-title">Classic</div>
+          <div className="mode-card-sub">Ratings visible</div>
+          {/* preferredMode defaults to "classic" before anyone has actually
+              played, so gate the "Last played" claim behind isFirstVisit --
+              otherwise a brand-new browser sees a false claim of history,
+              right on the card the welcome banner is pointing them at. */}
+          {isFirstVisit ? (
+            <div className="start-tag">Start here</div>
+          ) : preferredMode === "classic" && <div className="pref-tag">Last played</div>}
+        </button>
+        <button className="mode-card compact" onClick={() => onStart("blind")}>
+          <ShieldCheck size={18} />
+          <div className="mode-card-title">Blind</div>
+          <div className="mode-card-sub">Trust your gut</div>
+          {preferredMode === "blind" && <div className="pref-tag">Last played</div>}
+        </button>
+      </div>
+    </>
+  );
+
+  const dailySection = (
+    <>
       <div className="display-name-row">
         <input
           className="display-name-input mono"
@@ -113,22 +142,39 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
           </button>
         )}
       </div>
+    </>
+  );
 
-      <div className="section-divider mono">BUILD MODES</div>
-      <div className="mode-grid">
-        <button className="mode-card compact" onClick={() => onStart("classic")}>
-          <Users size={18} />
-          <div className="mode-card-title">Classic</div>
-          <div className="mode-card-sub">Ratings visible</div>
-          {preferredMode === "classic" && <div className="pref-tag">Last played</div>}
-        </button>
-        <button className="mode-card compact" onClick={() => onStart("blind")}>
-          <ShieldCheck size={18} />
-          <div className="mode-card-title">Blind</div>
-          <div className="mode-card-sub">Trust your gut</div>
-          {preferredMode === "blind" && <div className="pref-tag">Last played</div>}
-        </button>
+  return (
+    <div className="panel home-panel">
+      <div className="home-hero">
+        <div className="display home-hero-title">CAGE//LAB</div>
+        <div className="mono home-hero-sub">FIGHTER CONSTRUCTION LABORATORY</div>
+        <div className={`tier-badge rank-badge ${rankToTierCls(profile.metaRank)}`}>
+          <TierIcon cls={rankToTierCls(profile.metaRank)} size={12} /> {profile.metaRank.toUpperCase()}
+        </div>
       </div>
+
+      {(profile.totalBuilds > 0 || profile.careersCompleted > 0 || profile.dailyStreak > 0) && (
+        <div className="progression-strip">
+          <div className="progression-item"><div className="progression-num">{profile.bestGoat}</div><div className="progression-lbl">Best Score</div></div>
+          <div className="progression-item"><div className="progression-num">{profile.dailyStreak}</div><div className="progression-lbl">Daily Streak</div></div>
+          <div className="progression-item"><div className="progression-num">{profile.championships}</div><div className="progression-lbl">Championships</div></div>
+          <div className="progression-item"><div className="progression-num">{profile.hofCareers}</div><div className="progression-lbl">HOF Careers</div></div>
+        </div>
+      )}
+
+      {isFirstVisit ? (
+        <>
+          {welcomeAndModes}
+          {dailySection}
+        </>
+      ) : (
+        <>
+          {dailySection}
+          {welcomeAndModes}
+        </>
+      )}
 
       <div className="challenge-block">
         <div className="mode-card-title" style={{ marginBottom: 4 }}>Challenge a Friend</div>
@@ -152,7 +198,8 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, hasActiv
 
       <div className="home-footer-row">
         <button className="btn btn-ghost small-btn" onClick={onCareer}><Swords size={14} /> {hasActiveCareer ? "Continue Career" : "Career"}</button>
-        <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> Trophy Case</button>
+        <button className="btn btn-ghost small-btn" onClick={onCollection}><Trophy size={14} /> My Legacy</button>
+        <button className="btn btn-ghost small-btn" onClick={onLab}><FlaskConical size={14} /> The Lab</button>
         <button className="btn btn-ghost small-btn" onClick={onHelp}><HelpCircle size={14} /> How to Play</button>
       </div>
     </div>

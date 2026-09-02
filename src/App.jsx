@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet, Flame,
+  FileSignature, GraduationCap, Wallet, Flame, FlaskConical,
 } from "lucide-react";
 
 import "./styles.css";
@@ -15,6 +15,7 @@ import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffl
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
+  LS_HAS_VISITED, LS_SEEN_DRAFT_HINT,
   loadJSON, saveJSON, defaultDailyStats,
 } from "./lib/storage.js";
 import {
@@ -41,6 +42,7 @@ import CopyScorecardButton from "./components/CopyScorecardButton.jsx";
 import ShareCardCanvas from "./components/ShareCardCanvas.jsx";
 import RadarChart from "./components/RadarChart.jsx";
 import AnimatedGoatScore from "./components/AnimatedGoatScore.jsx";
+import BlindGoatReveal from "./components/BlindGoatReveal.jsx";
 import AttributeBarList from "./components/AttributeBarList.jsx";
 import TapeCard from "./components/TapeCard.jsx";
 import FighterPickCard from "./components/FighterPickCard.jsx";
@@ -52,6 +54,7 @@ import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
+import LabScreen from "./components/LabScreen.jsx";
 
 // Career History used to render strictly oldest-first, so on anything but a
 // brand-new career the most recent fight or event -- the thing you'd
@@ -116,6 +119,34 @@ export default function CageLab() {
   const [soundOn, setSoundOn] = useState(() => loadJSON(LS_SOUND_ON, false));
   const [reducedMotion, setReducedMotion] = useState(() => loadJSON(LS_REDUCED_MOTION, false));
   const [displayName, setDisplayName] = useState(() => loadJSON(LS_DISPLAY_NAME, ""));
+  // First-ever visit to this browser -- read once (pure, so it's safe if
+  // StrictMode double-invokes this initializer in dev), stays true in
+  // memory for the rest of THIS session so the welcome treatment doesn't
+  // vanish the instant they navigate away from the home screen and back.
+  // The actual "mark as seen" write happens in the effect below instead of
+  // here -- a side effect inside a lazy initializer is exactly what
+  // StrictMode's double-invoke is designed to catch. Now settable (Replay
+  // Intro flips it back to true later in the same session) -- the ref below
+  // remembers the ORIGINAL mount-time value specifically so that replay
+  // doesn't immediately re-trigger the "mark as seen" write and cancel
+  // itself out.
+  const [isFirstVisit, setIsFirstVisit] = useState(() => !loadJSON(LS_HAS_VISITED, false));
+  const wasFirstVisitAtMount = useRef(isFirstVisit);
+  useEffect(() => {
+    if (wasFirstVisitAtMount.current) saveJSON(LS_HAS_VISITED, true);
+  }, []);
+  const [seenDraftHint, setSeenDraftHint] = useState(() => loadJSON(LS_SEEN_DRAFT_HINT, false));
+  // Replay Intro (My Legacy > settings) -- resets exactly the two existing
+  // onboarding flags and nothing else, then goes home so the first-visit
+  // hierarchy and the welcome banner are immediately visible again this
+  // session. No new storage keys.
+  function replayIntro() {
+    saveJSON(LS_HAS_VISITED, false);
+    saveJSON(LS_SEEN_DRAFT_HINT, false);
+    setIsFirstVisit(true);
+    setSeenDraftHint(false);
+    goHome();
+  }
   const [challengeBoard, setChallengeBoard] = useState([]);
   const [challengeBoardLoading, setChallengeBoardLoading] = useState(false);
   const [dailyResultBoard, setDailyResultBoard] = useState([]);
@@ -125,9 +156,36 @@ export default function CageLab() {
   const [pickedFighterId, setPickedFighterId] = useState(null);
   const [isRolling, setIsRolling] = useState(false);
   const [rollPreview, setRollPreview] = useState(null);
+  // The single source of truth for "what was the most recently committed
+  // pick" -- set at the exact moment handlePick commits it to `picks`, and
+  // read by both the round-panel lock-in confirmation and TapeCard's
+  // caption, so the two can never disagree about which pick is "current"
+  // the way the old order[round-2]-derived lastPickedKey used to (it only
+  // advanced when `round` did, a full transition late).
+  const [lastPick, setLastPick] = useState(null);
+  // Highlights the just-filled slot in TapeCard for a few seconds after it
+  // fills -- separate from lastPick (which persists until the NEXT pick,
+  // however long that takes) because this one decays on its own clock.
+  const [newestSlotKey, setNewestSlotKey] = useState(null);
+  const newestSlotTimeoutRef = useRef(null);
+  // True for a brief beat between the final pick landing and the reveal
+  // screen actually mounting -- the "LOCKING IN YOUR BUILD..." interstitial.
+  // Every other round transition already gets one (see isRolling); the
+  // final one, the most important transition in the whole draft, used to
+  // hard-cut straight into the reveal with no anticipation beat at all.
+  const [revealPending, setRevealPending] = useState(false);
   const rollTimeoutRef = useRef(null);
   const pickTimeoutRef = useRef(null);
+  const revealTimeoutRef = useRef(null);
   const dailyRngRef = useRef(null);
+
+  useEffect(() => {
+    if (!revealPending) return undefined;
+    // Reduced Motion removes the wait itself, not just the animation --
+    // same convention as AnimatedGoatScore's own count-up.
+    revealTimeoutRef.current = setTimeout(() => setRevealPending(false), reducedMotion ? 0 : 700);
+    return () => clearTimeout(revealTimeoutRef.current);
+  }, [revealPending, reducedMotion]);
 
   useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
@@ -203,9 +261,14 @@ export default function CageLab() {
   function startDraft(selectedMode, explicitSeed) {
     clearTimeout(pickTimeoutRef.current);
     clearTimeout(rollTimeoutRef.current);
+    clearTimeout(revealTimeoutRef.current);
+    clearTimeout(newestSlotTimeoutRef.current);
+    setRevealPending(false);
     setPickedFighterId(null);
     setIsRolling(false);
     setRollPreview(null);
+    setLastPick(null);
+    setNewestSlotKey(null);
     let seededDivision = null;
     if (selectedMode === "daily") {
       dailyRngRef.current = mulberry32(seedFromDateStr(todayStr()));
@@ -312,7 +375,7 @@ export default function CageLab() {
       return { fighter: fighter.n, raw: fighter.rc, display: formatReach(fighter.rc), scoreValue, relativeNote: relativeNoteFor("reach", scoreValue) };
     }
     const rating = fighter[attrKey];
-    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating };
+    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating, relativeNote: relativeNoteFor("skill", rating) };
   }
 
   function recordDailyCompletion(score) {
@@ -331,15 +394,35 @@ export default function CageLab() {
 
   function handlePick(fighter) {
     if (pickedFighterId || isRolling) return; // ignore taps mid-animation
-    sfx("select");
-    setPickedFighterId(fighter.id);
     const value = valueFor(fighter, currentAttrKey);
+    // A 96+ pick is the one moment GOAT Score itself calls special (the
+    // full elite bonus, see computeGoatScoreBreakdown) -- give it a
+    // distinct chime instead of the same tone every pick gets. Gated on
+    // !blind: the real rating is still computed under the hood there (the
+    // display just hides it), so this can't fire without leaking exactly
+    // the number Blind mode is built to hide.
+    sfx(!blind && value.scoreValue >= 96 ? "elite" : "select");
+    setPickedFighterId(fighter.id);
     const nextPicks = { ...picks, [currentAttrKey]: value };
     const isFinalRound = round >= ATTRS.length;
 
     pickTimeoutRef.current = setTimeout(() => {
       setPicks(nextPicks);
       setPickedFighterId(null);
+      // Single source of truth for "the pick that just committed" -- see
+      // the lastPick declaration above. Set in the exact same tick as
+      // setPicks, so TapeCard's slot and caption, and the round-panel
+      // lock-in confirmation, always describe the same pick.
+      setLastPick({ key: currentAttrKey, value });
+      // The newest-slot highlight runs on its own real-time clock (not
+      // tied to reducedMotion -- it's a static state, not an animation,
+      // and reduced-motion players get MORE benefit from it since they
+      // never see the one-time pop-in). Cleared and restarted on every
+      // pick; also cleared in startDraft so a stale timeout from an
+      // abandoned draft can't reach into a fresh one.
+      setNewestSlotKey(currentAttrKey);
+      clearTimeout(newestSlotTimeoutRef.current);
+      newestSlotTimeoutRef.current = setTimeout(() => setNewestSlotKey(null), 1800);
 
       if (isFinalRound) {
         const score = computeGoatScore(nextPicks);
@@ -353,6 +436,12 @@ export default function CageLab() {
         if (mode === "challenge" && challengeSeed != null) {
           submitChallengeScore(encodeSeed(challengeSeed), score, loadJSON(LS_DISPLAY_NAME, ""));
         }
+        // The final pick's own select-pop animation already had its full
+        // 300ms above -- this brief interstitial is the deliberate beat
+        // AFTER that, before the reveal itself mounts (see revealPending
+        // effect). All reveal data is ready and set above; only the
+        // render is held back a moment.
+        setRevealPending(true);
         setPhase("draftDone");
       } else {
         startRoundRoll(round + 1, lockedDivision);
@@ -387,6 +476,17 @@ export default function CageLab() {
   }
 
 
+  // Flat, storable snapshot of a picks object -- shared by saveCurrentBuild
+  // and saveCareerToHistory so a historical career's build looks exactly
+  // like a normally-saved one and can reuse the same reconstruction/render
+  // path (see AttributeBarList usage in CollectionScreen).
+  function picksSnapshotArray(picksObj) {
+    return ATTRS.map((a) => ({
+      key: a.key, label: a.label, fighter: picksObj[a.key].fighter,
+      display: picksObj[a.key].display, scoreValue: picksObj[a.key].scoreValue, raw: picksObj[a.key].raw,
+    }));
+  }
+
   function saveCurrentBuild() {
     sfx("select");
     const builds = loadJSON(LS_SAVED_BUILDS, []);
@@ -401,7 +501,7 @@ export default function CageLab() {
       // those two rounds -- both now carry straight into Career Setup
       // instead of being re-picked there (see CareerSetupPanel).
       division: lockedDivision,
-      picks: ATTRS.map((a) => ({ key: a.key, label: a.label, fighter: picks[a.key].fighter, display: picks[a.key].display, scoreValue: picks[a.key].scoreValue, raw: picks[a.key].raw })),
+      picks: picksSnapshotArray(picks),
     };
     saveJSON(LS_SAVED_BUILDS, [entry, ...builds].slice(0, 20));
     setBuildSaved(true);
@@ -437,6 +537,25 @@ export default function CageLab() {
     setPhase("draftDone");
   }
 
+  // Careers kept in history, newest first -- raised from 10. Ten was too
+  // small to feel like an archive, and computePlayerProfile's lifetime
+  // totals (careersCompleted, championships, hofCareers) already read this
+  // array's full length/contents, so anyone past 10 completed careers was
+  // silently undercounting their own lifetime stats even before My Legacy
+  // existed -- this also fixes that.
+  const CAREER_HISTORY_CAP = 50;
+
+  // Snapshots a finished career for My Legacy. Everything here is read
+  // straight off `result` (the just-finished careerState) or the current
+  // `picks`/`goatScore` closure -- both are guaranteed to still describe
+  // THIS career, since a new draft can't start while one is in progress.
+  // No new career.js state was added to support this: peakPlayerRank,
+  // peakCircuitTier, division, careerStyle, and the final champion flag
+  // were already being computed and held on careerState, just never
+  // persisted past the session. This is a one-time snapshot, not a live
+  // value -- if ranking or scoring formulas change later, this entry does
+  // not recompute or drift; it stays exactly what was true when this
+  // career ended.
   function saveCareerToHistory(result) {
     const history = loadJSON(LS_CAREER_HISTORY, []);
     const entry = {
@@ -446,8 +565,12 @@ export default function CageLab() {
       titleDefenses: result.titleDefenses, rivalryWins: result.rivalryWins,
       statementWins: result.statementWins, longestStreak: result.longestStreak,
       totalFightCount: result.totalFightCount, wonTitleAsUnderdog: result.wonTitleAsUnderdog,
+      peakPlayerRank: result.peakPlayerRank, peakCircuitTier: result.peakCircuitTier,
+      division: result.division, careerStyle: result.careerStyle, champion: result.champion,
+      goatScore, buildValue: buildValueInfo ? buildValueInfo.buildValue : null,
+      picks: picksSnapshotArray(picks),
     };
-    saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, 10));
+    saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, CAREER_HISTORY_CAP));
   }
 
   // "Start Career" routes through the setup screen rather than launching
@@ -633,6 +756,19 @@ export default function CageLab() {
     ? [...careerState.timeline].reverse().find((e) => e.type === "campPlan")
     : null;
 
+  // Season-at-a-glance: how THIS year is going, not the whole career.
+  // Scans back to the most recent "year" divider -- same convention
+  // career.js's own summarizeYear() uses for the year-end recap -- so this
+  // reads as "this year so far" without waiting for the year to actually
+  // end. lastCampPlan above already lands inside this same window (a camp
+  // is planned once, right as each year starts), so it doubles as this
+  // year's plan with no separate lookup needed.
+  const thisYearFights = careerState
+    ? careerState.timeline.slice(careerState.timeline.map((e) => e.type).lastIndexOf("year") + 1).filter((e) => e.type === "fight")
+    : [];
+  const thisYearWins = thisYearFights.filter((f) => f.win).length;
+  const thisYearLosses = thisYearFights.length - thisYearWins;
+
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
 
@@ -661,6 +797,7 @@ export default function CageLab() {
           onStart={startDraft}
           onJoinChallenge={(seed) => startDraft("challenge", seed)}
           onCollection={() => setPhase("collection")}
+          onLab={() => setPhase("lab")}
           // A career already in progress resumes straight into it instead of
           // re-entering Career Setup -- that screen's height/reach sliders
           // are for creating a NEW career, and launching from there always
@@ -674,6 +811,7 @@ export default function CageLab() {
           displayName={displayName}
           onChangeDisplayName={(v) => { setDisplayName(v); saveJSON(LS_DISPLAY_NAME, v); }}
           profile={computePlayerProfile({ dailyStats, savedBuilds: loadJSON(LS_SAVED_BUILDS, []), careerHistory: loadJSON(LS_CAREER_HISTORY, []) })}
+          isFirstVisit={isFirstVisit}
         />
       )}
 
@@ -693,6 +831,15 @@ export default function CageLab() {
           onClearBuilds={() => { saveJSON(LS_SAVED_BUILDS, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onClearCareers={() => { saveJSON(LS_CAREER_HISTORY, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onImportFile={() => { setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
+          onReplayIntro={replayIntro}
+        />
+      )}
+
+      {phase === "lab" && (
+        <LabScreen
+          onBack={goHome}
+          savedBuilds={loadJSON(LS_SAVED_BUILDS, [])}
+          careerHistory={loadJSON(LS_CAREER_HISTORY, [])}
         />
       )}
 
@@ -720,7 +867,8 @@ export default function CageLab() {
               picks={picks}
               blind={blind}
               modeChip={modeChipLabel}
-              lastPickedKey={round > 1 ? order[round - 2] : null}
+              lastPick={lastPick}
+              newestSlotKey={newestSlotKey}
               compact
               editableName={round === 1 && Object.keys(picks).length === 0}
               nameValue={fighterName}
@@ -746,6 +894,29 @@ export default function CageLab() {
                 </div>
               </div>
 
+              {/* Shown once, in place, the first time a player actually
+                  hits round 1 -- not front-loaded into a tutorial wall
+                  before they've seen anything. Covers exactly what the
+                  audit found unexplained: the round mechanic, tier colors
+                  (skipped in Blind, where there's nothing to color), and
+                  respins (skipped in seeded modes, where none exist). */}
+              {!isRolling && round === 1 && !seenDraftHint && (
+                <div className="daily-note draft-hint">
+                  <span className="draft-hint-text">
+                    <Sparkles size={12} />
+                    Pick one fighter each round to lend their {currentAttr.label} rating to your build.
+                    {!blind && " Card color shows the rating tier, bronze to legendary."}
+                    {!isSeeded && " Wrong era or attribute? Each can be re-rolled once, below."}
+                  </span>
+                  <button
+                    className="hint-dismiss"
+                    aria-label="Dismiss hint"
+                    onClick={() => { setSeenDraftHint(true); saveJSON(LS_SEEN_DRAFT_HINT, true); }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               {!isRolling && lockedDivision && (
                 <div className="daily-note division-note">
                   <Lock size={12} /> <b>{lockedDivision}</b> — every round drafts from this division. Era rotates each round.
@@ -770,10 +941,25 @@ export default function CageLab() {
                 </div>
               )}
 
+              {/* Replaces the old generic "Locking in next round..." message
+                  -- this was the single biggest feedback gap in the draft:
+                  the exact moment the selected cards disappear, the player
+                  used to lose all reference to what they just picked. Now
+                  it confirms FIGHTER SELECTED -> ATTRIBUTE INHERITED ->
+                  ADDED TO MY BUILD using lastPick, the same state TapeCard
+                  reads, so the two can never disagree. Blind omits the
+                  rating line entirely (not even "?") -- a lock-in
+                  confirmation communicates success, not a hidden value. */}
               {isRolling ? (
-                <div className="rolling-box">
-                  <RotateCw size={26} className="spin-icon" />
-                  <div className="rolling-label mono">Locking in next round&hellip;</div>
+                <div className="rolling-box lock-in-box">
+                  <RotateCw size={16} className="spin-icon" />
+                  {lastPick && (
+                    <>
+                      <div className="lock-in-label mono">{ATTR_BY_KEY[lastPick.key].label.toUpperCase()} LOCKED</div>
+                      {!blind && <div className="lock-in-value display">{lastPick.value.display}</div>}
+                      <div className="lock-in-via mono">via {lastPick.value.fighter}</div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="pick-card-grid">
@@ -798,12 +984,31 @@ export default function CageLab() {
         </div>
       )}
 
-      {phase === "draftDone" && goatScore !== null && (
+      {/* The anticipation beat between the final pick and the reveal --
+          reuses the exact "Rolling..." interstitial language the draft
+          itself already uses for every other round transition, so this
+          reads as a natural extension of it rather than a new animation
+          system. Brief on purpose: it's the moment the game is processing
+          the fighter just built, not a loading screen. */}
+      {phase === "draftDone" && goatScore !== null && revealPending && (
+        <div className="panel">
+          <div className="rolling-box">
+            <RotateCw size={26} className="spin-icon" />
+            <div className="rolling-label mono">Locking in your build&hellip;</div>
+          </div>
+        </div>
+      )}
+
+      {phase === "draftDone" && goatScore !== null && !revealPending && (
         <>
           <div className="panel result-hero-panel">
             <div className="result-eyebrow mono">YOUR FIGHTER</div>
             <div className="result-fighter-name display">{name}</div>
-            <div className="result-goat-num display"><AnimatedGoatScore score={goatScore} reducedMotion={reducedMotion} /></div>
+            {blind ? (
+              <BlindGoatReveal score={goatScore} reducedMotion={reducedMotion} />
+            ) : (
+              <div className="result-goat-num display"><AnimatedGoatScore score={goatScore} reducedMotion={reducedMotion} /></div>
+            )}
             <div className="result-goat-lbl mono">GOAT SCORE</div>
             <div className="result-axis-question">How complete is this fighter?</div>
             <div className={`tier-badge result-tier-badge ${goatTier} reveal-stagger reveal-delay-1`}>
@@ -851,12 +1056,17 @@ export default function CageLab() {
             <div className="section-label">Full Attribute Breakdown</div>
             <AttributeBarList picks={picks} />
 
+            {/* "Build Qualities" -- audited and confirmed purely descriptive
+                (see synergiesFor in scoring.js): restates what the
+                underlying attributes already do, grants nothing itself.
+                Styled as informational analysis (.build-quality-chip), not
+                as an unlocked bonus -- no Sparkles, no brass/bonus tint. */}
             {synergiesFor(picks).length > 0 && (
               <div className="synergy-block">
-                <div className="decision-group-label" style={{ margin: "14px 0 6px" }}>Synergies</div>
+                <div className="decision-group-label" style={{ margin: "14px 0 6px" }}>Build Qualities</div>
                 {synergiesFor(picks).map((s) => (
-                  <div className="synergy-chip" key={s.label}>
-                    <Sparkles size={12} /> <b>{s.label}</b> &mdash; {s.desc}
+                  <div className="build-quality-chip" key={s.label}>
+                    <b>{s.label}</b> &mdash; {s.desc}
                   </div>
                 ))}
               </div>
@@ -935,6 +1145,14 @@ export default function CageLab() {
               </>
             )}
 
+            {/* Closes the loop the welcome banner opens on Home: Build -> this
+                reveal (Discover) -> here, told explicitly where a finished
+                fighter can go next. Reuses .note-txt, the same style as the
+                disclaimer line already below this panel. */}
+            <div className="note-txt" style={{ marginTop: 16, marginBottom: -4 }}>
+              This is your fighter now. Save the build, take it into Career, or push it further in The Lab.
+            </div>
+
             <div className="action-grid">
               <button className="btn btn-ghost" onClick={saveCurrentBuild} disabled={buildSaved}>
                 <Trophy size={16} /> {buildSaved ? "Saved!" : "Save Build"}
@@ -953,6 +1171,15 @@ export default function CageLab() {
               )}
               <button className="btn btn-ghost" onClick={() => setShowShareBlock((v) => !v)}>
                 <Copy size={16} /> Share
+              </button>
+              {/* The Lab always opens to its own normal empty state here --
+                  it has no prop path today for preloading an in-memory,
+                  not-yet-saved build (it only loads from Saved Builds/
+                  Legacy history in storage), and The Lab is frozen for this
+                  pass, so that isn't being added now. Save Build first,
+                  then pick it up from "Load a Saved Build" in the Lab. */}
+              <button className="btn btn-ghost full-span" onClick={() => setPhase("lab")}>
+                <FlaskConical size={16} /> Test in The Lab
               </button>
             </div>
 
@@ -978,7 +1205,7 @@ export default function CageLab() {
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
               <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{careerState.record.w}{"–"}{careerState.record.l}</div>
-              <div className="sim-rank">{rankLabel(careerState.rankPoints, careerState.champion)}</div>
+              <div className="sim-rank">{rankLabel(careerState.playerRank, careerState.champion)}</div>
             </div>
             <div className="legacy-box">
               <div className="legacy-num" key={careerState.runningLegacy}>{careerState.runningLegacy}</div>
@@ -997,6 +1224,33 @@ export default function CageLab() {
             <div className="progress-bar-fill" style={{ width: `${progressPct}%` }} />
           </div>
           <div className="sim-progress mono">Year {careerState.year} of {careerState.totalYears}</div>
+
+          {/* Season-at-a-glance: "how is THIS year going" used to mean
+              either a trip to the Camp tab (for the plan) or scrolling/
+              counting the timeline yourself (for the record) -- everyone
+              always sees the answer here now, on every tab, not just
+              Career's own. Sits above the tab switch on purpose. */}
+          {!careerState.finished && (
+            <div className="season-glance">
+              <div className="season-glance-row">
+                <span className="season-glance-lbl">This Season</span>
+                <span className="season-glance-record mono">{thisYearWins}-{thisYearLosses}</span>
+              </div>
+              {lastCampPlan && (
+                <div className="season-glance-camp">
+                  {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {lastCampPlan.stance === "standup" ? "Stand-Up" : lastCampPlan.stance === "ground" ? "Ground" : "Balanced"}
+                  {lastCampPlan.focusAttr ? ` · focused on ${ATTR_BY_KEY[lastCampPlan.focusAttr].label}` : ""}
+                </div>
+              )}
+              <div className="season-glance-remaining mono">
+                {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning"
+                  ? "Planning next camp…"
+                  : careerState.fightsRemainingThisYear > 0
+                    ? `${careerState.fightsRemainingThisYear} fight${careerState.fightsRemainingThisYear === 1 ? "" : "s"} remaining this year`
+                    : null}
+              </div>
+            </div>
+          )}
 
           {/* Bottom tab nav (see the fixed bar below) splits the sim screen
               into four views. Decision-first still holds within each: a
@@ -1042,10 +1296,15 @@ export default function CageLab() {
                     </button>
                   );
                 })}
-                {!careerState.champion && careerState.rankPoints >= 85 && (
+                {/* Gated on the real division ladder (playerRank), not the
+                    hidden rankPoints momentum value -- these cash in an
+                    ACTUAL ranked standing, so they need to track the same
+                    ladder the Rankings tab shows, same as the automatic
+                    title-shot gate in prepareFight. */}
+                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 3 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
                 )}
-                {!careerState.champion && careerState.rankPoints >= 65 && (
+                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 10 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
@@ -1302,7 +1561,7 @@ export default function CageLab() {
               // Regional (or holding a title) counts as the leap on its own;
               // short of that, fall back to real momentum inside the current
               // tier's own ladder.
-              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || e.rankSnapshot >= 60;
+              const madeTheLeap = e.champion || (e.circuitTier && e.circuitTier !== "CLF Regional") || (e.rankSnapshot != null && e.rankSnapshot <= 10);
               return (
                 <div className="event-card" style={{ alignItems: "flex-start" }} key={e.id}>
                   <Sparkles size={15} style={{ marginTop: 2 }} />
@@ -1329,7 +1588,7 @@ export default function CageLab() {
                   <div className="year-end-title">Year {e.year} Recap</div>
                   <div className="summary-row"><span>Record</span><b>{e.wins}-{e.losses}</b></div>
                   {tierMoved && (
-                    <div className="summary-row"><span>Division</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
+                    <div className="summary-row"><span>Circuit Level</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
                   )}
                   <div className="summary-row"><span>Ranking</span><b>{beforeLabel === afterLabel ? afterLabel : `${beforeLabel} → ${afterLabel}`}</b></div>
                   {e.bestWin && <div className="summary-row"><span>Best Win</span><b>vs {e.bestWin.opp} ({e.bestWin.oppRating})</b></div>}
@@ -1475,7 +1734,7 @@ export default function CageLab() {
                   <div className="summary-title">Career Complete — Legacy Finalized</div>
                   <div className="summary-row"><span>Finish rate</span><b>{e.finishRate}%</b></div>
                   <div className="summary-row"><span>Strength of schedule</span><b>{e.strengthOfSchedule} avg opp</b></div>
-                  <div className="summary-row"><span>Peak ranking</span><b>{rankLabel(e.peakRankPoints, false)}</b></div>
+                  <div className="summary-row"><span>Peak ranking</span><b>{rankLabel(e.peakPlayerRank, e.peakPlayerRank === 0)}</b></div>
                   <div className="summary-row"><span>Fights as a contender</span><b>{e.rankedFightCount}</b></div>
                   <div className="summary-row"><span>Statement wins</span><b>{e.statementWins}</b></div>
                   <div className="summary-row"><span>Rivalries won</span><b>{e.rivalryWins}</b></div>
@@ -1583,7 +1842,7 @@ export default function CageLab() {
                 { num: careerState.finishes.dec, lbl: "Decisions" },
                 { num: careerState.titleReigns, lbl: "Title Reigns" },
                 { num: careerState.titleDefenses, lbl: "Title Defenses" },
-                { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+                { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
                 { num: careerState.runningLegacy, lbl: "Legacy Score" },
@@ -1700,7 +1959,7 @@ export default function CageLab() {
               { num: careerState.titleReigns, lbl: "Title Reigns" },
               { num: careerState.titleDefenses, lbl: "Title Defenses" },
               { num: careerState.longestStreak, lbl: "Best Streak" },
-              { num: rankLabel(careerState.peakRankPoints, false), lbl: "Peak Ranking" },
+              { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
               { num: careerState.statementWins, lbl: "Statement Wins" },
               { num: careerState.rivalryWins, lbl: "Rivalries Won" },
               { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },

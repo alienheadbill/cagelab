@@ -2,6 +2,11 @@ import { ATTRS, SKILL_KEYS, ATTR_BY_KEY, WEIGHT_CLASSES } from "../data/attrs.js
 import { clamp, slugify } from "./utils.js";
 import { sfx } from "./audio.js";
 import { generateOpponentNames } from "../data/fighters.js";
+import {
+  buildFightStory,
+  identifyMoments as identifyFightMoments,
+  howItHappened as summarizeHowItHappened,
+} from "./narrative.js";
 
 // =========================================================================
 //  CAREER SIMULATION ENGINE
@@ -145,23 +150,24 @@ function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
     const pRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (player.STRIKING / 80) * (1 - playerFatigue * 0.4)));
     const oRoundSig = Math.max(3, Math.round(phase.standShare * 50 * (opp.STRIKING / 80) * (1 - oppFatigue * 0.4)));
     playerSig += pRoundSig; oppSig += oRoundSig;
-    playerTD += Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
-    oppTD += Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
+    const pRoundTD = Math.round(phase.groundShare * 0.9 * (player.WRESTLING / 80));
+    const oRoundTD = Math.round(phase.groundShare * 0.9 * (opp.WRESTLING / 80));
+    playerTD += pRoundTD; oppTD += oRoundTD;
 
     // Whoever lost the round absorbs damage, scaled by the winner's power
     // and resisted by the loser's chin.
     if (playerWonRound) oppDamage += Math.max(3, (player.POWER - opp.CHIN * 0.45) / 6 + 5);
     else playerDamage += Math.max(3, (opp.POWER - player.CHIN * 0.45) / 6 + 5);
 
-    rounds.push({ round: r, playerWon: playerWonRound, margin: Math.abs(roundProb - 0.5) });
-
     // Finish check: only the fighter who just lost the round is at risk,
     // and only once their accumulated damage crosses a real threshold --
     // weighted by the winner's actual finish odds (same KO/sub potential
     // math the pre-fight preview and old model both used) so a low-power
     // grinder rarely finishes even a badly hurt opponent.
+    let nearFinish = false, finishThisRound = false;
     const loserDamage = playerWonRound ? oppDamage : playerDamage;
     if (loserDamage >= 16) {
+      nearFinish = true;
       const attacker = playerWonRound ? player : opp;
       const defender = playerWonRound ? opp : player;
       const aMod = playerWonRound ? pMod : oMod;
@@ -170,14 +176,31 @@ function simulateRounds(player, opp, phase, pMod, oMod, totalRounds) {
       odds.subPotential += aMod.subBoost;
       const finishChance = clamp((loserDamage - 12) / 85 + (odds.koPotential + odds.subPotential) / 380, 0, 0.5);
       if (Math.random() < finishChance) {
+        finishThisRound = true;
         finishWinner = playerWonRound;
         finishMethod = rollMethod(odds);
         finishRound = r;
         const secs = Math.floor(Math.random() * 299) + 1;
         finishTime = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-        break;
       }
     }
+
+    // Per-round detail for the narrative layer (see narrative.js) -- purely
+    // additive: every value here was already being computed above for the
+    // simulation's own use, just not previously kept past this iteration.
+    // Recording it doesn't touch a single probability, roll, or threshold.
+    rounds.push({
+      round: r, playerWon: playerWonRound, margin: Math.abs(roundProb - 0.5),
+      playerSig: pRoundSig, oppSig: oRoundSig,
+      playerTD: pRoundTD, oppTD: oRoundTD,
+      playerFatigue, oppFatigue, // cumulative 0-0.4, AFTER this round
+      playerDamage, oppDamage,   // cumulative, AFTER this round
+      outputGap: playerOut - oppOut,
+      nearFinish, finishThisRound,
+      groundHeavy: phase.groundShare > 0.55,
+    });
+
+    if (finishThisRound) break;
   }
 
   let win, method;
@@ -257,16 +280,20 @@ function deriveTraits(a) {
 }
 
 // Small, capped deltas applied on top of the normal engine -- never large
-// enough to overturn a stat mismatch on their own.
+// enough to overturn a stat mismatch on their own. PACE_SETTER and
+// IRON_CHIN are derived traits but don't add a modifier here -- there's no
+// decision-weighting step anywhere in simulateRounds for one to feed
+// (decisions are just whatever's left when no finish happens), so the two
+// stay identity/narrative-only rather than pretending to grant a bonus
+// that doesn't exist. The CHIN/CARDIO/IQ stats behind them already have
+// their own real, continuous effects elsewhere in this engine.
 function traitModifiers(traits) {
-  const m = { winProbDelta: 0, koBoost: 0, subBoost: 0, decBoost: 0 };
+  const m = { winProbDelta: 0, koBoost: 0, subBoost: 0 };
   (traits || []).forEach((t) => {
     if (t === "KO_THREAT") m.koBoost += 6;
     if (t === "SUB_THREAT") m.subBoost += 6;
-    if (t === "PACE_SETTER") m.decBoost += 5;
     if (t === "COUNTER_STRIKER") m.winProbDelta += 0.02;
     if (t === "PRESSURE_FIGHTER") m.winProbDelta += 0.015;
-    if (t === "IRON_CHIN") m.decBoost += 2;
   });
   return m;
 }
@@ -536,7 +563,17 @@ function computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, 
 function resolveFight(player, reachScore, opp, stanceBias, playerTraits, oppTraits, totalRounds) {
   const { phase, matchup, winProb, pMod, oMod } = computeFightPreview(player, reachScore, opp, stanceBias, playerTraits, oppTraits);
   const { win, method, rounds, stats } = simulateRounds(player, opp, phase, pMod, oMod, totalRounds);
-  return { win, method, phase, winProb, matchup, rounds, stats, narrative: buildFightNarrative(phase, { win, method }, playerTraits || []) };
+  // Narrative is strictly downstream of the sim -- generated once, here,
+  // from the already-decided rounds/stats, and never read by anything that
+  // could feed back into a probability, roll, or outcome. See narrative.js.
+  const roundNarratives = buildFightStory(rounds, method);
+  const moments = identifyFightMoments(rounds, !!stats.player.knockdowns, !!stats.opp.knockdowns, stats.finishRound, method, win);
+  const howItHappenedText = summarizeHowItHappened(rounds, win, method, stats.finishRound);
+  return {
+    win, method, phase, winProb, matchup, rounds, stats,
+    narrative: buildFightNarrative(phase, { win, method }, playerTraits || []),
+    roundNarratives, moments, howItHappened: howItHappenedText,
+  };
 }
 
 function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
@@ -555,13 +592,21 @@ function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
   return clamp(rankPoints - delta, 0, 100);
 }
 
-function rankLabel(rankPoints, champion) {
+// Reads off playerRank -- the actual division ladder position -- not
+// rankPoints. rankPoints is a hidden/continuous competitive-momentum value
+// used internally (matchmaking calibration, Legacy Score); it used to also
+// drive this label, which let it climb from farmed wins over opponents who
+// never moved the real ladder at all -- the HUD could say "Top 15" while
+// the Rankings tab still showed Unranked. playerRank can't be farmed like
+// that: it only moves by actually beating a ranked opponent (see the climb
+// logic in commitFight), so the label and the ladder now always agree.
+function rankLabel(playerRank, champion) {
   if (champion) return "Champion";
-  if (rankPoints >= 88) return "#1 Contender";
-  if (rankPoints >= 75) return "Top 5";
-  if (rankPoints >= 60) return "Top 10";
-  if (rankPoints >= 40) return "Top 15";
-  return "Unranked";
+  if (playerRank == null) return "Unranked";
+  if (playerRank === 1) return "#1 Contender";
+  if (playerRank <= 5) return "Top 5";
+  if (playerRank <= 10) return "Top 10";
+  return "Top 15";
 }
 
 // ---- Career-stage progression (the promotional "ladder") ------------------
@@ -945,7 +990,19 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // handful of times to dodge landing on the same person back-to-back by pure
 // chance. Bounded, so a thin division can't spin forever, and never applies
 // to the title-fight path (that's resolved by flag, not by this draw).
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty) {
+// National is meant to be a materially stronger feeder stage than Regional
+// -- lower array index is a stronger fighter -- so this caps how weak
+// National's centre-of-the-draw can go, regardless of how little
+// rankPoints the player has actually built up at this tier yet (which is
+// always freshly reset to 0 on entering National, same as Regional).
+// Deliberately does NOT touch playerRankPoints itself: real momentum built
+// during the National run still pulls the draw tougher once it's earned
+// (Math.min below only ever makes centre stronger, never weaker, than
+// this), so the underlying rankPoints stays truthful -- this only sets a
+// tier-driven floor on the matchmaking curve, not a fake ranking.
+const NATIONAL_MATCHMAKING_CEILING = 10;
+
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -962,6 +1019,7 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
   // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
   // actually gets drawn -- lower array index is a stronger fighter (index 0
   // is the champion), so easy pushes the centre toward a higher index
@@ -987,20 +1045,23 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
     for (let i = windowLo; i <= windowHi; i++) { if (!avoid.includes(division[i].id)) free.push(i); }
     if (free.length) target = free[Math.floor(Math.random() * free.length)];
   }
-  // The displayed Top 15 numbering excludes whoever is flagged champion.
-  // Normally that's index 0, so array index and display rank line up
-  // (target itself never dips into index 0 here). But during a vacant title
-  // -- nobody in the division flagged, belt held by the player or open
-  // after an interim -- there's no entry to exclude, so every displayed
-  // rank sits one higher than its raw array index.
+  return { fighter: division[target], rank: displayRankFor(division, target) };
+}
+
+// The displayed Top 15 numbering excludes whoever is flagged champion.
+// Normally that's index 0, so array index and display rank line up (index
+// itself never dips into index 0 for a non-champion fighter). But during a
+// vacant title -- nobody in the division flagged, belt held by the player
+// or open after an interim -- there's no entry to exclude, so every
+// displayed rank sits one higher than its raw array index. Anything past
+// DIVISION_SIZE is unranked -- report null so the UI shows "unranked"
+// rather than a fake #27 (or, for a caller that skipped this and used the
+// raw array index directly, an outright wrong one -- see callout/matchmaker
+// picks below, which used to do exactly that).
+function displayRankFor(division, index) {
   const hasDivisionChampion = division.some((f) => f.isChampion);
-  const displayRank = hasDivisionChampion ? target : target + 1;
-  return {
-    fighter: division[target],
-    // Anything past DIVISION_SIZE is unranked -- report null so the UI shows
-    // "unranked" rather than a fake #27 ranking.
-    rank: displayRank <= DIVISION_SIZE ? displayRank : null,
-  };
+  const displayRank = hasDivisionChampion ? index : index + 1;
+  return displayRank <= DIVISION_SIZE ? displayRank : null;
 }
 
 // Three REAL, named candidates for the matchmaking panel -- replaces
@@ -1011,7 +1072,7 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
 // it already was -- just visible now instead of hidden behind the label.
 // The draws are chained through a growing avoid-list so the three options
 // are never the same person twice.
-function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds) {
+function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds, circuitTier) {
   const tags = ["easy", "ranked", "stepUp"];
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
@@ -1028,7 +1089,7 @@ function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds
     // division's too thin to avoid it, showing the repeat beats looping.
     let picked;
     for (let attempt = 0; attempt < 5; attempt++) {
-      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag, circuitTier);
       const dupRecord = pickedRecords.some((r) => r.w === picked.fighter.record.w && r.l === picked.fighter.record.l);
       if (!dupRecord) break;
       avoid.push(picked.fighter.id);
@@ -1178,7 +1239,14 @@ function initCareer(picks, options) {
     // The persistent world: 15 ranked contenders + a champion who exist and
     // fight each other between your bouts.
     divisionRoster: buildDivision(),
-    playerRank: null,
+    // playerRank is the real ladder position (0 = champion, 1-15 = ranked,
+    // null = unranked) -- the single source of truth for anything the
+    // player sees as "my ranking." peakPlayerRank is its high-water mark
+    // (lower is better, so it tracks via Math.min, not Math.max -- see
+    // commitFight). rankPoints stays as an internal, hidden continuous
+    // value -- matchmaking calibration and a Legacy Score input -- it is
+    // never shown to the player as a rank.
+    playerRank: null, peakPlayerRank: null,
     record: { w: 0, l: 0 }, finishes: { ko: 0, sub: 0, dec: 0 },
     rankPoints: 0, peakRankPoints: 0, rankedFightCount: 0,
     circuitTier: "CLF Regional",
@@ -1193,9 +1261,22 @@ function initCareer(picks, options) {
     styleIsNaturalFit: !!(options && options.careerStyle
       && options.careerStyle !== "Balanced"
       && options.careerStyle === bestFitArchetypeFlat(base)),
-    yearStartRank: 0, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
+    // null, not 0 -- 0 is playerRank's own "champion" value, so a bare 0
+    // default here would misrender as Top 5 (0 <= 5) for a fighter who
+    // hasn't even fought yet. null correctly means "unranked/no fight
+    // played this year" the same way playerRank itself uses it.
+    yearStartRank: null, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
+    // Scoped to CLF National fights only (see the National->Contender
+    // Series gate in commitFight) -- never touched by Regional or Premier
+    // fights, and never reset by a Contender Series loss bouncing back to
+    // National (that's "standing intact," same as everything else at this
+    // tier). nationalLosses exists purely to require a winning National
+    // record at the gate -- a fighter who's losing more than they're
+    // winning shouldn't earn the same invite as one who isn't, no matter
+    // how good the wins they do have were.
+    nationalWins: 0, nationalLosses: 0, nationalOppQualitySum: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
@@ -1230,7 +1311,7 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   s.yearStance = stance;
   // Snapshot rank/title status right as the year begins, so the year-end
   // recap can show what changed over the course of the year.
-  s.yearStartRank = state.rankPoints;
+  s.yearStartRank = state.playerRank;
   s.yearStartChampion = state.champion;
   s.yearStartTier = state.circuitTier;
   s.yearStartLegacy = state.runningLegacy;
@@ -1244,8 +1325,8 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
 
   // circuitTier/champion ride along too -- the "made the leap" read in the
   // UI needs to know whether a tier was already broken into, not just the
-  // raw rankPoints number, since that resets to 0 on every promotion.
-  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.rankPoints, circuitTier: state.circuitTier, champion: state.champion }];
+  // raw playerRank number, since that resets to null on every promotion.
+  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.playerRank, circuitTier: state.circuitTier, champion: state.champion }];
   let champion = s.champion;
   if (injury) {
     s.wear = { chin: s.wear.chin + (injury.major ? 3 : 1), speed: s.wear.speed + (injury.major ? 3 : 1) };
@@ -1355,14 +1436,17 @@ function maybeFightChoice(state) {
   // prepareFight's "contenderSeries" branch) standing between here and
   // the Premier contract.
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.rankPoints >= 40);
+  // Mirrors prepareFight's isTitleShot gate exactly -- must stay in sync,
+  // or this could skip straight to what it thinks is a title fight while
+  // prepareFight itself decides otherwise (or vice versa).
+  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.playerRank != null && state.playerRank <= 5);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds);
+    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds, state.circuitTier);
     return { ...state, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -1467,7 +1551,13 @@ function prepareFight(state, choiceTag, targetId) {
   // picking one passes its id through here so the fight that happens is
   // exactly the fighter the player saw and picked, not a fresh re-draw.
   const isMatchmakerPick = !!targetId && (choiceTag === "easy" || choiceTag === "ranked" || choiceTag === "stepUp");
-  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.rankPoints >= 40) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  // Gated on playerRank (the real division ladder), not rankPoints --
+  // rankPoints is farmable via wins that never touch a ranked opponent, so
+  // it used to let a fighter qualify for a title shot without ever having
+  // beaten anyone actually ranked. playerRank can only move by beating a
+  // ranked opponent, so this now genuinely requires having climbed the
+  // ladder into the top 5, on top of the existing streak requirement.
+  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.playerRank != null && s.playerRank <= 5) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
@@ -1485,7 +1575,7 @@ function prepareFight(state, choiceTag, targetId) {
     // the belt IS a title shot, and that already has its own real path
     // (streak+ranking, or Demand/Short-Notice) with its own stakes.
     const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
-    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, undefined, s.circuitTier);
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
     // Falls back to a fresh draw with the same difficulty bias if the
@@ -1493,7 +1583,7 @@ function prepareFight(state, choiceTag, targetId) {
     // division regenerated between the offer being shown and picked --
     // shouldn't happen inside one decision, but never leave the player
     // stuck on a dead pick).
-    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -1513,7 +1603,7 @@ function prepareFight(state, choiceTag, targetId) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
@@ -1617,9 +1707,11 @@ function commitFight(state) {
     else if (result.method === "Submission") s.finishes = { ...s.finishes, sub: s.finishes.sub + 1 };
     else s.finishes = { ...s.finishes, dec: s.finishes.dec + 1 };
     s.oppQualitySumWins += opp.overall;
+    if (tierBefore === "CLF National") { s.nationalWins += 1; s.nationalOppQualitySum += opp.overall; }
   } else {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
+    if (tierBefore === "CLF National") s.nationalLosses += 1;
   }
 
   // Snapshot rank/title status right before this fight moves the needle, so
@@ -1628,10 +1720,17 @@ function commitFight(state) {
   // one fight instead of one year.
   const rankPointsBefore = s.rankPoints;
   const championBefore = s.champion;
+  const playerRankBefore = s.playerRank;
 
   s.rankPoints = updateRanking(s.rankPoints, result.win, opp.overall, isTitleFight);
   s.peakRankPoints = Math.max(s.peakRankPoints, s.rankPoints);
-  if (s.rankPoints >= 40) s.rankedFightCount += 1;
+  // A fight counts toward Legacy's "ranked competition" bonus because the
+  // player already held a ranked position going in, or the opponent
+  // actually did (a callout upset over a ranked name counts even from
+  // Unranked) -- not because the internal rankPoints value crossed a
+  // threshold, which could be farmed with wins that never touched the real
+  // ladder at all.
+  if (playerRankBefore != null || (oppRank != null && oppRank > 0)) s.rankedFightCount += 1;
 
   if (isTitleShot && result.win) {
     s.titleReigns += 1;
@@ -1653,25 +1752,48 @@ function commitFight(state) {
 
   // --- tier promotion ---------------------------------------------------
   // A one-way climb -- Regional -> National -> Contender Series -> Premier
-  // -- gated by real accomplishment at each level instead of a raw
-  // rankPoints threshold: winning that tier's title, or (National only,
-  // since a title shot isn't guaranteed even on a genuine tear) a serious
-  // win streak. Contender Series has no ladder of its own: win the single
-  // showcase fight and the Premier contract is waiting; lose it and it's
-  // back to National to build the case again, standings intact. No
-  // demotion once a tier is broken into -- a rough patch in Premier
-  // doesn't send you back to Regional, same as the real thing.
+  // -- gated by real accomplishment at each level, with two legitimate
+  // routes at Regional and National alike: winning that tier's title (the
+  // prestige route), or a real performance-based case that a promotion
+  // would plausibly notice (the prospect route) -- see the Model E
+  // structural-prototype pass this implements. Contender Series has no
+  // ladder of its own: win the single showcase fight and the Premier
+  // contract is waiting; lose it and it's back to National to build the
+  // case again, standings intact. No demotion once a tier is broken into
+  // -- a rough patch in Premier doesn't send you back to Regional, same as
+  // the real thing.
   const justWonTierTitle = isTitleShot && result.win;
+  // National's alternate route needs "beat National-level opposition," not
+  // just "win at National" -- s.nationalWins/nationalOppQualitySum are
+  // scoped to CLF National wins only (incremented below, gated on
+  // tierBefore, so a Regional win can never feed this average). They are
+  // NOT reset on a Contender Series loss bouncing back to National -- that
+  // branch is explicitly "standing intact," and the credibility already
+  // earned this National run carries through a failed showcase attempt,
+  // not just the fights since the bounce-back. This is the interpretation
+  // the Model E prototype simulated and reported as approved.
+  //
+  // nationalWins > nationalLosses added after the release-gate sim found
+  // the opponent-quality-of-wins bar alone let a fighter lose indefinitely
+  // (worst observed: 2-12) and still earn the same invite as a clean 2-0 --
+  // the wins met the bar, but nothing looked at the losses piling up
+  // alongside them. One boolean, same nationalLosses scoping/persistence
+  // rules as nationalWins above (National-fights-only, survives a
+  // Contender Series bounce-back): you must be winning more than you're
+  // losing at National, on top of the existing quality-of-wins bar.
+  const nationalGatePass = s.nationalWins >= 2
+    && s.nationalWins > s.nationalLosses
+    && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
   let resetForFreshTier = false;
   // True only for the National -> Contender Series branch below: champion
   // gets cleared without a fresh-tier reset (the National roster/standing
   // is kept, not rebuilt), so the belt-taking block further down needs its
   // own guard against re-crowning the player right after this clears them.
   let leftBeltBehindForContenderSeries = false;
-  if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
+  if (s.circuitTier === "CLF Regional" && (justWonTierTitle || s.streak >= 4)) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 3)) {
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || nationalGatePass)) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
     // title, no rank, no matter how you earned the invite. Winning the
@@ -1721,7 +1843,16 @@ function commitFight(state) {
     s.divisionRoster = buildDivision();
     s.playerRank = null;
     s.champion = false;
-    s.rankPoints = 0;
+    // Premier entry alone seeds rankPoints instead of the usual 0 -- a
+    // Contender Series win earned real credibility, so matchmaking starts
+    // mid-pack rather than at the very bottom. Deliberately NOT a Top 15
+    // slot: playerRank stays null (set just above) and matchmaking at
+    // rankPoints=40 still centres well outside the ranked window (see
+    // selectDivisionOpponent) -- the player still has to beat their way
+    // onto the board, same as any other tier. Regional -> National and
+    // National -> Contender Series both stay at 0: this seed is scoped to
+    // the Premier boundary only, per the approved Model E V1 pass.
+    s.rankPoints = s.circuitTier === "CLF PREMIER" ? 40 : 0;
     // Win streak resets too -- otherwise a streak built beating up the tier
     // you just left over-qualifies you for the next one on day one (e.g. a
     // 4-fight streak that won the Regional title would, left alone, already
@@ -1749,10 +1880,21 @@ function commitFight(state) {
     // capped, so one callout upset over the #1 contender doesn't teleport a
     // total unknown straight to #1. Even a shocking win only climbs so far
     // in one night; closing a big gap takes several real wins, not one.
-    const RANK_CLIMB_CAP = 5;
+    // The cap itself still holds for a normal, nearby-rank win (unchanged
+    // from before) -- it only widens for a genuine mismatch, and a finish
+    // adds one further place on top of that -- opponent quality is the
+    // primary driver, performance a small modifier, never the reverse.
+    // Always floored at oppRank: a single win can never rank you better
+    // than the person you just beat.
     if (result.win && oppRank > 0) {
       const startRank = s.playerRank != null ? s.playerRank : DIVISION_SIZE + 1;
-      if (oppRank < startRank) s.playerRank = Math.max(oppRank, startRank - RANK_CLIMB_CAP);
+      if (oppRank < startRank) {
+        const gap = startRank - oppRank;
+        const mismatchBonus = gap >= 13 ? 5 : gap >= 9 ? 3 : gap >= 6 ? 1 : 0;
+        const isFinish = result.method === "KO/TKO" || result.method === "Submission";
+        const climb = 5 + mismatchBonus + (isFinish ? 1 : 0);
+        s.playerRank = Math.max(oppRank, startRank - climb);
+      }
     } else if (!result.win && s.playerRank != null) {
       s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
     }
@@ -1802,6 +1944,23 @@ function commitFight(state) {
       }
     }
     s.divisionRoster = simulateDivisionRound(nextDivision);
+  }
+
+  // playerRank is fully settled for this fight now (climb/drop above, the
+  // champion-swap block just above that, and -- for a title-winning fight
+  // that also triggers a tier promotion -- the fresh-tier reset earlier in
+  // this function all had their say). Snapshot it for the fight card.
+  const playerRankAfterFight = s.playerRank;
+  // Fold it into the career-long high-water mark: lower is better here (0 =
+  // champion), so this tracks via min, not max. Use championAfterFight (the
+  // pre-reset flag) rather than the post-reset s.playerRank directly -- a
+  // title win that ALSO triggers a same-fight tier promotion already
+  // zeroed s.playerRank back to null for the fresh climb by this point, but
+  // the player genuinely did hold the belt this fight and that peak is
+  // real regardless of what the very next tier resets it to.
+  const peakCandidate = championAfterFight ? 0 : s.playerRank;
+  if (peakCandidate != null) {
+    s.peakPlayerRank = s.peakPlayerRank == null ? peakCandidate : Math.min(s.peakPlayerRank, peakCandidate);
   }
 
   // A rivalry is earned: 2+ meetings, at least one of them genuinely
@@ -1957,10 +2116,16 @@ function commitFight(state) {
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
     contenderSeries: isContenderSeriesFight, calledOut: isCallout,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
-    // Raw rankPoints/champion flags, not labels -- rankLabel() renders these
-    // at display time, same convention as yearEnd's rankBefore/rankAfter.
-    rankBefore: rankPointsBefore, championBefore, rankAfter: rankPointsAfterFight, championAfter: championAfterFight,
+    // Raw playerRank/champion flags, not labels -- rankLabel() renders
+    // these at display time, same convention as yearEnd's
+    // rankBefore/rankAfter. playerRank is the real ladder position (the
+    // single source of truth for anything shown as "my ranking"); the
+    // internal rankPoints snapshots are kept too, unrendered, purely for
+    // anything that still legitimately wants the hidden momentum value.
+    rankBefore: playerRankBefore, championBefore, rankAfter: playerRankAfterFight, championAfter: championAfterFight,
+    rankPointsBefore, rankPointsAfter: rankPointsAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
+    roundNarratives: result.roundNarratives, moments: result.moments, howItHappened: result.howItHappened,
     stats, rounds, purseGain,
   });
   s.timeline = timeline;
@@ -2049,7 +2214,7 @@ function finishCareerState(state) {
     {
       type: "summary", id: "summary",
       finishRate: Math.round(finishRate * 100), strengthOfSchedule: Math.round(strengthOfSchedule),
-      peakRankPoints: state.peakRankPoints, rankedFightCount: state.rankedFightCount,
+      peakRankPoints: state.peakRankPoints, peakPlayerRank: state.peakPlayerRank, rankedFightCount: state.rankedFightCount,
       statementWins: state.statementWins, rivalryWins: state.rivalryWins, bonus,
       peakYearLegacy, peakYearNumber, yearsActive: state.year, topWins: topCareerWins(state.timeline),
     },
@@ -2061,7 +2226,7 @@ function advanceCareer(state) {
   if (state.finished || state.pendingDecision) return state;
   if (state.fightsRemainingThisYear > 0) return maybeFightChoice(state);
   if (state.year >= state.totalYears) return finishCareerState(state);
-  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.rankPoints, state.champion, state.yearStartTier, state.circuitTier);
+  const yearSummary = summarizeYear(state.timeline, state.yearStartRank, state.yearStartChampion, state.playerRank, state.champion, state.yearStartTier, state.circuitTier);
   // How much Legacy Score this year alone was worth -- kept as a running
   // peak so "Legacy Score" (the whole career, uneven years and all) and
   // "Best Year" (your single best stretch) can be shown side by side at
@@ -2251,6 +2416,7 @@ export {
   commitFight,
   computeAchievements,
   computePlayerProfile,
+  computeFightPreview,
   computeWinProbability,
   deriveTraits,
   estimatePhaseControl,
@@ -2274,4 +2440,5 @@ export {
   resolveWeightMoveOffer,
   runFight,
   verdictFor,
+  VERDICT_ORDER,
 };

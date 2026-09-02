@@ -21,9 +21,20 @@ function relativeNoteFor(kind, scoreValue) {
     if (scoreValue <= 60) return "Short for class";
     return null;
   }
-  if (scoreValue >= 90) return "Massive reach";
-  if (scoreValue >= 80) return "Long arms";
-  if (scoreValue <= 60) return "Short arms";
+  if (kind === "reach") {
+    if (scoreValue >= 90) return "Massive reach";
+    if (scoreValue >= 80) return "Long arms";
+    if (scoreValue <= 60) return "Short arms";
+    return null;
+  }
+  // Standard skill ratings -- flags the two GOAT Score breakpoints that
+  // the tier color alone doesn't show (see computeGoatScoreBreakdown):
+  // 96+ earns the FULL elite bonus (90-95 only earns half, despite both
+  // reading as the same "legendary" tier color), and sub-65 ratings start
+  // actually costing points, not just reading as a plain bronze number.
+  if (scoreValue >= 96) return "Max elite bonus";
+  if (scoreValue < 55) return "Real weak spot";
+  if (scoreValue < 65) return "Costs you in GOAT Score";
   return null;
 }
 
@@ -139,11 +150,18 @@ function archetypeFor(picks) {
   return best.label;
 }
 
+// Player-facing label is "Build Qualities" (see App.jsx/LabFighterPanel.jsx)
+// -- kept as SYNERGY_DEFS/synergiesFor internally to avoid unnecessary
+// churn. Purely descriptive: these badges never feed resolveFight,
+// computeFightPreview, GOAT Score, or Build Value -- they only restate,
+// in words, what the underlying attributes already do on their own.
+// Descriptions below are written to reflect that (audited against the
+// actual engine formulas), not to imply the badge itself grants anything.
 const SYNERGY_DEFS = [
   { keys: ["POWER", "STRIKING"], min: 85, label: "Knockout Power", desc: "Power and Striking both elite -- a real finishing threat." },
   { keys: ["GRAPPLING", "WRESTLING"], min: 82, label: "Ground Control", desc: "Can take the fight anywhere and control it once it's there." },
-  { keys: ["CARDIO", "IQ"], min: 82, label: "Championship Rounds", desc: "Built to win close decisions in the late rounds." },
-  { keys: ["CHIN", "CARDIO"], min: 82, label: "Iron Will", desc: "Extremely hard to finish or fatigue." },
+  { keys: ["CARDIO", "IQ"], min: 82, label: "Championship Rounds", desc: "High cardio and fight IQ help this fighter stay effective as fights go longer." },
+  { keys: ["CHIN", "CARDIO"], min: 82, label: "Iron Will", desc: "Strong chin and cardio make this fighter durable and difficult to wear down." },
   { keys: ["SPEED", "CARDIO"], min: 82, label: "Athletic Freak", desc: "Elite gas tank paired with elite speed." },
 ];
 

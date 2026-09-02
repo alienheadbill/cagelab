@@ -5,7 +5,13 @@ import { clamp } from "../lib/utils.js";
 // ---------- Attribute radar chart (dependency-free SVG) ----------
 // Plots all 10 drafted attributes against a fixed "Elite (85)" benchmark ring
 // so the shape of the build -- not just its average -- reads at a glance.
-function RadarChart({ picks, size = 220 }) {
+//
+// opponentPicks (optional): when given, the second polygon plots a REAL
+// second fighter's attributes instead of the flat 85 benchmark -- used by
+// The Lab's comparison view. Every existing caller omits it and renders
+// exactly as before; this is additive, not a behavior change for anyone
+// already using RadarChart.
+function RadarChart({ picks, size = 220, opponentPicks = null }) {
   const keys = ATTRS.map((a) => a.key);
   const n = keys.length;
   const cx = size / 2, cy = size / 2, r = size / 2 - 30;
@@ -17,11 +23,14 @@ function RadarChart({ picks, size = 220 }) {
   };
   const toPoly = (vals) => vals.map((v, i) => pointFor(i, v).join(",")).join(" ");
   const buildValues = keys.map((k) => picks[k].scoreValue);
-  const benchmarkValues = keys.map(() => 85);
+  const secondValues = keys.map((k) => (opponentPicks ? opponentPicks[k].scoreValue : 85));
   const rings = [0.25, 0.5, 0.75, 1].map((f) => toPoly(keys.map(() => 50 + f * 49)));
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} width="100%" style={{ maxWidth: size, display: "block", margin: "0 auto" }} role="img" aria-label="Attribute radar chart, plotted against an elite benchmark">
+    <svg
+      viewBox={`0 0 ${size} ${size}`} width="100%" style={{ maxWidth: size, display: "block", margin: "0 auto" }}
+      role="img" aria-label={opponentPicks ? "Attribute radar chart comparing two fighters" : "Attribute radar chart, plotted against an elite benchmark"}
+    >
       {rings.map((pts, i) => <polygon key={i} points={pts} className="radar-ring" />)}
       {keys.map((_, i) => {
         const [x, y] = pointFor(i, 99);
@@ -30,7 +39,7 @@ function RadarChart({ picks, size = 220 }) {
       {/* pathLength="1" normalizes the polygon's length to 1 regardless of its
           actual perimeter, so the CSS draw-in animation (stroke-dasharray/
           stroke-dashoffset) doesn't need to know the real geometry. */}
-      <polygon points={toPoly(benchmarkValues)} pathLength="1" className="radar-benchmark" />
+      <polygon points={toPoly(secondValues)} pathLength="1" className={opponentPicks ? "radar-opponent" : "radar-benchmark"} />
       <polygon points={toPoly(buildValues)} pathLength="1" className="radar-build" />
       {keys.map((k, i) => {
         const ang = angleFor(i);

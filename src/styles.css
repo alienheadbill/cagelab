@@ -104,7 +104,10 @@
         .mode-card-title { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; margin-top: 6px; color: var(--ink); }
         .mode-card-sub { font-size: 11.5px; color: var(--slate); margin-top: 2px; }
         .pref-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.06em; }
-        .home-footer-row { display: flex; gap: 10px; margin-top: 6px; }
+        .start-tag { margin-top: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--brass); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+        .welcome-banner { display: flex; gap: 10px; align-items: flex-start; }
+        .welcome-banner svg { flex-shrink: 0; margin-top: 1px; }
+        .home-footer-row { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
         .mode-chip { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 5px; margin-left: 8px; }
 
         .challenge-block { border: 1.5px dashed rgba(154,143,125,0.35); border-radius: 10px; padding: 14px; margin-bottom: 14px; background: rgba(154,143,125,0.05); }
@@ -149,21 +152,141 @@
         .collection-row-sub { font-size: 11px; color: var(--slate); margin-top: 1px; }
         .empty-txt { font-size: 12px; color: var(--slate); }
 
-        .tape-card { padding: 13px 15px; }
+        /* ---- My Legacy: Hall of Fame cards + detail view ---- */
+        .saved-build-scores { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+        .build-value-chip { font-size: 9.5px; color: var(--slate); font-weight: 600; }
+        .legacy-empty { text-align: center; padding: 30px 10px; color: var(--slate); }
+        .legacy-empty svg { color: var(--brass); opacity: 0.8; margin-bottom: 8px; }
+        .legacy-empty-title { font-family: 'Anton', sans-serif; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+        .legacy-empty-text { font-size: 12px; max-width: 260px; margin: 0 auto; }
+
+        .legacy-card { display: block; width: 100%; text-align: left; border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px;
+          background: var(--card-bg); padding: 12px 14px; margin-bottom: 10px; cursor: pointer; touch-action: manipulation; color: var(--ink); }
+        .legacy-card:active { transform: scale(0.98); }
+        /* Bronze/silver stay understated; gold/legend pick up the same
+           brass glow the rest of the app already reserves for real
+           accomplishments (see .event-card-wrap.title-event) -- the best
+           careers should visually read as the best careers. */
+        .legacy-card.legacy-gold { border-color: rgba(224,172,58,0.5); }
+        .legacy-card.legacy-legend { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 16px rgba(224,172,58,0.16); }
+        .legacy-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .legacy-card-name { font-weight: 700; font-size: 15px; }
+        .legacy-card-score { text-align: right; flex-shrink: 0; }
+        .legacy-card-score-num { font-size: 20px; font-weight: 800; color: var(--brass); line-height: 1; }
+        .legacy-card-score-lbl { font-size: 8px; letter-spacing: 0.06em; color: var(--slate); text-transform: uppercase; }
+        .legacy-card-sub { font-size: 12px; color: var(--slate); margin-top: 2px; }
+        .legacy-card-stats { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--slate); }
+        .legacy-card-stats b { color: var(--ink); font-size: 13px; margin-right: 3px; }
+        .legacy-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+        .legacy-champ-tag { display: inline-flex; align-items: center; gap: 3px; background: rgba(224,172,58,0.22); color: var(--brass); }
+        .legacy-rank-tag, .legacy-division-tag { background: rgba(154,143,125,0.12); color: #ADA290; }
+
+        .legacy-detail-back { margin-bottom: 10px; display: inline-flex; align-items: center; gap: 4px; }
+        .legacy-detail-head { text-align: center; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed rgba(154,143,125,0.2); }
+        .legacy-detail-name { font-size: 22px; }
+        .legacy-detail-sub { font-size: 12px; color: var(--slate); margin-top: 2px; }
+        .legacy-detail-champ-badge { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 10.5px;
+          font-weight: 700; color: var(--brass); background: rgba(224,172,58,0.14); padding: 3px 9px; border-radius: 5px; }
+        .legacy-detail-verdict { text-align: center; font-size: 12px; color: var(--slate); margin-top: 8px; font-style: italic; }
+
+        /* ---- The Lab: fighter experimentation workbench ---- */
+        .lab-intro { margin-bottom: 14px; }
+        .lab-empty { text-align: center; padding: 10px 0; }
+        .lab-empty svg { color: var(--brass); opacity: 0.85; margin-bottom: 8px; }
+        .lab-empty-title { font-family: 'Anton', sans-serif; font-size: 15px; color: var(--ink); margin-bottom: 14px; }
+        .lab-source-choices { display: flex; flex-direction: column; gap: 8px; }
+        .lab-source-list { text-align: left; }
+        .lab-source-back { margin-bottom: 8px; }
+        .lab-source-row { width: 100%; background: none; border: none; border-top: 1px dashed rgba(154,143,125,0.18); cursor: pointer;
+          color: var(--ink); touch-action: manipulation; }
+        .lab-source-row:first-of-type { border-top: none; }
+
+        .lab-fighter-panel { padding: 16px; }
+        .lab-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .lab-name-input { flex: 1; border: none; border-bottom: 2px solid var(--ink); background: transparent;
+          font-family: 'Anton', sans-serif; font-size: 17px; padding: 3px 2px 5px; color: var(--ink); outline: none; min-width: 0; }
+        .lab-division-select { width: 100%; border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px;
+          padding: 8px 10px; font-size: 11.5px; color: var(--ink); margin-bottom: 12px; }
+        .lab-stat-grid { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+        .lab-archetype { text-align: center; font-size: 15px; color: var(--brass); margin: 10px 0 6px; }
+
+        .lab-slider-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+        .lab-slider-row { width: 100%; }
+        .lab-slider-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+        .lab-slider-label { font-size: 12px; font-weight: 600; }
+        .lab-slider-value { font-size: 12.5px; font-weight: 700; color: var(--brass); }
+        .lab-derived-score { color: var(--slate); font-weight: 400; }
+        .lab-slider { width: 100%; accent-color: var(--brass); height: 20px; touch-action: manipulation; }
+
+        /* Phase 2: two fighters side by side on desktop, stacked on mobile --
+           same >=900px convention .draft-flex already uses. */
+        .lab-fighters-flex { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
+        .lab-fighters-flex > .lab-fighter-panel, .lab-fighters-flex > .lab-empty { margin-bottom: 0; }
+        @media (min-width: 900px) {
+          .lab-fighters-flex { flex-direction: row; align-items: flex-start; }
+          .lab-fighters-flex > * { flex: 1; min-width: 0; }
+        }
+
+        .lab-comparison { padding: 16px; }
+        .lab-compare-identity { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .lab-compare-name { font-weight: 700; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lab-compare-name:last-child { text-align: right; }
+        .lab-compare-vs { font-size: 10px; color: var(--slate); flex-shrink: 0; }
+        .lab-compare-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px;
+          padding: 7px 0; border-top: 1px dashed rgba(154,143,125,0.15); }
+        .lab-compare-row:first-of-type { border-top: none; }
+        .lab-compare-val { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+        .lab-compare-val:last-child { justify-content: flex-end; }
+        .lab-compare-val.adv b { color: var(--brass); }
+        .lab-compare-sub { font-size: 9.5px; color: var(--slate); }
+        .lab-compare-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate);
+          text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1px; white-space: nowrap; }
+        .lab-compare-diff { font-size: 9px; color: var(--slate); }
+        .lab-compare-text-row .lab-compare-text { font-size: 11.5px; font-weight: 600; text-align: left; }
+        .lab-compare-text-row .lab-compare-text:last-child { text-align: right; }
+
+        .lab-simulation { padding: 16px; }
+        .lab-sim-intro { margin-bottom: 12px; }
+        .lab-sim-result { margin-top: 14px; }
+        .lab-sim-disabled-note { padding: 10px 12px; border: 1px dashed rgba(154,143,125,0.3); border-radius: 8px; }
+
+        .lab-matchup { padding: 16px; }
+        .lab-matchup-note { margin-bottom: 10px; }
+        .lab-matchup-edge { text-align: center; margin-bottom: 14px; }
+        .lab-matchup-edge-label { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--brass); }
+        .lab-matchup-winpct { font-size: 11px; color: var(--slate); margin-top: 3px; }
+        .lab-matchup-weapons { margin-top: 4px; }
+        .lab-matchup-phase { text-align: center; font-size: 10.5px; color: var(--slate); margin: 14px 0; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.16); }
+        .lab-matchup-battle { text-align: center; }
+        .lab-matchup-battle > div:last-child { font-size: 13px; font-weight: 600; }
+
+
         .tape-head { margin-bottom: 8px; }
         .tape-name { font-size: 20px; }
         .tape-sub-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
         .tape-sub { font-size: 10px; color: var(--slate); letter-spacing: 0.1em; display: flex; align-items: center; }
         .live-goat { display: flex; align-items: baseline; gap: 3px; background: rgba(154,143,125,0.1); border: 1px solid rgba(154,143,125,0.28);
           border-radius: 6px; padding: 2px 7px; }
-        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .live-goat-num { font-size: 13px; font-weight: 700; color: var(--ink); display: inline-block; animation: pulseScale 0.4s ease; }
         .live-goat.hidden-value { background: rgba(154,143,125,0.08); border-color: rgba(154,143,125,0.22); }
         .live-goat.hidden-value .live-goat-num, .live-goat.hidden-value .live-goat-lbl { color: var(--slate); }
         .live-goat-lbl { font-size: 8px; letter-spacing: 0.05em; color: var(--slate); }
+        .live-goat-delta { font-size: 10.5px; font-weight: 700; margin-left: 2px; animation: cardIn 0.2s ease; }
+        .live-goat-delta.up { color: var(--brass); }
+        .live-goat-delta.down { color: var(--blood); }
 
         .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0; }
+        .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0;
+          transition: border-color 1.4s ease, background-color 1.4s ease; }
         .slot-box.filled { border-color: rgba(224,172,58,0.55); background: rgba(224,172,58,0.07); animation: popIn 0.25s ease; }
+        /* Extends past the one-time 0.25s pop -- a static, stronger state
+           (not an animation) that decays on its own ~1.8s timer set in
+           App.jsx, so the slot the player just filled stays legible as
+           "the new one" long enough to connect it back to the pick that
+           was just made. Reduced motion still gets this in full: it's a
+           border/background state, not motion, so it isn't touched by the
+           .reduced-motion override -- only the decay's transition is. */
+        .slot-box.filled.newest { border-color: var(--brass); background: rgba(224,172,58,0.16); }
         .slot-box-label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
         .slot-box-open { font-size: 10px; color: rgba(154,143,125,0.55); font-weight: 700; letter-spacing: 0.04em; }
         .slot-box-value { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
@@ -193,6 +316,10 @@
         .division-note b { color: var(--ink); }
 
         .daily-note { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--brass); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .draft-hint { justify-content: space-between; }
+        .draft-hint-text { display: flex; align-items: center; gap: 6px; }
+        .hint-dismiss { background: none; border: none; color: var(--slate); cursor: pointer; padding: 2px 4px; line-height: 1; font-size: 13px; touch-action: manipulation; }
+        .hint-dismiss:active { color: var(--brass); }
         .code-pill { background: rgba(224,172,58,0.14); border: 1px solid var(--brass); border-radius: 5px; padding: 2px 8px; font-weight: 600; }
 
         .respin-row { display: flex; gap: 6px; margin-bottom: 8px; }
@@ -219,6 +346,10 @@
         .radar-spoke { stroke: rgba(154,143,125,0.18); stroke-width: 1; }
         .radar-benchmark { fill: none; stroke: var(--brass); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0.7; animation: radarDraw 0.9s ease; }
         .radar-build { fill: rgba(224,172,58,0.22); stroke: var(--ember); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 0; animation: radarDraw 0.9s ease 0.15s backwards; }
+        /* Same "you = brass/ember, opponent = blood" language FightResultCard
+           already uses -- Fighter B in a comparison reads as an opponent,
+           not a second benchmark. */
+        .radar-opponent { fill: rgba(214,54,43,0.14); stroke: var(--blood); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; animation: radarDraw 0.9s ease; }
         /* The draw-in "hidden" state lives only inside the keyframe, not as a
            static rule -- with .reduced-motion cancelling the animation
            (animation: none !important), the shape falls back to the plain
@@ -230,6 +361,7 @@
         .radar-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
         .radar-swatch.build { background: var(--ember); }
         .radar-swatch.benchmark { border: 1.5px dashed var(--brass); }
+        .radar-swatch.opponent { background: var(--blood); }
         .build-board-caption { font-size: 10.5px; letter-spacing: 0.06em; color: var(--slate); text-align: center; text-transform: uppercase; }
         .build-board.compact .build-board-caption { font-size: 10px; }
 
@@ -263,6 +395,14 @@
         .attr-badge.rolling, .context-chip.rolling { animation: rollFlicker 0.14s linear infinite; }
         .rolling-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 22px 0; color: var(--brass); }
         .rolling-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+        /* The per-round lock-in confirmation that replaces the old generic
+           "Locking in next round..." text -- FIGHTER SELECTED -> ATTRIBUTE
+           INHERITED -> ADDED TO MY BUILD, read top to bottom. */
+        .lock-in-box { gap: 4px; padding: 18px 0; }
+        .lock-in-box .spin-icon { opacity: 0.5; margin-bottom: 2px; }
+        .lock-in-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+        .lock-in-value { font-size: 34px; line-height: 1; color: var(--ink); }
+        .lock-in-via { font-size: 11px; color: var(--slate); text-transform: none; letter-spacing: 0.02em; }
         @keyframes selectPop {
           0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
           40% { transform: scale(1.035); box-shadow: 0 0 0 6px rgba(224,172,58,0.28); }
@@ -273,6 +413,16 @@
            flash, which stays reserved for the handful of true hero moments. */
         .pick-card.selected { animation: selectPop 0.3s ease; border-color: var(--brass); z-index: 1; position: relative; }
         .pick-card.dimmed { opacity: 0.35; pointer-events: none; }
+        @keyframes eliteSelectPop {
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(204,106,46,0); }
+          35% { transform: scale(1.06); box-shadow: 0 0 0 10px rgba(224,172,58,0.35); }
+          70% { transform: scale(1.02); box-shadow: 0 0 0 4px rgba(204,106,46,0.2); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
+        }
+        /* One of the true hero moments the comment above reserves the
+           full-strength flash for -- a 96+ pick earns the full elite bonus
+           in GOAT Score, so it earns a bigger pop than the routine one. */
+        .pick-card.selected.elite-select { animation: eliteSelectPop 0.45s ease; border-color: var(--ember); }
 
         .btn { font-family: 'Anton', sans-serif; letter-spacing: 0.03em; border: none; border-radius: 8px; padding: 14px 18px; font-size: 16px;
           cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: transform 0.1s ease, opacity 0.15s ease;
@@ -302,6 +452,13 @@
         .result-eyebrow { font-size: 10px; letter-spacing: 0.16em; color: var(--slate); text-transform: uppercase; }
         .result-fighter-name { font-size: 20px; margin-top: 4px; color: var(--ink); }
         .result-goat-num { font-size: 68px; line-height: 1; color: var(--brass); margin-top: 10px; text-shadow: 0 2px 22px rgba(224,172,58,0.35); }
+        /* Blind mode's brief "still hidden" beat before the real number
+           pops in -- muted like the rest of Blind's hidden-value language
+           (see .live-goat.hidden-value), with the same soft flicker the
+           draft's own "Rolling..." state already uses, so it reads as
+           "resolving" rather than a static placeholder. */
+        .blind-goat-obscured { color: var(--slate); text-shadow: none; animation: rollFlicker 0.5s linear infinite; }
+        .blind-goat-revealed { animation: popIn 0.4s ease; }
         .result-goat-lbl { font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-top: 2px; }
         .result-tier-badge { margin-top: 12px; display: inline-flex; font-size: 11.5px; padding: 5px 12px; }
         /* One-line question under each axis's label -- GOAT Score and Build
@@ -359,8 +516,13 @@
         .attr-bar-fighter { font-size: 9.5px; color: var(--slate); margin-top: 2px; }
 
         .synergy-block { margin-top: 4px; }
-        .synergy-chip { font-size: 12px; color: var(--ink); background: rgba(224,172,58,0.08); border: 1px solid rgba(224,172,58,0.3); border-radius: 8px;
-          padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: flex-start; gap: 6px; line-height: 1.5; }
+        /* Build Qualities are purely descriptive (see synergiesFor in
+           scoring.js -- confirmed zero mechanical effect), so this is
+           deliberately a neutral/info treatment, not the brass+border
+           "bonus" look .fight-tag.bonus uses elsewhere for a REAL bonus --
+           same slate-tinted family as .slot-box/.fight-tag.trait, no icon. */
+        .build-quality-chip { font-size: 12px; color: var(--ink); background: rgba(154,143,125,0.07); border: 1px solid rgba(154,143,125,0.22); border-radius: 8px;
+          padding: 8px 10px; margin-bottom: 6px; line-height: 1.5; }
 
         /* ---- Score breakdown demoted to a disclosure -- the math is available, not foregrounded ---- */
         .score-breakdown-details { margin-top: 16px; border-top: 1px dashed rgba(154,143,125,0.18); padding-top: 10px; }
@@ -389,6 +551,7 @@
 
         .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
         .action-grid .btn { padding: 12px 10px; font-size: 13px; }
+        .action-grid .full-span { grid-column: 1 / -1; }
 
         .daily-result-box { border: 1.5px solid var(--brass); border-radius: 8px; padding: 12px 14px; margin: 16px 0; background: rgba(224,172,58,0.06); }
         .daily-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
@@ -414,6 +577,12 @@
         .legacy-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate); }
         .progress-bar-track { height: 5px; border-radius: 3px; background: rgba(154,143,125,0.15); overflow: hidden; margin: 10px 0 4px; }
         .progress-bar-fill { height: 100%; background: var(--brass); border-radius: 3px; transition: width 0.4s ease; }
+        .season-glance { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; padding: 8px 12px; margin: 10px 0 6px; background: rgba(154,143,125,0.04); }
+        .season-glance-row { display: flex; justify-content: space-between; align-items: baseline; }
+        .season-glance-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate); font-weight: 700; }
+        .season-glance-record { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .season-glance-camp { font-size: 11px; color: var(--slate); margin-top: 3px; }
+        .season-glance-remaining { font-size: 10px; color: var(--brass); margin-top: 3px; }
 
         .year-divider { text-align: center; margin: 16px 0 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
           letter-spacing: 0.16em; color: var(--brass); text-transform: uppercase; animation: cardIn 0.3s ease; }
@@ -530,6 +699,8 @@
         .fight-tag.bonus { background: rgba(224,172,58,0.32); color: var(--brass); font-weight: 700; border: 1px solid rgba(224,172,58,0.5); }
         .fight-tag.trait { background: rgba(154,143,125,0.14); color: var(--ink); font-weight: 600; }
 
+        .how-it-happened-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--slate); margin-bottom: 3px; }
+
         .fight-breakdown { margin: 0 12px 10px; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.18); }
         .round-tracker { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
         .round-pip { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700; padding: 3px 7px;
@@ -537,6 +708,37 @@
         .round-pip.you { background: rgba(224,172,58,0.22); color: var(--brass); }
         .round-pip.opp { background: rgba(214,54,43,0.12); color: var(--blood); }
         .round-pip.finish { box-shadow: 0 0 0 1.5px currentColor inset; }
+
+        /* Round-by-round narrative -- one short line per round, generated
+           once at fight-resolution time (see narrative.js), never re-rolled
+           on render. Left border carries the same you/opp color language as
+           the old pips so the win/loss read is still instant at a glance,
+           just with the "why" now attached. */
+        .round-narrative-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+        .round-narrative-row { padding: 6px 9px; border-left: 2.5px solid rgba(154,143,125,0.3); border-radius: 4px; background: rgba(154,143,125,0.06); }
+        .round-narrative-row.you { border-left-color: var(--brass); }
+        .round-narrative-row.opp { border-left-color: var(--blood); }
+        .round-narrative-row.finish { background: rgba(224,172,58,0.1); }
+        .round-narrative-head { font-size: 8.5px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 1px; }
+        .round-narrative-row.you .round-narrative-head { color: var(--brass); }
+        .round-narrative-row.opp .round-narrative-head { color: var(--blood); }
+        .round-narrative-text { font-size: 11.5px; color: var(--ink); line-height: 1.4; }
+
+        /* Fight moments -- standout events pulled out of the round prose on
+           purpose, so they can carry their own stronger visual weight
+           without the round text itself getting shouty. */
+        .fight-moments { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .fight-moment { padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(154,143,125,0.22); background: var(--card-bg); }
+        .fight-moment-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--slate); margin-bottom: 1px; }
+        .fight-moment-text { font-size: 11.5px; color: var(--ink); line-height: 1.35; }
+        .fight-moment.moment-danger-opp, .fight-moment.moment-knockdown, .fight-moment.moment-comeback {
+          border-color: rgba(224,172,58,0.4); background: rgba(224,172,58,0.08); }
+        .fight-moment.moment-danger-opp .fight-moment-label, .fight-moment.moment-knockdown .fight-moment-label, .fight-moment.moment-comeback .fight-moment-label { color: var(--brass); }
+        .fight-moment.moment-danger-self, .fight-moment.moment-knockdown-against, .fight-moment.moment-collapse {
+          border-color: rgba(214,54,43,0.35); background: rgba(214,54,43,0.06); }
+        .fight-moment.moment-danger-self .fight-moment-label, .fight-moment.moment-knockdown-against .fight-moment-label, .fight-moment.moment-collapse .fight-moment-label { color: var(--blood); }
+        .fight-moment.moment-finish { border-color: var(--brass); background: rgba(224,172,58,0.12); }
+        .fight-moment.moment-finish .fight-moment-label { color: var(--brass); }
         .scorecard-row span:last-child { color: var(--ink); font-weight: 600; }
         .stat-compare-grid { display: flex; flex-direction: column; gap: 3px; }
         .stat-compare-header { display: grid; grid-template-columns: 1fr 1.4fr 1fr; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate); margin-bottom: 2px; }
@@ -562,6 +764,12 @@
         .setup-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate); margin-bottom: 6px; font-weight: 700; }
         .setup-select, .setup-input { width: 100%; font-size: 13px; padding: 10px 12px; border-radius: 7px;
           border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); color: var(--ink); }
+        /* The closed <select> box inherits the theme fine, but many browsers
+           render the OPEN option list with native/system chrome regardless
+           of color set on the <select> itself -- explicitly styling <option>
+           is the standard, widely-supported way to pull the dropdown list
+           itself back into the theme instead of a default light popup. */
+        .setup-select option { background: var(--card-bg); color: var(--ink); }
         .setup-input { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; }
         .setup-hint { font-size: 10.5px; color: var(--slate); margin-top: 6px; line-height: 1.45; }
         .setup-hint b { color: var(--ink); }
@@ -590,9 +798,14 @@
         .style-option-name { font-family: 'Anton', sans-serif; font-size: 14.5px; }
         .style-fit-tag { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; font-weight: 700; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 6px; }
         .style-option-desc { font-size: 11px; color: var(--slate); line-height: 1.4; }
-        .style-option-deltas { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; font-size: 10px; font-weight: 700; }
-        .style-option-deltas .up { color: var(--brass); }
-        .style-option-deltas .down { color: var(--blood); }
+        /* Four color-coded deltas used to run together as one dense wrapped
+           line -- bumped a touch larger and each one gets its own tinted
+           pill (same chip language as .fight-tag) so it reads as four
+           separate, individually legible facts instead of a run-on string. */
+        .style-option-deltas { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; font-size: 10.5px; font-weight: 700; }
+        .style-option-deltas span { padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+        .style-option-deltas .up { color: var(--brass); background: rgba(224,172,58,0.14); }
+        .style-option-deltas .down { color: var(--blood); background: rgba(214,54,43,0.12); }
 
         /* ---- CLF event card: every fight is a card on a numbered event ---- */
         .event-card-wrap { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; margin-bottom: 12px; overflow: hidden;
