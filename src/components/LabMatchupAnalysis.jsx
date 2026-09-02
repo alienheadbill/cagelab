@@ -52,10 +52,14 @@ function LabMatchupAnalysis({ fighterA, fighterB }) {
   const underdog = favorsA ? fighterB : fighterA;
   const winPct = Math.round((favorsA ? winProb : 1 - winProb) * 100);
 
+  // This bucket IS a legitimate A-vs-B comparative read (winProb already
+  // weighs both fighters against each other), so "edge" stays accurate
+  // wording here -- unlike the two weapons boxes below, which are each
+  // fighter's own top attributes considered alone, not a stat differential.
   const bucket = edgeLabel(winProb);
-  const edgeText = bucket === "even" ? "EVEN MATCHUP"
-    : (bucket === "favorable" || bucket === "nightmare") ? `CLEAR EDGE — ${favorite.name.toUpperCase()}`
-    : `SLIGHT EDGE — ${favorite.name.toUpperCase()}`;
+  const bucketLabel = bucket === "even" ? "EVEN MATCHUP"
+    : (bucket === "favorable" || bucket === "nightmare") ? "CLEAR EDGE"
+    : "SLIGHT EDGE";
 
   const favoriteWeapons = strengthsWeaknesses(favorite.picks).strengths;
   const underdogWeapons = strengthsWeaknesses(underdog.picks).strengths;
@@ -79,13 +83,16 @@ function LabMatchupAnalysis({ fighterA, fighterB }) {
       )}
 
       <div className="lab-matchup-edge">
-        <div className="lab-matchup-edge-label mono">{edgeText}</div>
-        <div className="lab-matchup-winpct mono">{winPct}% projected win probability</div>
+        <div className="lab-matchup-edge-label mono">{bucketLabel}</div>
+        <div className="lab-matchup-winpct mono">{favorite.name.toUpperCase()} · {winPct}% PROJECTED WIN PROBABILITY</div>
       </div>
 
+      {/* These are each fighter's own top attributes (strengthsWeaknesses,
+          taken alone) -- not a stat differential against the other fighter
+          -- so they're labeled as each side's weapons, not as an "edge". */}
       <div className="result-weapon-row lab-matchup-weapons">
-        <div><span>Primary Edge — {favorite.name}</span><b>{favoriteWeapons[0].label} + {favoriteWeapons[1].label}</b></div>
-        <div><span>Opponent Path — {underdog.name}</span><b>{underdogWeapons[0].label} + {underdogWeapons[1].label}</b></div>
+        <div><span>Favorite's Weapons — {favorite.name}</span><b>{favoriteWeapons[0].label} + {favoriteWeapons[1].label}</b></div>
+        <div><span>Underdog's Weapons — {underdog.name}</span><b>{underdogWeapons[0].label} + {underdogWeapons[1].label}</b></div>
       </div>
 
       <div className="lab-matchup-phase mono">{phaseDescription(phase)}</div>
