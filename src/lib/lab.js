@@ -100,11 +100,23 @@ function isCompletePicks(picks) {
   return !!picks && ATTRS.every((a) => picks[a.key] && typeof picks[a.key].scoreValue === "number");
 }
 
+// career.js's combat functions (computeFightPreview, resolveFight, ...) all
+// want a flat {STRIKING: n, ...} object, not the Lab's {STRIKING:
+// {scoreValue: n}} picks shape -- a read, not a transformation of any
+// value. Shared here since both LabSimulation and LabMatchupAnalysis need
+// the exact same conversion.
+function flatAttrsFromPicks(picks) {
+  const attrs = {};
+  SKILL_KEYS.forEach((k) => { attrs[k] = picks[k].scoreValue; });
+  return attrs;
+}
+
 export {
   DEFAULT_LAB_DIVISION,
   DEFAULT_SKILL_VALUE,
   applyDivisionToPicks,
   ensurePhysicals,
+  flatAttrsFromPicks,
   hypotheticalFighter,
   isCompletePicks,
   picksFromSnapshotArray,

@@ -2353,6 +2353,7 @@ export {
   commitFight,
   computeAchievements,
   computePlayerProfile,
+  computeFightPreview,
   computeWinProbability,
   deriveTraits,
   estimatePhaseControl,

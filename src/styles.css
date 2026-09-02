@@ -248,6 +248,17 @@
         .lab-simulation { padding: 16px; }
         .lab-sim-intro { margin-bottom: 12px; }
         .lab-sim-result { margin-top: 14px; }
+        .lab-sim-disabled-note { padding: 10px 12px; border: 1px dashed rgba(154,143,125,0.3); border-radius: 8px; }
+
+        .lab-matchup { padding: 16px; }
+        .lab-matchup-note { margin-bottom: 10px; }
+        .lab-matchup-edge { text-align: center; margin-bottom: 14px; }
+        .lab-matchup-edge-label { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--brass); }
+        .lab-matchup-winpct { font-size: 11px; color: var(--slate); margin-top: 3px; }
+        .lab-matchup-weapons { margin-top: 4px; }
+        .lab-matchup-phase { text-align: center; font-size: 10.5px; color: var(--slate); margin: 14px 0; padding-top: 10px; border-top: 1px dashed rgba(154,143,125,0.16); }
+        .lab-matchup-battle { text-align: center; }
+        .lab-matchup-battle > div:last-child { font-size: 13px; font-weight: 600; }
 
 
         .tape-head { margin-bottom: 8px; }

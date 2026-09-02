@@ -3,16 +3,8 @@ import { Swords } from "lucide-react";
 import { SKILL_KEYS } from "../data/attrs.js";
 import { resolveFight, deriveTraits } from "../lib/career.js";
 import { archetypeFor } from "../lib/scoring.js";
+import { flatAttrsFromPicks } from "../lib/lab.js";
 import FightResultCard from "./FightResultCard.jsx";
-
-// resolveFight wants a flat {STRIKING: n, ...} object, not the Lab's
-// {STRIKING: {scoreValue: n}} picks shape -- this is a read, not a
-// transformation of any value.
-function flatAttrs(picks) {
-  const attrs = {};
-  SKILL_KEYS.forEach((k) => { attrs[k] = picks[k].scoreValue; });
-  return attrs;
-}
 
 // The same "average of the 8 skill ratings" convention already used
 // everywhere else in the game for a displayed OVR (see
@@ -33,8 +25,8 @@ function overallFor(picks) {
 // non-title Career fight uses -- The Lab has no stance or title concept of
 // its own to feed in.
 function runSimulation(fighterA, fighterB) {
-  const attrsA = flatAttrs(fighterA.picks);
-  const attrsB = flatAttrs(fighterB.picks);
+  const attrsA = flatAttrsFromPicks(fighterA.picks);
+  const attrsB = flatAttrsFromPicks(fighterB.picks);
   const traitsA = deriveTraits(attrsA);
   const traitsB = deriveTraits(attrsB);
   const result = resolveFight(attrsA, fighterA.picks.REACH.scoreValue, attrsB, 0, traitsA, traitsB, 3);
@@ -57,8 +49,16 @@ function runSimulation(fighterA, fighterB) {
 function LabSimulation({ fighterA, fighterB }) {
   const [result, setResult] = useState(null);
   const [runCount, setRunCount] = useState(0);
+  // The combat engine has no body-weight/reach-differential model between
+  // divisions -- a Flyweight vs Heavyweight "simulation" would just be two
+  // ordinary rating sets run through the same math, which would misrepresent
+  // itself as a real fight. Comparison/editing stays cross-division; only
+  // running an actual fight is gated on matching divisions. No new
+  // weight-difference math is added anywhere -- this is a UI gate only.
+  const sameDivision = fighterA.division === fighterB.division;
 
   function handleSimulate() {
+    if (!sameDivision) return;
     setResult(runSimulation(fighterA, fighterB));
     setRunCount((c) => c + 1);
   }
@@ -69,9 +69,15 @@ function LabSimulation({ fighterA, fighterB }) {
       <div className="help-text lab-sim-intro">
         Runs the exact same fight engine Career Mode uses. This result isn't saved and never affects a career, ranking, or record.
       </div>
-      <button className="btn btn-primary" onClick={handleSimulate}>
-        <Swords size={16} /> {result ? "Run Again" : "Simulate Fight"}
-      </button>
+      {sameDivision ? (
+        <button className="btn btn-primary" onClick={handleSimulate}>
+          <Swords size={16} /> {result ? "Run Again" : "Simulate Fight"}
+        </button>
+      ) : (
+        <div className="lab-sim-disabled-note help-text">
+          Match divisions to simulate a fight. {fighterA.name} is {fighterA.division}, {fighterB.name} is {fighterB.division} -- the fight engine doesn't model weight differences between classes.
+        </div>
+      )}
       {result && (
         <div className="lab-sim-result" key={runCount}>
           <FightResultCard e={result} playerName={fighterA.name} />
