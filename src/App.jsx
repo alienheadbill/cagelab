@@ -1588,7 +1588,7 @@ export default function CageLab() {
                   <div className="year-end-title">Year {e.year} Recap</div>
                   <div className="summary-row"><span>Record</span><b>{e.wins}-{e.losses}</b></div>
                   {tierMoved && (
-                    <div className="summary-row"><span>Division</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
+                    <div className="summary-row"><span>Circuit Level</span><b>{clfTier(e.tierBefore).short} → {clfTier(e.tierAfter).short}</b></div>
                   )}
                   <div className="summary-row"><span>Ranking</span><b>{beforeLabel === afterLabel ? afterLabel : `${beforeLabel} → ${afterLabel}`}</b></div>
                   {e.bestWin && <div className="summary-row"><span>Best Win</span><b>vs {e.bestWin.opp} ({e.bestWin.oppRating})</b></div>}

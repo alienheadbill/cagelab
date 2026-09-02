@@ -990,7 +990,19 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // handful of times to dodge landing on the same person back-to-back by pure
 // chance. Bounded, so a thin division can't spin forever, and never applies
 // to the title-fight path (that's resolved by flag, not by this draw).
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty) {
+// National is meant to be a materially stronger feeder stage than Regional
+// -- lower array index is a stronger fighter -- so this caps how weak
+// National's centre-of-the-draw can go, regardless of how little
+// rankPoints the player has actually built up at this tier yet (which is
+// always freshly reset to 0 on entering National, same as Regional).
+// Deliberately does NOT touch playerRankPoints itself: real momentum built
+// during the National run still pulls the draw tougher once it's earned
+// (Math.min below only ever makes centre stronger, never weaker, than
+// this), so the underlying rankPoints stays truthful -- this only sets a
+// tier-driven floor on the matchmaking curve, not a fake ranking.
+const NATIONAL_MATCHMAKING_CEILING = 10;
+
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -1007,6 +1019,7 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
+  if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
   // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
   // actually gets drawn -- lower array index is a stronger fighter (index 0
   // is the champion), so easy pushes the centre toward a higher index
@@ -1059,7 +1072,7 @@ function displayRankFor(division, index) {
 // it already was -- just visible now instead of hidden behind the label.
 // The draws are chained through a growing avoid-list so the three options
 // are never the same person twice.
-function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds) {
+function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds, circuitTier) {
   const tags = ["easy", "ranked", "stepUp"];
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
@@ -1076,7 +1089,7 @@ function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds
     // division's too thin to avoid it, showing the repeat beats looping.
     let picked;
     for (let attempt = 0; attempt < 5; attempt++) {
-      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag);
+      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag, circuitTier);
       const dupRecord = pickedRecords.some((r) => r.w === picked.fighter.record.w && r.l === picked.fighter.record.l);
       if (!dupRecord) break;
       avoid.push(picked.fighter.id);
@@ -1255,6 +1268,11 @@ function initCareer(picks, options) {
     yearStartRank: null, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
+    // Scoped to CLF National wins only (see the National->Contender Series
+    // gate in commitFight) -- never touched by Regional or Premier wins,
+    // and never reset by a Contender Series loss bouncing back to National
+    // (that's "standing intact," same as everything else at this tier).
+    nationalWins: 0, nationalOppQualitySum: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
@@ -1424,7 +1442,7 @@ function maybeFightChoice(state) {
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds);
+    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds, state.circuitTier);
     return { ...state, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -1553,7 +1571,7 @@ function prepareFight(state, choiceTag, targetId) {
     // the belt IS a title shot, and that already has its own real path
     // (streak+ranking, or Demand/Short-Notice) with its own stakes.
     const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
-    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, undefined, s.circuitTier);
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
     // Falls back to a fresh draw with the same difficulty bias if the
@@ -1561,7 +1579,7 @@ function prepareFight(state, choiceTag, targetId) {
     // division regenerated between the offer being shown and picked --
     // shouldn't happen inside one decision, but never leave the player
     // stuck on a dead pick).
-    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -1581,7 +1599,7 @@ function prepareFight(state, choiceTag, targetId) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
@@ -1685,6 +1703,7 @@ function commitFight(state) {
     else if (result.method === "Submission") s.finishes = { ...s.finishes, sub: s.finishes.sub + 1 };
     else s.finishes = { ...s.finishes, dec: s.finishes.dec + 1 };
     s.oppQualitySumWins += opp.overall;
+    if (tierBefore === "CLF National") { s.nationalWins += 1; s.nationalOppQualitySum += opp.overall; }
   } else {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
@@ -1728,25 +1747,37 @@ function commitFight(state) {
 
   // --- tier promotion ---------------------------------------------------
   // A one-way climb -- Regional -> National -> Contender Series -> Premier
-  // -- gated by real accomplishment at each level instead of a raw
-  // rankPoints threshold: winning that tier's title, or (National only,
-  // since a title shot isn't guaranteed even on a genuine tear) a serious
-  // win streak. Contender Series has no ladder of its own: win the single
-  // showcase fight and the Premier contract is waiting; lose it and it's
-  // back to National to build the case again, standings intact. No
-  // demotion once a tier is broken into -- a rough patch in Premier
-  // doesn't send you back to Regional, same as the real thing.
+  // -- gated by real accomplishment at each level, with two legitimate
+  // routes at Regional and National alike: winning that tier's title (the
+  // prestige route), or a real performance-based case that a promotion
+  // would plausibly notice (the prospect route) -- see the Model E
+  // structural-prototype pass this implements. Contender Series has no
+  // ladder of its own: win the single showcase fight and the Premier
+  // contract is waiting; lose it and it's back to National to build the
+  // case again, standings intact. No demotion once a tier is broken into
+  // -- a rough patch in Premier doesn't send you back to Regional, same as
+  // the real thing.
   const justWonTierTitle = isTitleShot && result.win;
+  // National's alternate route needs "beat National-level opposition," not
+  // just "win at National" -- s.nationalWins/nationalOppQualitySum are
+  // scoped to CLF National wins only (incremented below, gated on
+  // tierBefore, so a Regional win can never feed this average). They are
+  // NOT reset on a Contender Series loss bouncing back to National -- that
+  // branch is explicitly "standing intact," and the credibility already
+  // earned this National run carries through a failed showcase attempt,
+  // not just the fights since the bounce-back. This is the interpretation
+  // the Model E prototype simulated and reported as approved.
+  const nationalGatePass = s.nationalWins >= 2 && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
   let resetForFreshTier = false;
   // True only for the National -> Contender Series branch below: champion
   // gets cleared without a fresh-tier reset (the National roster/standing
   // is kept, not rebuilt), so the belt-taking block further down needs its
   // own guard against re-crowning the player right after this clears them.
   let leftBeltBehindForContenderSeries = false;
-  if (s.circuitTier === "CLF Regional" && justWonTierTitle) {
+  if (s.circuitTier === "CLF Regional" && (justWonTierTitle || s.streak >= 4)) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || s.streak >= 3)) {
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || nationalGatePass)) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
     // title, no rank, no matter how you earned the invite. Winning the
@@ -1796,7 +1827,16 @@ function commitFight(state) {
     s.divisionRoster = buildDivision();
     s.playerRank = null;
     s.champion = false;
-    s.rankPoints = 0;
+    // Premier entry alone seeds rankPoints instead of the usual 0 -- a
+    // Contender Series win earned real credibility, so matchmaking starts
+    // mid-pack rather than at the very bottom. Deliberately NOT a Top 15
+    // slot: playerRank stays null (set just above) and matchmaking at
+    // rankPoints=40 still centres well outside the ranked window (see
+    // selectDivisionOpponent) -- the player still has to beat their way
+    // onto the board, same as any other tier. Regional -> National and
+    // National -> Contender Series both stay at 0: this seed is scoped to
+    // the Premier boundary only, per the approved Model E V1 pass.
+    s.rankPoints = s.circuitTier === "CLF PREMIER" ? 40 : 0;
     // Win streak resets too -- otherwise a streak built beating up the tier
     // you just left over-qualifies you for the next one on day one (e.g. a
     // 4-fight streak that won the Regional title would, left alone, already
