@@ -742,6 +742,12 @@
         .setup-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate); margin-bottom: 6px; font-weight: 700; }
         .setup-select, .setup-input { width: 100%; font-size: 13px; padding: 10px 12px; border-radius: 7px;
           border: 1.5px solid rgba(154,143,125,0.28); background: var(--card-bg); color: var(--ink); }
+        /* The closed <select> box inherits the theme fine, but many browsers
+           render the OPEN option list with native/system chrome regardless
+           of color set on the <select> itself -- explicitly styling <option>
+           is the standard, widely-supported way to pull the dropdown list
+           itself back into the theme instead of a default light popup. */
+        .setup-select option { background: var(--card-bg); color: var(--ink); }
         .setup-input { font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 0.02em; }
         .setup-hint { font-size: 10.5px; color: var(--slate); margin-top: 6px; line-height: 1.45; }
         .setup-hint b { color: var(--ink); }
