@@ -1032,20 +1032,23 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
     for (let i = windowLo; i <= windowHi; i++) { if (!avoid.includes(division[i].id)) free.push(i); }
     if (free.length) target = free[Math.floor(Math.random() * free.length)];
   }
-  // The displayed Top 15 numbering excludes whoever is flagged champion.
-  // Normally that's index 0, so array index and display rank line up
-  // (target itself never dips into index 0 here). But during a vacant title
-  // -- nobody in the division flagged, belt held by the player or open
-  // after an interim -- there's no entry to exclude, so every displayed
-  // rank sits one higher than its raw array index.
+  return { fighter: division[target], rank: displayRankFor(division, target) };
+}
+
+// The displayed Top 15 numbering excludes whoever is flagged champion.
+// Normally that's index 0, so array index and display rank line up (index
+// itself never dips into index 0 for a non-champion fighter). But during a
+// vacant title -- nobody in the division flagged, belt held by the player
+// or open after an interim -- there's no entry to exclude, so every
+// displayed rank sits one higher than its raw array index. Anything past
+// DIVISION_SIZE is unranked -- report null so the UI shows "unranked"
+// rather than a fake #27 (or, for a caller that skipped this and used the
+// raw array index directly, an outright wrong one -- see callout/matchmaker
+// picks below, which used to do exactly that).
+function displayRankFor(division, index) {
   const hasDivisionChampion = division.some((f) => f.isChampion);
-  const displayRank = hasDivisionChampion ? target : target + 1;
-  return {
-    fighter: division[target],
-    // Anything past DIVISION_SIZE is unranked -- report null so the UI shows
-    // "unranked" rather than a fake #27 ranking.
-    rank: displayRank <= DIVISION_SIZE ? displayRank : null,
-  };
+  const displayRank = hasDivisionChampion ? index : index + 1;
+  return displayRank <= DIVISION_SIZE ? displayRank : null;
 }
 
 // Three REAL, named candidates for the matchmaking panel -- replaces
@@ -1550,7 +1553,7 @@ function prepareFight(state, choiceTag, targetId) {
     // the belt IS a title shot, and that already has its own real path
     // (streak+ranking, or Demand/Short-Notice) with its own stakes.
     const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
-    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds);
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
     // Falls back to a fresh draw with the same difficulty bias if the
@@ -1558,7 +1561,7 @@ function prepareFight(state, choiceTag, targetId) {
     // division regenerated between the offer being shown and picked --
     // shouldn't happen inside one decision, but never leave the player
     // stuck on a dead pick).
-    picked = target ? { fighter: target, rank: s.divisionRoster.indexOf(target) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
+    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
