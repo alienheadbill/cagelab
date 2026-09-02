@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet, Flame, FlaskConical,
+  FileSignature, GraduationCap, Wallet, Flame, FlaskConical, Mic,
 } from "lucide-react";
 
 import "./styles.css";
@@ -84,6 +84,14 @@ const MATCHMAKER_TAG_META = {
   easy: { label: "Easy Fight", sub: "Lower risk & reward" },
   ranked: { label: "Ranked Fight", sub: "Moderate risk, better reward" },
   stepUp: { label: "Step-Up Fight", sub: "Tough test, major reward" },
+};
+
+// A truthful empty state for Ranked/Step-Up when nobody in the division
+// actually qualifies -- shown instead of ever substituting an unranked or
+// bad-form fighter under a premium label.
+const MATCHMAKER_UNAVAILABLE_META = {
+  ranked: { title: "No Ranked Opponent Available", blurb: "Nobody in the Top 15 is bookable right now." },
+  stepUp: { title: "No Step-Up Available", blurb: "No contender has enough momentum to justify the booking right now." },
 };
 
 export default function CageLab() {
@@ -1267,6 +1275,19 @@ export default function CageLab() {
               <div className="matchmaker-grid">
                 {(careerState.pendingDecision.options || []).map((opt) => {
                   const meta = MATCHMAKER_TAG_META[opt.tag];
+                  // A truthful empty state -- no candidate qualified, so
+                  // nothing is booked here. Never substitutes an unranked
+                  // or bad-form fighter to fill the card.
+                  if (!opt.available) {
+                    const unavailable = MATCHMAKER_UNAVAILABLE_META[opt.tag];
+                    return (
+                      <div className={`matchmaker-card tag-${opt.tag} unavailable`} key={opt.tag}>
+                        <div className="matchmaker-tag mono">{meta.label}</div>
+                        <div className="matchmaker-unavailable-title">{unavailable.title}</div>
+                        <div className="matchmaker-sub">{unavailable.blurb}</div>
+                      </div>
+                    );
+                  }
                   const wins = opt.recentForm.filter((r) => r === "W").length;
                   const losses = opt.recentForm.length - wins;
                   return (
@@ -1308,7 +1329,14 @@ export default function CageLab() {
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
-              {careerState.divisionRoster && (
+              {/* Normal contender callouts unlock once the player is
+                  genuinely ranked -- the real standing (playerRank), same
+                  source of truth as the Demand/Short-Notice buttons above,
+                  not a second eligibility number. An unranked player has no
+                  business browsing the Top 15 -- their route to a callout
+                  is Mic Time after a real performance (see the spotlight),
+                  scoped to a believable target pool, not this full list. */}
+              {careerState.divisionRoster && careerState.playerRank != null && careerState.playerRank <= DIVISION_SIZE && (
                 <>
                   <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
                     <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
@@ -1456,7 +1484,39 @@ export default function CageLab() {
               settles into the history the moment the player advances. */}
           {!careerState.pendingDecision && spotlightFightId && (() => {
             const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
-            return spotlightEntry ? <FightResultCard e={spotlightEntry} playerName={name} /> : null;
+            if (!spotlightEntry) return null;
+            return (
+              <>
+                <FightResultCard e={spotlightEntry} playerName={name} />
+                {/* Mic Time -- an optional post-fight beat, not a blocking
+                    decision: the targets are read straight off the fight
+                    entry's own micTimeTargets (computed once in commitFight,
+                    never re-derived here). Doing nothing and tapping Next
+                    below is the decline path -- there's no separate dismiss
+                    control needed since the panel disappears with the
+                    spotlight the moment the player moves on. */}
+                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (
+                  <div className="mic-time-panel">
+                    <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
+                    <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
+                    <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
+                    <div className="mic-time-targets">
+                      {spotlightEntry.micTimeTargets.map((t) => (
+                        <button
+                          className="mic-time-target"
+                          key={t.fighterId}
+                          onClick={() => handleFightChoice("callout", t.fighterId)}
+                        >
+                          <span className="mic-time-target-rank mono">{t.rank ? `#${t.rank}` : "UNRANKED"}</span>
+                          <span className="mic-time-target-name">{t.name}</span>
+                          <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
           })()}
           {(!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") && (
             <div className="btn-row sim-advance-bar">
