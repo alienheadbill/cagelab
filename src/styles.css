@@ -276,8 +276,17 @@
         .live-goat-delta.down { color: var(--blood); }
 
         .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0; }
+        .slot-box { border: 1.5px solid rgba(154,143,125,0.2); border-radius: 6px; padding: 6px 8px; background: rgba(154,143,125,0.04); min-width: 0;
+          transition: border-color 1.4s ease, background-color 1.4s ease; }
         .slot-box.filled { border-color: rgba(224,172,58,0.55); background: rgba(224,172,58,0.07); animation: popIn 0.25s ease; }
+        /* Extends past the one-time 0.25s pop -- a static, stronger state
+           (not an animation) that decays on its own ~1.8s timer set in
+           App.jsx, so the slot the player just filled stays legible as
+           "the new one" long enough to connect it back to the pick that
+           was just made. Reduced motion still gets this in full: it's a
+           border/background state, not motion, so it isn't touched by the
+           .reduced-motion override -- only the decay's transition is. */
+        .slot-box.filled.newest { border-color: var(--brass); background: rgba(224,172,58,0.16); }
         .slot-box-label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
         .slot-box-open { font-size: 10px; color: rgba(154,143,125,0.55); font-weight: 700; letter-spacing: 0.04em; }
         .slot-box-value { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
@@ -386,6 +395,14 @@
         .attr-badge.rolling, .context-chip.rolling { animation: rollFlicker 0.14s linear infinite; }
         .rolling-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 22px 0; color: var(--brass); }
         .rolling-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+        /* The per-round lock-in confirmation that replaces the old generic
+           "Locking in next round..." text -- FIGHTER SELECTED -> ATTRIBUTE
+           INHERITED -> ADDED TO MY BUILD, read top to bottom. */
+        .lock-in-box { gap: 4px; padding: 18px 0; }
+        .lock-in-box .spin-icon { opacity: 0.5; margin-bottom: 2px; }
+        .lock-in-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+        .lock-in-value { font-size: 34px; line-height: 1; color: var(--ink); }
+        .lock-in-via { font-size: 11px; color: var(--slate); text-transform: none; letter-spacing: 0.02em; }
         @keyframes selectPop {
           0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(224,172,58,0); }
           40% { transform: scale(1.035); box-shadow: 0 0 0 6px rgba(224,172,58,0.28); }

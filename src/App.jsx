@@ -156,6 +156,18 @@ export default function CageLab() {
   const [pickedFighterId, setPickedFighterId] = useState(null);
   const [isRolling, setIsRolling] = useState(false);
   const [rollPreview, setRollPreview] = useState(null);
+  // The single source of truth for "what was the most recently committed
+  // pick" -- set at the exact moment handlePick commits it to `picks`, and
+  // read by both the round-panel lock-in confirmation and TapeCard's
+  // caption, so the two can never disagree about which pick is "current"
+  // the way the old order[round-2]-derived lastPickedKey used to (it only
+  // advanced when `round` did, a full transition late).
+  const [lastPick, setLastPick] = useState(null);
+  // Highlights the just-filled slot in TapeCard for a few seconds after it
+  // fills -- separate from lastPick (which persists until the NEXT pick,
+  // however long that takes) because this one decays on its own clock.
+  const [newestSlotKey, setNewestSlotKey] = useState(null);
+  const newestSlotTimeoutRef = useRef(null);
   // True for a brief beat between the final pick landing and the reveal
   // screen actually mounting -- the "LOCKING IN YOUR BUILD..." interstitial.
   // Every other round transition already gets one (see isRolling); the
@@ -250,10 +262,13 @@ export default function CageLab() {
     clearTimeout(pickTimeoutRef.current);
     clearTimeout(rollTimeoutRef.current);
     clearTimeout(revealTimeoutRef.current);
+    clearTimeout(newestSlotTimeoutRef.current);
     setRevealPending(false);
     setPickedFighterId(null);
     setIsRolling(false);
     setRollPreview(null);
+    setLastPick(null);
+    setNewestSlotKey(null);
     let seededDivision = null;
     if (selectedMode === "daily") {
       dailyRngRef.current = mulberry32(seedFromDateStr(todayStr()));
@@ -394,6 +409,20 @@ export default function CageLab() {
     pickTimeoutRef.current = setTimeout(() => {
       setPicks(nextPicks);
       setPickedFighterId(null);
+      // Single source of truth for "the pick that just committed" -- see
+      // the lastPick declaration above. Set in the exact same tick as
+      // setPicks, so TapeCard's slot and caption, and the round-panel
+      // lock-in confirmation, always describe the same pick.
+      setLastPick({ key: currentAttrKey, value });
+      // The newest-slot highlight runs on its own real-time clock (not
+      // tied to reducedMotion -- it's a static state, not an animation,
+      // and reduced-motion players get MORE benefit from it since they
+      // never see the one-time pop-in). Cleared and restarted on every
+      // pick; also cleared in startDraft so a stale timeout from an
+      // abandoned draft can't reach into a fresh one.
+      setNewestSlotKey(currentAttrKey);
+      clearTimeout(newestSlotTimeoutRef.current);
+      newestSlotTimeoutRef.current = setTimeout(() => setNewestSlotKey(null), 1800);
 
       if (isFinalRound) {
         const score = computeGoatScore(nextPicks);
@@ -838,7 +867,8 @@ export default function CageLab() {
               picks={picks}
               blind={blind}
               modeChip={modeChipLabel}
-              lastPickedKey={round > 1 ? order[round - 2] : null}
+              lastPick={lastPick}
+              newestSlotKey={newestSlotKey}
               compact
               editableName={round === 1 && Object.keys(picks).length === 0}
               nameValue={fighterName}
@@ -911,10 +941,25 @@ export default function CageLab() {
                 </div>
               )}
 
+              {/* Replaces the old generic "Locking in next round..." message
+                  -- this was the single biggest feedback gap in the draft:
+                  the exact moment the selected cards disappear, the player
+                  used to lose all reference to what they just picked. Now
+                  it confirms FIGHTER SELECTED -> ATTRIBUTE INHERITED ->
+                  ADDED TO MY BUILD using lastPick, the same state TapeCard
+                  reads, so the two can never disagree. Blind omits the
+                  rating line entirely (not even "?") -- a lock-in
+                  confirmation communicates success, not a hidden value. */}
               {isRolling ? (
-                <div className="rolling-box">
-                  <RotateCw size={26} className="spin-icon" />
-                  <div className="rolling-label mono">Locking in next round&hellip;</div>
+                <div className="rolling-box lock-in-box">
+                  <RotateCw size={16} className="spin-icon" />
+                  {lastPick && (
+                    <>
+                      <div className="lock-in-label mono">{ATTR_BY_KEY[lastPick.key].label.toUpperCase()} LOCKED</div>
+                      {!blind && <div className="lock-in-value display">{lastPick.value.display}</div>}
+                      <div className="lock-in-via mono">via {lastPick.value.fighter}</div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="pick-card-grid">

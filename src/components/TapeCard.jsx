@@ -4,10 +4,14 @@ import { estimateGoatSoFar } from "../lib/scoring.js";
 import FighterSilhouette from "./FighterSilhouette.jsx";
 
 // ---------- Tale of the tape build panel (blind-aware) ----------
-function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editableName, nameValue, onChangeName }) {
+// lastPick ({key, value}) and newestSlotKey are both sourced from App.jsx's
+// single lastPick state, set the instant a pick actually commits -- not
+// derived from `round`, so the caption and the slot grid can never
+// disagree about which pick is "current" the way an order[round-2]-based
+// lookup could (it only advanced a full round transition late).
+function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compact, editableName, nameValue, onChangeName }) {
   const filledCount = Object.keys(picks).length;
   const fillPct = filledCount / ATTRS.length;
-  const lastPick = lastPickedKey ? picks[lastPickedKey] : null;
   const liveGoat = estimateGoatSoFar(picks);
 
   // Answers "what did that pick just do" directly instead of leaving the
@@ -29,7 +33,7 @@ function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editab
   const caption = filledCount >= ATTRS.length
     ? "BUILD COMPLETE"
     : lastPick
-      ? `${ATTR_BY_KEY[lastPickedKey].label.toUpperCase()}: ${blind ? lastPick.fighter.split(" ")[0] : lastPick.fighter} (${blind ? "?" : lastPick.display})`
+      ? `${ATTR_BY_KEY[lastPick.key].label.toUpperCase()}: ${blind ? lastPick.value.fighter.split(" ")[0] : lastPick.value.fighter} (${blind ? "?" : lastPick.value.display})`
       : "— AWAITING FIRST PICK —";
 
   return (
@@ -87,7 +91,7 @@ function TapeCard({ name, picks, blind, modeChip, lastPickedKey, compact, editab
           const p = picks[a.key];
           const Icon = a.icon;
           return (
-            <div className={`slot-box ${p ? "filled" : ""}`} key={a.key}>
+            <div className={`slot-box ${p ? "filled" : ""} ${a.key === newestSlotKey ? "newest" : ""}`} key={a.key}>
               <div className="slot-box-label"><Icon size={11} /> {a.label}</div>
               {p ? (
                 <div className="slot-box-value">
