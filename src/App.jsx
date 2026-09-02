@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet, Flame,
+  FileSignature, GraduationCap, Wallet, Flame, FlaskConical,
 } from "lucide-react";
 
 import "./styles.css";
@@ -125,12 +125,28 @@ export default function CageLab() {
   // vanish the instant they navigate away from the home screen and back.
   // The actual "mark as seen" write happens in the effect below instead of
   // here -- a side effect inside a lazy initializer is exactly what
-  // StrictMode's double-invoke is designed to catch.
-  const [isFirstVisit] = useState(() => !loadJSON(LS_HAS_VISITED, false));
+  // StrictMode's double-invoke is designed to catch. Now settable (Replay
+  // Intro flips it back to true later in the same session) -- the ref below
+  // remembers the ORIGINAL mount-time value specifically so that replay
+  // doesn't immediately re-trigger the "mark as seen" write and cancel
+  // itself out.
+  const [isFirstVisit, setIsFirstVisit] = useState(() => !loadJSON(LS_HAS_VISITED, false));
+  const wasFirstVisitAtMount = useRef(isFirstVisit);
   useEffect(() => {
-    if (isFirstVisit) saveJSON(LS_HAS_VISITED, true);
-  }, [isFirstVisit]);
+    if (wasFirstVisitAtMount.current) saveJSON(LS_HAS_VISITED, true);
+  }, []);
   const [seenDraftHint, setSeenDraftHint] = useState(() => loadJSON(LS_SEEN_DRAFT_HINT, false));
+  // Replay Intro (My Legacy > settings) -- resets exactly the two existing
+  // onboarding flags and nothing else, then goes home so the first-visit
+  // hierarchy and the welcome banner are immediately visible again this
+  // session. No new storage keys.
+  function replayIntro() {
+    saveJSON(LS_HAS_VISITED, false);
+    saveJSON(LS_SEEN_DRAFT_HINT, false);
+    setIsFirstVisit(true);
+    setSeenDraftHint(false);
+    goHome();
+  }
   const [challengeBoard, setChallengeBoard] = useState([]);
   const [challengeBoardLoading, setChallengeBoardLoading] = useState(false);
   const [dailyResultBoard, setDailyResultBoard] = useState([]);
@@ -786,6 +802,7 @@ export default function CageLab() {
           onClearBuilds={() => { saveJSON(LS_SAVED_BUILDS, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onClearCareers={() => { saveJSON(LS_CAREER_HISTORY, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onImportFile={() => { setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
+          onReplayIntro={replayIntro}
         />
       )}
 
@@ -1078,6 +1095,14 @@ export default function CageLab() {
               </>
             )}
 
+            {/* Closes the loop the welcome banner opens on Home: Build -> this
+                reveal (Discover) -> here, told explicitly where a finished
+                fighter can go next. Reuses .note-txt, the same style as the
+                disclaimer line already below this panel. */}
+            <div className="note-txt" style={{ marginTop: 16, marginBottom: -4 }}>
+              This is your fighter now. Save the build, take it into Career, or push it further in The Lab.
+            </div>
+
             <div className="action-grid">
               <button className="btn btn-ghost" onClick={saveCurrentBuild} disabled={buildSaved}>
                 <Trophy size={16} /> {buildSaved ? "Saved!" : "Save Build"}
@@ -1096,6 +1121,15 @@ export default function CageLab() {
               )}
               <button className="btn btn-ghost" onClick={() => setShowShareBlock((v) => !v)}>
                 <Copy size={16} /> Share
+              </button>
+              {/* The Lab always opens to its own normal empty state here --
+                  it has no prop path today for preloading an in-memory,
+                  not-yet-saved build (it only loads from Saved Builds/
+                  Legacy history in storage), and The Lab is frozen for this
+                  pass, so that isn't being added now. Save Build first,
+                  then pick it up from "Load a Saved Build" in the Lab. */}
+              <button className="btn btn-ghost full-span" onClick={() => setPhase("lab")}>
+                <FlaskConical size={16} /> Test in The Lab
               </button>
             </div>
 

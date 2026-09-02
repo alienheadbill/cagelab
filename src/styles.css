@@ -529,6 +529,7 @@
 
         .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
         .action-grid .btn { padding: 12px 10px; font-size: 13px; }
+        .action-grid .full-span { grid-column: 1 / -1; }
 
         .daily-result-box { border: 1.5px solid var(--brass); border-radius: 8px; padding: 12px 14px; margin: 16px 0; background: rgba(224,172,58,0.06); }
         .daily-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }

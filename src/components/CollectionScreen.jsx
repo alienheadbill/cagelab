@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { ArrowLeft, Star, Eye, Download, Upload, Award } from "lucide-react";
+import { ArrowLeft, Star, Eye, Download, Upload, Award, RotateCcw } from "lucide-react";
 import { computePlayerProfile } from "../lib/career.js";
 import { buildScorecardText, computeBuildValueBreakdown } from "../lib/scoring.js";
 import { exportAllData, importAllData } from "../lib/storage.js";
@@ -25,7 +25,7 @@ function buildValueForSavedBuild(build) {
 // ---------- My Legacy / Collection screen ----------
 function CollectionScreen({
   onBack, dailyStats, savedBuilds, careerHistory, dailyLog, achievements,
-  reducedMotion, onToggleReducedMotion, onLoadBuild, onClearBuilds, onClearCareers, onImportFile,
+  reducedMotion, onToggleReducedMotion, onLoadBuild, onClearBuilds, onClearCareers, onImportFile, onReplayIntro,
 }) {
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState("");
@@ -202,6 +202,13 @@ function CollectionScreen({
             <div className="collection-block-title">Accessibility</div>
             <button className={`choice-btn full ${reducedMotion ? "active" : ""}`} onClick={onToggleReducedMotion}>
               <Eye size={14} /> Reduce Motion {reducedMotion ? "(On)" : "(Off)"}
+            </button>
+          </div>
+
+          <div className="collection-block">
+            <div className="collection-block-title">Getting Started</div>
+            <button className="choice-btn full" onClick={onReplayIntro}>
+              <RotateCcw size={14} /> Show the intro again
             </button>
           </div>
 
