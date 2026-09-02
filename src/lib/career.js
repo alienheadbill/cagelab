@@ -1795,12 +1795,44 @@ function prepareFight(state, choiceTag, targetId) {
     picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, undefined, s.circuitTier);
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
-    // Falls back to a fresh draw with the same difficulty bias if the
-    // targeted fighter somehow isn't in the roster anymore (e.g. the
-    // division regenerated between the offer being shown and picked --
-    // shouldn't happen inside one decision, but never leave the player
-    // stuck on a dead pick).
-    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
+    // Falls back to a fresh draw if the targeted fighter somehow isn't in
+    // the roster anymore (e.g. the division regenerated between the offer
+    // being shown and picked -- shouldn't happen inside one decision, but
+    // never leave the player stuck on a dead pick). Reuses the SAME
+    // eligibility-aware pickers generateMatchmakerOptions itself uses, not
+    // a second copy of the rules -- a regenerated-roster booking must obey
+    // the exact same Ranked/Step-Up invariants as a normal one. "easy"
+    // alone keeps the old unconstrained draw, unchanged, per the audit
+    // ("do not over-constrain Easy").
+    if (target) {
+      picked = { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) };
+    } else if (choiceTag === "ranked") {
+      picked = pickRankedCandidate(s.divisionRoster, s.playerRank, s.recentOpponentIds)
+        // Avoid-list exhaustion is the only realistic reason the picker's
+        // own internal ladder-wide widen would still come up empty here --
+        // drop it (same picker, same rules, just less to avoid) rather
+        // than ever falling through to an unranked substitute.
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, []);
+    } else if (choiceTag === "stepUp") {
+      // No freshly-drawn Easy option exists in this rebooking path -- draw
+      // one the same way generateMatchmakerOptions does, purely as the
+      // "harder than Easy" reference point Step-Up eligibility needs.
+      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier);
+      picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds)
+        || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [])
+        // Genuinely nobody clears the Step-Up bar even with nothing
+        // avoided (the panel's own "No Step-Up Available" case, just hit
+        // mid-flow instead of at generation time) -- degrade to Ranked's
+        // guaranteed-non-null pick rather than ever falling through to the
+        // unconstrained draw, so this booking still can't land on a
+        // losing-record or bad-form opponent under a Step-Up tag.
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, s.recentOpponentIds)
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, []);
+    }
+    // Only "easy" (and the unreachable-in-practice absolute edge case)
+    // ever falls through to here -- Ranked/Step-Up are both structurally
+    // guaranteed non-null by the two-tier fallback above.
+    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
