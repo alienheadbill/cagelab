@@ -1268,11 +1268,15 @@ function initCareer(picks, options) {
     yearStartRank: null, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
     streak: 0, longestStreak: 0,
-    // Scoped to CLF National wins only (see the National->Contender Series
-    // gate in commitFight) -- never touched by Regional or Premier wins,
-    // and never reset by a Contender Series loss bouncing back to National
-    // (that's "standing intact," same as everything else at this tier).
-    nationalWins: 0, nationalOppQualitySum: 0,
+    // Scoped to CLF National fights only (see the National->Contender
+    // Series gate in commitFight) -- never touched by Regional or Premier
+    // fights, and never reset by a Contender Series loss bouncing back to
+    // National (that's "standing intact," same as everything else at this
+    // tier). nationalLosses exists purely to require a winning National
+    // record at the gate -- a fighter who's losing more than they're
+    // winning shouldn't earn the same invite as one who isn't, no matter
+    // how good the wins they do have were.
+    nationalWins: 0, nationalLosses: 0, nationalOppQualitySum: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
@@ -1707,6 +1711,7 @@ function commitFight(state) {
   } else {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
+    if (tierBefore === "CLF National") s.nationalLosses += 1;
   }
 
   // Snapshot rank/title status right before this fight moves the needle, so
@@ -1767,7 +1772,18 @@ function commitFight(state) {
   // earned this National run carries through a failed showcase attempt,
   // not just the fights since the bounce-back. This is the interpretation
   // the Model E prototype simulated and reported as approved.
-  const nationalGatePass = s.nationalWins >= 2 && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
+  //
+  // nationalWins > nationalLosses added after the release-gate sim found
+  // the opponent-quality-of-wins bar alone let a fighter lose indefinitely
+  // (worst observed: 2-12) and still earn the same invite as a clean 2-0 --
+  // the wins met the bar, but nothing looked at the losses piling up
+  // alongside them. One boolean, same nationalLosses scoping/persistence
+  // rules as nationalWins above (National-fights-only, survives a
+  // Contender Series bounce-back): you must be winning more than you're
+  // losing at National, on top of the existing quality-of-wins bar.
+  const nationalGatePass = s.nationalWins >= 2
+    && s.nationalWins > s.nationalLosses
+    && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
   let resetForFreshTier = false;
   // True only for the National -> Contender Series branch below: champion
   // gets cleared without a fresh-tier reset (the National roster/standing
