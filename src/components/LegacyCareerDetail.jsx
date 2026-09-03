@@ -17,6 +17,18 @@ function Stat({ label, value }) {
   );
 }
 
+// Highest-tier reign actually won -- same rule as LegacyCareerCard's copy
+// of this helper (duplicated, not imported, matching this file's existing
+// per-file-helper convention). Null on an entry saved before
+// titleReignsByTier existed, never a guessed tier.
+function highestTitleTier(c) {
+  if (!c.titleReignsByTier) return null;
+  if (c.titleReignsByTier["CLF PREMIER"] > 0) return "CLF PREMIER";
+  if (c.titleReignsByTier["CLF National"] > 0) return "CLF National";
+  if (c.titleReignsByTier["CLF Regional"] > 0) return "CLF Regional";
+  return null;
+}
+
 // Reopens one historical career. Everything here reads from the immutable
 // snapshot saveCareerToHistory took the moment that career ended -- this
 // never recomputes GOAT Score, Build Value, or ranking from current
@@ -46,9 +58,16 @@ function LegacyCareerDetail({ career: c, onBack }) {
         <div className="legacy-detail-sub">
           {c.division || "Division not recorded"}{c.careerStyle ? ` · ${c.careerStyle}` : ""}
         </div>
-        {(c.champion || c.titleReigns > 0) && (
-          <div className="legacy-detail-champ-badge"><Crown size={12} /> {c.champion ? "Retired as Champion" : "Former Champion"}</div>
-        )}
+        {(() => {
+          const topTier = highestTitleTier(c);
+          if (topTier) {
+            const t = CLF_TIERS.find((x) => x.name === topTier) || {};
+            return <div className="legacy-detail-champ-badge"><Crown size={12} /> CLF {t.short} CHAMPION</div>;
+          }
+          return (c.champion || c.titleReigns > 0) && (
+            <div className="legacy-detail-champ-badge"><Crown size={12} /> {c.champion ? "Retired as Champion" : "Former Champion"}</div>
+          );
+        })()}
       </div>
 
       <div className="collection-block-title">Fighter</div>
@@ -72,6 +91,36 @@ function LegacyCareerDetail({ career: c, onBack }) {
         <Stat label="Statement Wins" value={c.statementWins} />
         {c.wonTitleAsUnderdog && <Stat label="Underdog Title" value="Yes" />}
       </div>
+
+      {/* Concise tier breakdown under the flat totals above -- never
+          fabricated: an entry saved before titleReignsByTier existed
+          shows "Not recorded" rather than a guessed split (same rule as
+          Peak Division/Peak Rank above). Only shown at all when there's
+          something to break down. */}
+      {(c.titleReigns > 0 || c.titleDefenses > 0) && (
+        <>
+          <div className="collection-block-title" style={{ marginTop: 14 }}>Title Breakdown</div>
+          {c.titleReignsByTier ? (
+            <div className="legacy-title-breakdown">
+              <div className="legacy-title-breakdown-row legacy-title-breakdown-head mono">
+                <span /><span>REIGNS</span><span>DEFENSES</span>
+              </div>
+              {["CLF PREMIER", "CLF National", "CLF Regional"].map((tierName) => {
+                const t = CLF_TIERS.find((x) => x.name === tierName) || {};
+                return (
+                  <div className="legacy-title-breakdown-row mono" key={tierName}>
+                    <span>{t.short}</span>
+                    <span>{c.titleReignsByTier[tierName] || 0}</span>
+                    <span>{(c.titleDefensesByTier && c.titleDefensesByTier[tierName]) || 0}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-txt">Tier breakdown not recorded for this career.</div>
+          )}
+        </>
+      )}
 
       <div className="collection-block-title" style={{ marginTop: 14 }}>Build</div>
       {hasBuild ? (

@@ -631,6 +631,16 @@ const CLF_TIER_ORDER = CLF_TIERS.map((t) => t.name);
 
 const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0];
 
+// Tier-aware title prestige -- deliberately three keys, not four. Contender
+// Series never has a belt: isTitleShot/isTitleDefense are both explicitly
+// gated `!isContenderSeriesFight` below, and s.champion is forced false the
+// moment a fighter enters Contender Series (see leftBeltBehindForContender
+// Series in commitFight) -- no title fight can ever happen at that tier.
+const TITLE_TIERS = ["CLF Regional", "CLF National", "CLF PREMIER"];
+function freshTitleTierCounts() {
+  return TITLE_TIERS.reduce((acc, t) => { acc[t] = 0; return acc; }, {});
+}
+
 // A plausible W-L record for a generated opponent, scaled by how far into the
 // career this fight happens and how good the opponent's overall rating is.
 // Not a persistent identity across rematches (the engine regenerates
@@ -795,11 +805,27 @@ function rollHypeEvent(iq, isTitle, isRival) {
   return { attr, delta, positive, text };
 }
 
+// Tier-aware title prestige for the retirement Legacy bonus -- Premier is
+// the world-title analogue and dominates; Regional is real but a stepping
+// stone. This is a SEPARATE prestige expression from the per-fight
+// TIER_LEGACY_MULT weighting further down (runningLegacy accrual, live
+// during the career) -- that one stays untouched. This one replaces the
+// old flat `titleReigns*20 + titleDefenses*10` term below, it does not
+// stack on top of it.
+const TITLE_REIGN_VALUE = { "CLF Regional": 8, "CLF National": 14, "CLF PREMIER": 26 };
+const TITLE_DEFENSE_VALUE = { "CLF Regional": 3, "CLF National": 6, "CLF PREMIER": 12 };
+function titleTierBonus(reignsByTier, defensesByTier) {
+  return TITLE_TIERS.reduce((sum, tier) => (
+    sum + ((reignsByTier && reignsByTier[tier]) || 0) * TITLE_REIGN_VALUE[tier]
+        + ((defensesByTier && defensesByTier[tier]) || 0) * TITLE_DEFENSE_VALUE[tier]
+  ), 0);
+}
+
 // Retuned alongside the GOAT Score changes: legacy bonuses trimmed slightly
 // and verdict thresholds raised so Hall of Fame-tier careers feel earned.
 function calculateLegacy(state) {
   const {
-    record, finishes, titleReigns, titleDefenses, peakRankPoints,
+    record, finishes, titleReignsByTier, titleDefensesByTier, peakRankPoints,
     rankedFightCount, statementWins, rivalryWins, oppQualitySumWins, runningLegacy,
   } = state;
   const totalWins = record.w;
@@ -813,7 +839,7 @@ function calculateLegacy(state) {
   bonus += Math.round(rankedFightCount * 0.8);
   bonus += statementWins * 5;
   bonus += rivalryWins * 4;
-  bonus += titleReigns * 20 + titleDefenses * 10;
+  bonus += titleTierBonus(titleReignsByTier, titleDefensesByTier);
 
   return { legacyScore: Math.max(0, runningLegacy + bonus), bonus, finishRate, strengthOfSchedule };
 }
@@ -1453,13 +1479,14 @@ function resolveContractNegotiation(state, contractId) {
   return s;
 }
 
-// Acknowledges the live circuitMove milestone commitFight set. Nothing to
-// decide here -- the tier already changed, the timeline entry already
-// exists -- this only clears the presentation flag so the next render
-// falls through to whatever's actually next (a pendingDecision the same
-// fight-commit may also have set, e.g. contract negotiation, or normal
-// flow). A no-op past `!pendingMilestone` guards against a stray
-// double-acknowledge.
+// Acknowledges whatever live milestone commitFight set (circuitMove,
+// titleWin, titleDefenseMilestone -- type-agnostic on purpose). Nothing to
+// decide here -- the underlying truth (tier, title counters, timeline
+// entries) already changed in commitFight -- this only clears the
+// presentation flag so the next render falls through to whatever's
+// actually next (a pendingDecision the same fight-commit may also have
+// set, e.g. contract negotiation, or normal flow). A no-op past
+// `!pendingMilestone` guards against a stray double-acknowledge.
 function resolveMilestone(state) {
   if (!state.pendingMilestone) return state;
   return { ...state, pendingMilestone: null };
@@ -1511,6 +1538,11 @@ function initCareer(picks, options) {
     // played this year" the same way playerRank itself uses it.
     yearStartRank: null, yearStartChampion: false, yearStartTier: "CLF Regional", yearStartLegacy: 0, peakYearLegacy: 0, peakYearNumber: 1,
     champion: false, titleReigns: 0, titleDefenses: 0,
+    // Tier-scoped breakdown of the flat counters above -- see TITLE_TIERS.
+    // The flat titleReigns/titleDefenses stay authoritative for every
+    // reader that doesn't need the breakdown (achievements, share-card
+    // text); these are additive, not a replacement.
+    titleReignsByTier: freshTitleTierCounts(), titleDefensesByTier: freshTitleTierCounts(),
     streak: 0, longestStreak: 0,
     // Scoped to CLF National fights only (see the National->Contender
     // Series gate in commitFight) -- never touched by Regional or Premier
@@ -2029,12 +2061,19 @@ function commitFight(state) {
 
   if (isTitleShot && result.win) {
     s.titleReigns += 1;
+    // tierBefore, not s.circuitTier -- a Regional/National title win can
+    // trigger a same-fight promotion further down, and the reign belongs
+    // to the tier it was actually won at, not wherever the fighter ends
+    // up a few lines later.
+    s.titleReignsByTier = { ...s.titleReignsByTier, [tierBefore]: (s.titleReignsByTier[tierBefore] || 0) + 1 };
     s.champion = true;
     if (s.record.l >= 2) s.wonTitleAsUnderdog = true;
   }
   if (isTitleDefense) {
-    if (result.win) s.titleDefenses += 1;
-    else s.champion = false;
+    if (result.win) {
+      s.titleDefenses += 1;
+      s.titleDefensesByTier = { ...s.titleDefensesByTier, [tierBefore]: (s.titleDefensesByTier[tierBefore] || 0) + 1 };
+    } else s.champion = false;
   }
   // Snapshotted here, before a tier promotion (if this fight just triggered
   // one) resets rankPoints/champion for the next tier's fresh climb -- the
@@ -2393,15 +2432,40 @@ function commitFight(state) {
     : null;
 
   const timeline = [...s.timeline];
-  // pendingMilestone mirrors the exact same computation as the circuitMove
-  // timeline entry below -- one truth, two presentations (live acknowledge
-  // screen now, History card forever after). Never a second progression
-  // engine: circuitTier already changed above, this only presents it.
+  // pendingMilestone mirrors truth already written elsewhere -- the
+  // circuitMove timeline entry below, and the titleReignsByTier/
+  // titleDefensesByTier counters above -- one truth, several live
+  // presentations. Never a second progression engine: circuitTier and the
+  // title counters already changed above, this only decides what the live
+  // acknowledge screen shows.
+  //
+  // A Regional/National title win is ITSELF what triggers that same-fight
+  // promotion (see justWonTierTitle in the promotion gate above), so on
+  // that fight both a title win and a tier change are true at once --
+  // rather than let two milestone payloads compete for the single
+  // pendingMilestone slot (or silently drop one), this folds the
+  // promotion into ONE combined titleWin milestone via promotedTo. The
+  // circuitMove TIMELINE entry below is unconditional on tierChanged
+  // either way, exactly as before -- only which LIVE screen presents it
+  // branches here; a title win never suppresses that timeline write.
   s.pendingMilestone = null;
   if (tierChanged) {
     const promoted = CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(tierBefore);
     timeline.push({ type: "circuitMove", id: `circuit-${s.fightGlobalIndex}`, promoted, from: tierBefore, to: s.circuitTier });
-    s.pendingMilestone = { type: "circuitMove", promoted, from: tierBefore, to: s.circuitTier };
+    s.pendingMilestone = justWonTierTitle
+      ? { type: "titleWin", tier: tierBefore, division: s.division, promotedTo: s.circuitTier }
+      : { type: "circuitMove", promoted, from: tierBefore, to: s.circuitTier };
+  } else if (justWonTierTitle) {
+    // No further tier to climb -- Premier in practice, since a Regional or
+    // National title win always promotes in the same fight (see the
+    // promotion gate above), so a title win at either of those tiers can
+    // never reach this branch.
+    s.pendingMilestone = { type: "titleWin", tier: tierBefore, division: s.division, promotedTo: null };
+  } else if (isTitleDefense && result.win && [1, 3, 5].includes(s.titleDefensesByTier[tierBefore])) {
+    // Every successful defense gets the "AND STILL" fight-result treatment
+    // (see the fight timeline entry's titleDefenseCount below); only the
+    // 1st/3rd/5th also get a blocking live acknowledgment.
+    s.pendingMilestone = { type: "titleDefenseMilestone", tier: tierBefore, division: s.division, defenseCount: s.titleDefensesByTier[tierBefore] };
   }
   if (rivalryJustBorn) timeline.push({ type: "rivalEvent", id: `rival-${s.fightGlobalIndex}`, oppName });
   if (hype) timeline.push({ type: "hypeEvent", id: `hype-${s.fightGlobalIndex}`, ...hype });
@@ -2422,10 +2486,23 @@ function commitFight(state) {
     // The tier this fight was actually contested at -- a title-fight win
     // that triggers a promotion still happened AT the old tier; the move
     // itself shows up as its own circuitMove timeline entry right after.
-    circuitTier: tierBefore, eventNumber, cardPosition,
+    // Same fight-time-truth reasoning as circuitTier just above -- a weight
+    // move (rare, resolved at a year boundary) can change state.division
+    // later in the career, so title/pre-fight copy reading this fight back
+    // later must use what was true THEN, not state.division now.
+    circuitTier: tierBefore, division: s.division, eventNumber, cardPosition,
     onStyle: s.careerStyle && s.careerStyle !== "Balanced" ? s.styleIsNaturalFit : null,
     win: result.win, method: result.method,
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
+    // Post-increment defense count for a successful defense (1st, 2nd, 3rd,
+    // ...) -- computed once, here, off the exact same
+    // titleDefensesByTier[tierBefore] the milestone check above reads, so
+    // the "AND STILL -- Nth TITLE DEFENSE" fight-result treatment always
+    // agrees with whichever fights (1st/3rd/5th) also got a live milestone.
+    // null on anything that isn't a successful defense (a loss, a title
+    // shot, an ordinary fight) -- FightResultCard treats null as "not a
+    // defense," never as "0th defense."
+    titleDefenseCount: (isTitleDefense && result.win) ? s.titleDefensesByTier[tierBefore] : null,
     contenderSeries: isContenderSeriesFight, calledOut: isCallout,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
     micTimeTargets,
@@ -2632,6 +2709,14 @@ function playSfxForTransition(prev, next) {
 function computePlayerProfile({ dailyStats, savedBuilds, careerHistory }) {
   const bestGoat = savedBuilds.reduce((m, b) => Math.max(m, b.goatScore || 0), 0);
   const championships = careerHistory.reduce((s, c) => s + (c.titleReigns || 0), 0);
+  // Tier-aware résumé totals -- only ever summed from entries that actually
+  // recorded a titleReignsByTier breakdown (see saveCareerToHistory). Older
+  // entries still count toward the flat `championships` total above (and
+  // metaRankFor, unchanged -- see decision 13), they just never get
+  // guessed into a specific tier here.
+  const premierChampionships = careerHistory.reduce((s, c) => s + ((c.titleReignsByTier && c.titleReignsByTier["CLF PREMIER"]) || 0), 0);
+  const nationalChampionships = careerHistory.reduce((s, c) => s + ((c.titleReignsByTier && c.titleReignsByTier["CLF National"]) || 0), 0);
+  const regionalChampionships = careerHistory.reduce((s, c) => s + ((c.titleReignsByTier && c.titleReignsByTier["CLF Regional"]) || 0), 0);
   const hofCareers = careerHistory.filter((c) => /Hall of Fame|Generational/.test(c.verdict)).length;
   let bestRecord = null;
   careerHistory.forEach((c) => {
@@ -2651,9 +2736,12 @@ function computePlayerProfile({ dailyStats, savedBuilds, careerHistory }) {
     bestDailyStreak: dailyStats.bestStreak || dailyStats.currentStreak || 0,
     careersCompleted,
     championships,
+    premierChampionships, nationalChampionships, regionalChampionships,
     hofCareers,
     bestRecord,
     favoriteFighter,
+    // Unchanged input on purpose (decision 13, deferred) -- metaRankFor
+    // still keys off the flat total, not the tier-aware breakdown above.
     metaRank: metaRankFor(bestGoat, championships, careersCompleted),
   };
 }

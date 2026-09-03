@@ -3,6 +3,15 @@ import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical 
 import { ATTR_BY_KEY } from "../data/attrs.js";
 import { clfTier, TRAIT_DEFS, rankLabel } from "../lib/career.js";
 
+// Ordinal suffix for a title-defense count -- same one-liner as App.jsx's
+// copy (duplicated rather than imported, matching this file's existing
+// tierRampCls-style convention for small display-only helpers).
+function ordinal(n) {
+  const suf = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${suf[(v - 20) % 10] || suf[v] || suf[0]}`;
+}
+
 // ---------- Camp Planning decision panel ----------
 // ---------- Fight result card: W/L badge + collapsible stat breakdown ----------
 function FightResultCard({ e, playerName }) {
@@ -63,12 +72,40 @@ function FightResultCard({ e, playerName }) {
         )}
       </div>
 
-      {isTitle && (
-        <div className="event-title-strap">
-          <Crown size={14} />
-          {e.shortNotice ? "SHORT-NOTICE TITLE FIGHT" : e.titleShot ? "FOR THE TITLE" : "TITLE DEFENSE"}
-        </div>
-      )}
+      {/* Title context always reads off THIS fight's own stored circuitTier/
+          division (fight-time truth) -- a Regional/National title win can
+          promote the career away in this same commit, so careerState may
+          already disagree with what actually happened here by the time
+          this card renders. Challenges (win or loss) just name the real
+          stakes -- the outcome itself is the milestone (on a win) or the
+          W/L badge + rank-move row below (on a loss). Defenses get their
+          own richer treatment: "AND STILL" with the exact defense count on
+          a win, "TITLE LOST" naming the championship on a loss -- never a
+          blocking milestone here, this IS the light live treatment for
+          every defense that isn't 1st/3rd/5th (see career.js). */}
+      {isTitle && (() => {
+        const div = (e.division || "").toUpperCase();
+        if (e.titleDefense) {
+          return e.win ? (
+            <div className="title-result-block and-still">
+              <div className="title-result-eyebrow mono"><Crown size={13} /> AND STILL</div>
+              <div className="title-result-tier">{tier.short} {div} CHAMPION</div>
+              <div className="title-result-sub mono">{ordinal(e.titleDefenseCount).toUpperCase()} TITLE DEFENSE</div>
+            </div>
+          ) : (
+            <div className="title-result-block title-lost">
+              <div className="title-result-eyebrow mono"><Crown size={13} /> TITLE LOST</div>
+              <div className="title-result-tier">{tier.short} {div} CHAMPIONSHIP</div>
+            </div>
+          );
+        }
+        return (
+          <div className="event-title-strap">
+            <Crown size={14} />
+            {e.shortNotice ? "SHORT-NOTICE — " : ""}FOR THE {tier.short} {div} TITLE
+          </div>
+        );
+      })()}
 
       {e.contenderSeries && (
         <div className="event-title-strap contender-strap">

@@ -188,6 +188,13 @@
         .legacy-detail-champ-badge { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 10.5px;
           font-weight: 700; color: var(--brass); background: rgba(224,172,58,0.14); padding: 3px 9px; border-radius: 5px; }
         .legacy-detail-verdict { text-align: center; font-size: 12px; color: var(--slate); margin-top: 8px; font-style: italic; }
+        /* ---- Compact per-tier title breakdown (My Legacy detail) ---- */
+        .legacy-title-breakdown { border: 1px solid rgba(154,143,125,0.18); border-radius: 8px; overflow: hidden; }
+        .legacy-title-breakdown-row { display: grid; grid-template-columns: 1fr 70px 90px; align-items: center;
+          padding: 6px 10px; font-size: 11px; border-top: 1px dashed rgba(154,143,125,0.14); }
+        .legacy-title-breakdown-row:first-child { border-top: none; }
+        .legacy-title-breakdown-row span:not(:first-child) { text-align: right; }
+        .legacy-title-breakdown-head { color: var(--slate); font-size: 9px; letter-spacing: 0.08em; background: rgba(154,143,125,0.06); }
 
         /* ---- The Lab: fighter experimentation workbench ---- */
         .lab-intro { margin-bottom: 14px; }
@@ -859,6 +866,19 @@
           font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #241A05; }
         .event-title-strap.contender-strap { background: linear-gradient(90deg, rgba(90,140,168,0.35), rgba(90,140,168,0.5));
           color: #0B1F26; }
+        /* ---- Title defense outcome on the fight result itself -- the
+           light live treatment for every defense that ISN'T 1st/3rd/5th
+           (those also get a blocking promotion-card milestone). Same
+           brass/blood language as event-title-strap, just stacked instead
+           of one line, to fit "AND STILL / TIER DIVISION CHAMPION / Nth
+           TITLE DEFENSE" or "TITLE LOST / TIER DIVISION CHAMPIONSHIP". ---- */
+        .title-result-block { text-align: center; padding: 8px 10px; margin-bottom: 2px; }
+        .title-result-eyebrow { display: flex; align-items: center; justify-content: center; gap: 5px;
+          font-size: 9.5px; letter-spacing: 0.12em; font-weight: 700; }
+        .title-result-block.and-still .title-result-eyebrow { color: var(--brass); }
+        .title-result-block.title-lost .title-result-eyebrow { color: var(--blood); }
+        .title-result-tier { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; margin-top: 2px; }
+        .title-result-sub { font-size: 10px; color: var(--slate); font-weight: 600; margin-top: 2px; }
 
         .event-matchup { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 12px; }
         .event-corner { min-width: 0; }
@@ -911,6 +931,10 @@
         .promotion-card.milestone-live .promotion-tier { font-size: 34px; }
         .milestone-subtitle { font-size: 11px; letter-spacing: 0.1em; color: var(--slate); font-weight: 600; margin-top: 2px; }
         .milestone-cta { margin-top: 16px; }
+        /* Premier title win only -- fighter/record/division line under the
+           blurb, per decision 5 ("Include fighter name, record, division,
+           circuit" for the biggest active-career moment). */
+        .title-milestone-meta { font-size: 10px; color: var(--slate); margin-top: 8px; }
 
         /* ---- Contender Series pre-fight stakes -- visually distinct from
            an ordinary booking, not buried in the fight-week line. ---- */
