@@ -147,6 +147,12 @@ export default function CageLab() {
   // panel (Demand the Title Shot, etc.) -- no selection state needed there.
   // { tag, targetId, name } | null.
   const [selectedTarget, setSelectedTarget] = useState(null);
+  // Two-step spotlight: the fight result shows alone first; only once it's
+  // dismissed does Mic Time (if this fight earned one) get its own screen,
+  // rather than being stacked underneath the (often long) FightResultCard
+  // on the same page -- the two were never meant to share one scroll.
+  // false until handleAdvance's spotlight branch promotes it.
+  const [micTimeStep, setMicTimeStep] = useState(false);
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
   // straight into the bottom of the ever-growing history feed -- otherwise
@@ -238,6 +244,7 @@ export default function CageLab() {
   const pendingDecisionType = careerState && careerState.pendingDecision && careerState.pendingDecision.type;
   useEffect(() => {
     setSelectedTarget(null);
+    setMicTimeStep(false);
   }, [pendingDecisionType, spotlightFightId, phase]);
 
   useEffect(() => {
@@ -668,13 +675,29 @@ export default function CageLab() {
     // chiefly), or normal flow -- without ever skipping past any of them
     // by advancing the underlying career state in the same click. The
     // fight settles into the normal history feed the moment it clears.
-    // A Mic Time pick (see handleSelectMicTimeTarget) stays highlighted
-    // right up until this tap -- Continue is the actual commit point: if
-    // a target is selected, book the callout first (same
-    // handleFightChoice/prepareFight path a matchmaker pick uses), THEN
-    // dismiss the spotlight. Nothing selected is the unchanged decline
-    // path -- just dismiss.
+    // Shared by both spotlight-step Continue buttons AND the bottom
+    // sticky "Next" bar (which can render at the same time whenever
+    // pendingDecision is null) -- one source of truth for what "advance"
+    // means at each step, rather than two implementations that could
+    // drift apart.
     if (spotlightFightId) {
+      const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
+      const hasMicTime = spotlightEntry && spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0;
+      // Step 1 (fight result alone): if this fight earned a Mic Time
+      // opportunity, advance to that as its own screen instead of
+      // dismissing -- never stack it under the fight result. Nothing to
+      // book yet; selectedTarget can't be set before that screen exists.
+      if (hasMicTime && !micTimeStep) {
+        setMicTimeStep(true);
+        return;
+      }
+      // Step 2 (Mic Time screen), or no Mic Time at all: a Mic Time pick
+      // (see handleSelectMicTimeTarget) stays highlighted right up until
+      // this tap -- Continue is the actual commit point: if a target is
+      // selected, book the callout first (same handleFightChoice/
+      // prepareFight path a matchmaker pick uses), THEN dismiss the
+      // spotlight for real. Nothing selected is the unchanged decline
+      // path -- just dismiss.
       if (selectedTarget) {
         const { tag, targetId } = selectedTarget;
         setSelectedTarget(null);
@@ -1361,49 +1384,59 @@ export default function CageLab() {
           {spotlightFightId && (() => {
             const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
             if (!spotlightEntry) return null;
+
+            // Step 1: the fight result, alone -- nothing else sharing its
+            // scroll. Continue (handleAdvance) either advances to the Mic
+            // Time step below (if this fight earned one) or dismisses the
+            // spotlight outright, same as before Mic Time existed.
+            if (!micTimeStep) {
+              return (
+                <>
+                  <FightResultCard e={spotlightEntry} playerName={name} />
+                  <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
+                    Continue <ChevronRight size={16} />
+                  </button>
+                </>
+              );
+            }
+
+            // Step 2: Mic Time on its own screen -- reached only after the
+            // fight result above is dismissed, so it always starts at the
+            // top of the panel rather than however far down the (often
+            // long) FightResultCard happened to push it. Tapping a target
+            // just highlights it -- it stays lit until Continue below,
+            // which is the real commit point (see handleAdvance): a
+            // target selected books the callout, nothing selected is the
+            // decline path. Tapping the same target again clears the
+            // pick. Grid + its own scroll container (safety net, not the
+            // normal case -- capped at 3 targets) so it's self-contained
+            // either way.
+            const circuitShort = clfTier(spotlightEntry.circuitTier).short;
             return (
               <>
-                <FightResultCard e={spotlightEntry} playerName={name} />
-                {/* Mic Time -- an optional post-fight beat, not a blocking
-                    decision: the targets are read straight off the fight
-                    entry's own micTimeTargets (computed once in commitFight,
-                    never re-derived here). Tapping a target just highlights
-                    it -- it stays lit until Continue below, which is the
-                    real commit point (see handleAdvance): a target selected
-                    books the callout, nothing selected is the decline path.
-                    Tapping the same target again clears the pick.
-                    Grid + self-contained scroll (mic-time-targets) so this
-                    panel never inherits scroll position from the long
-                    FightResultCard above it -- capped at 3 targets, so the
-                    scroll container is a safety net, not the normal case. */}
-                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (() => {
-                  const circuitShort = clfTier(spotlightEntry.circuitTier).short;
-                  return (
-                  <div className="mic-time-panel">
-                    <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
-                    <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
-                    <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
-                    <div className="mic-time-targets">
-                      {spotlightEntry.micTimeTargets.map((t) => {
-                        const isSelected = selectedTarget && selectedTarget.targetId === t.fighterId;
-                        return (
-                          <button
-                            className={`mic-time-target ${isSelected ? "selected" : ""}`}
-                            key={t.fighterId}
-                            onClick={() => handleSelectMicTimeTarget("callout", t.fighterId, t.name)}
-                          >
-                            <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
-                            <span className="mic-time-target-name">{t.name}</span>
-                            <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
-                            {t.archetype && <span className="mic-time-target-archetype">{t.archetype}</span>}
-                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
+                <div className="mic-time-panel mic-time-standalone">
+                  <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
+                  <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
+                  <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
+                  <div className="mic-time-targets">
+                    {spotlightEntry.micTimeTargets.map((t) => {
+                      const isSelected = selectedTarget && selectedTarget.targetId === t.fighterId;
+                      return (
+                        <button
+                          className={`mic-time-target ${isSelected ? "selected" : ""}`}
+                          key={t.fighterId}
+                          onClick={() => handleSelectMicTimeTarget("callout", t.fighterId, t.name)}
+                        >
+                          <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
+                          <span className="mic-time-target-name">{t.name}</span>
+                          <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                          {t.archetype && <span className="mic-time-target-archetype">{t.archetype}</span>}
+                          {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
+                        </button>
+                      );
+                    })}
                   </div>
-                  );
-                })()}
+                </div>
                 <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
                   {selectedTarget ? <>Confirm Callout &amp; Continue</> : <>Continue</>} <ChevronRight size={16} />
                 </button>

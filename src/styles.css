@@ -680,13 +680,18 @@
         .callout-card-meta { font-size: 9.5px; color: var(--slate); }
         .callout-card-archetype { font-size: 9px; color: var(--slate); }
 
-        /* ---- Mic Time: a small, optional post-fight callout opportunity --
-           lighter-weight than the decision panels, sits right under the
-           spotlighted fight card it's reacting to. Same grid + self-
-           contained scroll pattern as .callout-list above, capped at 3
-           targets in practice so the scroll box is a safety net rather
-           than the normal case -- the grid alone should fit both rows. ---- */
+        /* ---- Mic Time: an optional post-fight callout opportunity, its
+           own step after the fight result is dismissed (not stacked
+           underneath it) -- see the two-step spotlight in App.jsx. Same
+           grid + self-contained scroll pattern as .callout-list above,
+           capped at 3 targets in practice so the scroll box is a safety
+           net rather than the normal case -- the grid alone should fit
+           both rows. ---- */
         .mic-time-panel { border: 1.5px solid rgba(224,172,58,0.35); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; background: rgba(224,172,58,0.06); }
+        /* Standalone step: a touch more presence than the addendum
+           version used to have, since it's now the main thing on screen
+           rather than a footnote under the fight card. */
+        .mic-time-panel.mic-time-standalone { padding: 16px; margin-top: 2px; }
         .mic-time-eyebrow { display: flex; align-items: center; gap: 5px; font-size: 10.5px; letter-spacing: 0.08em; color: var(--brass); font-weight: 700; margin-bottom: 4px; }
         .mic-time-line { font-size: 11.5px; color: var(--slate); font-style: italic; margin-bottom: 8px; }
         .mic-time-prompt { font-size: 10px; letter-spacing: 0.05em; color: var(--ink); font-weight: 600; margin-bottom: 8px; }
