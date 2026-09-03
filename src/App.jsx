@@ -30,7 +30,7 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
@@ -139,6 +139,13 @@ export default function CageLab() {
   // effect below), rather than sharing the hub with fight-related decisions.
   const [careerTab, setCareerTab] = useState("career");
   const [calloutOpen, setCalloutOpen] = useState(false);
+  // Target confirmation -- shared across all three opponent-picking
+  // surfaces (matchmaker cards, the callout list, Mic Time targets): a
+  // click no longer books immediately, it just selects. { source, tag,
+  // targetId, name } | null. `source` distinguishes which panel a
+  // selection came from (matchmaker/callout share one confirm bar, since
+  // only one can ever be selected at a time; Mic Time gets its own).
+  const [selectedTarget, setSelectedTarget] = useState(null);
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
   // straight into the bottom of the ever-growing history feed -- otherwise
@@ -222,6 +229,15 @@ export default function CageLab() {
     revealTimeoutRef.current = setTimeout(() => setRevealPending(false), reducedMotion ? 0 : 700);
     return () => clearTimeout(revealTimeoutRef.current);
   }, [revealPending, reducedMotion]);
+
+  // No stale selection survives into a different decision, a different
+  // spotlighted fight, or a phase change -- a fightChoice re-roll, moving
+  // on from the spotlight, or leaving Career entirely all invalidate
+  // whatever was selected before them.
+  const pendingDecisionType = careerState && careerState.pendingDecision && careerState.pendingDecision.type;
+  useEffect(() => {
+    setSelectedTarget(null);
+  }, [pendingDecisionType, spotlightFightId, phase]);
 
   useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
@@ -674,6 +690,25 @@ export default function CageLab() {
     // that's handleCommitFight's job once the player confirms.
     sfx("select");
     setCareerState(prepareFight(careerState, tag, targetId));
+  }
+  // Selecting a target (matchmaker card, callout row, Mic Time target) no
+  // longer books on the spot -- it just registers who's selected, with a
+  // persistent visual state, until the player explicitly confirms. Picking
+  // a different target just moves the selection; nothing is booked until
+  // handleConfirmSelection runs the exact same handleFightChoice/
+  // prepareFight path as before -- this is UI state only.
+  function handleSelectTarget(source, tag, targetId, name) {
+    sfx("select");
+    setSelectedTarget({ source, tag, targetId, name });
+  }
+  function handleConfirmSelection() {
+    if (!selectedTarget) return;
+    const { tag, targetId } = selectedTarget;
+    setSelectedTarget(null);
+    handleFightChoice(tag, targetId);
+  }
+  function handleCancelSelection() {
+    setSelectedTarget(null);
   }
   function handleCommitFight() {
     const next = commitFight(careerState);
@@ -1328,26 +1363,42 @@ export default function CageLab() {
                     below is the decline path -- there's no separate dismiss
                     control needed since the panel disappears with the
                     spotlight the moment the player moves on. */}
-                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (
+                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (() => {
+                  const circuitShort = clfTier(spotlightEntry.circuitTier).short;
+                  return (
                   <div className="mic-time-panel">
                     <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
                     <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
                     <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
                     <div className="mic-time-targets">
-                      {spotlightEntry.micTimeTargets.map((t) => (
-                        <button
-                          className="mic-time-target"
-                          key={t.fighterId}
-                          onClick={() => handleFightChoice("callout", t.fighterId)}
-                        >
-                          <span className="mic-time-target-rank mono">{t.rank ? `#${t.rank}` : "UNRANKED"}</span>
-                          <span className="mic-time-target-name">{t.name}</span>
-                          <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
-                        </button>
-                      ))}
+                      {spotlightEntry.micTimeTargets.map((t) => {
+                        const isSelected = selectedTarget && selectedTarget.targetId === t.fighterId;
+                        return (
+                          <button
+                            className={`mic-time-target ${isSelected ? "selected" : ""}`}
+                            key={t.fighterId}
+                            onClick={() => handleSelectTarget("micTime", "callout", t.fighterId, t.name)}
+                          >
+                            <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
+                            <span className="mic-time-target-name">{t.name}</span>
+                            <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
+                          </button>
+                        );
+                      })}
                     </div>
+                    {selectedTarget && selectedTarget.source === "micTime" && (
+                      <div className="target-confirm-bar">
+                        <div className="target-confirm-label">Calling out <b>{selectedTarget.name}</b></div>
+                        <div className="target-confirm-actions">
+                          <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
+                          <button className="btn btn-primary" onClick={handleConfirmSelection}>Confirm Callout</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
                 <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
                   Continue <ChevronRight size={16} />
                 </button>
@@ -1384,7 +1435,9 @@ export default function CageLab() {
           })()}
           {!spotlightFightId && !careerState.pendingMilestone && (
           <>
-          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
+          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (() => {
+            const circuitShort = clfTier(careerState.circuitTier).short;
+            return (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
               <div className="decision-sub">The promotion offers you a choice for the next booking &mdash; pick who you fight.</div>
@@ -1406,11 +1459,12 @@ export default function CageLab() {
                   }
                   const wins = opt.recentForm.filter((r) => r === "W").length;
                   const losses = opt.recentForm.length - wins;
+                  const isSelected = selectedTarget && selectedTarget.targetId === opt.fighterId;
                   return (
                     <button
                       key={opt.fighterId}
-                      className={`matchmaker-card tag-${opt.tag}`}
-                      onClick={() => handleFightChoice(opt.tag, opt.fighterId)}
+                      className={`matchmaker-card tag-${opt.tag} ${isSelected ? "selected" : ""}`}
+                      onClick={() => handleSelectTarget("matchmaker", opt.tag, opt.fighterId, opt.name)}
                     >
                       <div className="matchmaker-tag mono">{meta.label}</div>
                       <div className="matchmaker-name">{opt.name}</div>
@@ -1427,9 +1481,10 @@ export default function CageLab() {
                         {opt.recentForm.length > 0 && <span className="matchmaker-form-ratio mono">{wins}-{losses}</span>}
                       </div>
                       <div className="matchmaker-meta mono">
-                        {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
+                        {circuitShort} &middot; {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
                       </div>
                       <div className="matchmaker-sub">{meta.sub}</div>
+                      {isSelected && <div className="target-selected-badge mono">SELECTED</div>}
                     </button>
                   );
                 })}
@@ -1445,33 +1500,52 @@ export default function CageLab() {
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
-              {/* Normal contender callouts unlock once the player is
-                  genuinely ranked -- the real standing (playerRank), same
-                  source of truth as the Demand/Short-Notice buttons above,
-                  not a second eligibility number. An unranked player has no
-                  business browsing the Top 15 -- their route to a callout
-                  is Mic Time after a real performance (see the spotlight),
-                  scoped to a believable target pool, not this full list. */}
-              {careerState.divisionRoster && careerState.playerRank != null && careerState.playerRank <= DIVISION_SIZE && (
+              {/* Normal contender callouts are earned, not available from
+                  the start -- single source of truth in hasCalloutAccess
+                  (career.js): National only once genuinely Top 15 there,
+                  Premier unconditionally, Regional/Contender Series never.
+                  Before that, Mic Time (post-fight, a believable scoped
+                  pool) is the only callout route. */}
+              {careerState.divisionRoster && hasCalloutAccess(careerState.circuitTier, careerState.playerRank) && (
                 <>
                   <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
                     <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
                   </button>
                   {calloutOpen && (
                     <div className="callout-list">
-                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
-                        <button className="callout-row" key={f.id} onClick={() => { setCalloutOpen(false); handleFightChoice("callout", f.id); }}>
-                          <span className="rank-num mono">#{i + 1}</span>
-                          <span className="rank-name">{f.name}</span>
-                          <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
-                        </button>
-                      ))}
+                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => {
+                        const isSelected = selectedTarget && selectedTarget.targetId === f.id;
+                        return (
+                          <button className={`callout-row ${isSelected ? "selected" : ""}`} key={f.id} onClick={() => handleSelectTarget("callout", "callout", f.id, f.name)}>
+                            <span className="rank-num mono">{circuitShort} &middot; #{i + 1}</span>
+                            <span className="rank-name">{f.name}</span>
+                            <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </>
               )}
+              {/* One shared confirm/cancel bar -- a matchmaker pick and a
+                  callout pick can never both be selected at once (one
+                  selectedTarget, source-tagged), so a single bar covers
+                  both without duplicating the control. */}
+              {selectedTarget && (selectedTarget.source === "matchmaker" || selectedTarget.source === "callout") && (
+                <div className="target-confirm-bar">
+                  <div className="target-confirm-label">Fighting <b>{selectedTarget.name}</b></div>
+                  <div className="target-confirm-actions">
+                    <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleConfirmSelection}>
+                      {selectedTarget.source === "callout" ? "Confirm Callout" : "Confirm Fight"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+            );
+          })()}
           {careerState.pendingDecision && careerState.pendingDecision.type === "trainingEvent" && (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Training Camp</div>
@@ -1654,9 +1728,21 @@ export default function CageLab() {
             </div>
           )}
 
-          {careerState.divisionRoster && (
+          {/* Contender Series has no ladder of its own -- divisionRoster
+              here is the National roster, deliberately carried over rather
+              than rebuilt (see career.js), NOT a Contender Series
+              standing. Showing it as if it were current-tier rankings is
+              exactly the "#5 turned out to mean something else" confusion
+              from the playtest -- a plain note instead, no roster list. */}
+          {careerState.divisionRoster && careerState.circuitTier === "CLF Contender Series" && (
+            <div className="cs-no-ladder-note">
+              <div className="cs-no-ladder-title mono">CONTENDER SERIES</div>
+              <div className="cs-no-ladder-line">No active ladder. Your National standing is preserved if you return.</div>
+            </div>
+          )}
+          {careerState.divisionRoster && careerState.circuitTier !== "CLF Contender Series" && (
             <details className="rankings-details">
-              <summary>{careerState.division || "Division"} Rankings</summary>
+              <summary>{clfTier(careerState.circuitTier).short} Rankings</summary>
               <div className="rankings-list">
                 {careerState.playerRank === 0 && (
                   <div className="ranking-row you champ">
@@ -1940,6 +2026,12 @@ export default function CageLab() {
                 </div>
               </div>
 
+            {careerState.circuitTier === "CLF Contender Series" ? (
+              <div className="cs-no-ladder-note">
+                <div className="cs-no-ladder-title mono">CONTENDER SERIES</div>
+                <div className="cs-no-ladder-line">No active ladder. Your National standing is preserved if you return.</div>
+              </div>
+            ) : (
             <div className="rankings-list rankings-list-tab">
               {careerState.playerRank === 0 && (
                 <div className="ranking-row you champ">
@@ -1982,6 +2074,7 @@ export default function CageLab() {
                 </div>
               )}
             </div>
+            )}
             </>
           )}
 

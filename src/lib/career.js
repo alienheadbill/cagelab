@@ -1095,6 +1095,20 @@ function displayRankFor(division, index) {
   return displayRank <= DIVISION_SIZE ? displayRank : null;
 }
 
+// Normal contender-callout access (browsing the roster and picking anyone
+// off it) is earned, not available from the start -- a Regional run, no
+// matter how good, doesn't unlock it; Contender Series has no roster to
+// browse at all. National only unlocks it once genuinely Top 15 there;
+// Premier unlocks it outright (you're already in the show). Single source
+// of truth for every UI entry point that gates on this, so the same rule
+// can't drift between the callout list and any future surface that needs
+// it.
+function hasCalloutAccess(circuitTier, playerRank) {
+  if (circuitTier === "CLF PREMIER") return true;
+  if (circuitTier === "CLF National") return playerRank != null && playerRank <= DIVISION_SIZE;
+  return false;
+}
+
 // All ranked (non-champion) division fighters within [loRank, hiRank]
 // (inclusive), excluding anyone on the avoid-list. Reads displayRankFor
 // per candidate rather than raw array index, so this stays correct
@@ -1168,21 +1182,38 @@ function passesStepUpHardCriteria(fighter, division, easyFighter) {
 // then higher OVR, then longer streak, then more recent wins, then the
 // most believable (closest) jump as the final tiebreak. Returns null
 // (truthful "no opportunity") if nobody qualifies -- never fabricated.
+// Maximum believable Step-Up jump: "you're #15, go fight #1" isn't a
+// step-up, it's a lottery ticket. Capped at 5 places -- #15 -> #10-14,
+// #10 -> #5-9, #5 -> #1-4. Reference position for the window is the
+// player's real rank if they have one, else DIVISION_SIZE + 1 (the same
+// "just below the ladder" virtual position used elsewhere for unranked
+// tiebreaks), which lands an unranked player's window on #11-15 -- the
+// bottom of the Top 15, not the top of it.
+const STEP_UP_MAX_JUMP = 5;
+
 function pickStepUpCandidate(division, playerRank, easyFighter, avoid) {
+  const referencePos = playerRank != null ? playerRank : DIVISION_SIZE + 1;
+  const windowLo = Math.max(1, referencePos - STEP_UP_MAX_JUMP);
+  const windowHi = referencePos - 1;
   const candidates = [];
   division.forEach((f, idx) => {
     if (f.isChampion || avoid.includes(f.id) || f.id === easyFighter.id) return;
     if (!passesStepUpHardCriteria(f, division, easyFighter)) return;
     const rank = displayRankFor(division, idx);
     if (playerRank != null) {
-      if (rank == null || rank >= playerRank) return; // must be ranked AND above the player
-    } else if (rank == null && currentWinStreak(f) < 2) {
-      return; // unranked-vs-unranked needs a real live streak, not just a good record
+      // Ranked player: must be ranked, above them, AND inside the
+      // believable jump window -- never widen past this just to fill the
+      // card; an empty window means "No Step-Up Available."
+      if (rank == null || rank < windowLo || rank > windowHi) return;
+    } else if (rank == null) {
+      if (currentWinStreak(f) < 2) return; // unranked-vs-unranked needs a real live streak, not just a good record
+    } else if (rank < windowLo || rank > windowHi) {
+      return; // unranked-vs-ranked: only the bottom-of-ladder window (#11-15) is believable
     }
     candidates.push({ fighter: f, rank });
   });
   if (!candidates.length) return null;
-  const target = playerRank != null ? playerRank : DIVISION_SIZE + 1;
+  const target = referencePos;
   candidates.sort((a, b) => {
     const aRanked = a.rank != null ? 1 : 0;
     const bRanked = b.rank != null ? 1 : 0;
@@ -1290,16 +1321,20 @@ function generateMicTimeTargets(division, playerRank, rivals, avoid, fightEntry)
 }
 
 // Which fight results earn a Mic Time moment -- read straight off fields
-// commitFight already computes for every fight, never re-derived: a
-// finish, a performance/FOTN bonus, a statement win, a live rivalry win,
-// breaking into the Top 15 with this fight, or beating an opponent who
-// was actually ranked. Loss never qualifies.
+// commitFight already computes for every fight, never re-derived. A plain
+// finish and a win over any ranked opponent used to qualify on their own
+// (release-playtest found this firing on ~75% of wins, ~95% of finishes --
+// nowhere near "notable"). Tightened to genuinely meaningful results only:
+// a performance bonus, a statement win, a live rivalry win, breaking into
+// the Top 15 with this fight, a real upset, or beating someone actually
+// ranked in the Top 5 (not just anywhere in the Top 15). Loss never
+// qualifies. No cooldown/streak-suppression added yet -- this tighter set
+// alone is the first pass.
 function qualifiesForMicTime(e) {
   if (!e.win) return false;
-  const isFinish = e.method === "KO/TKO" || e.method === "Submission";
   const enteredTop15 = e.rankAfter != null && e.rankAfter <= DIVISION_SIZE && (e.rankBefore == null || e.rankBefore > DIVISION_SIZE);
-  const meaningfulRankedWin = e.oppRank != null && e.oppRank > 0;
-  return isFinish || e.bonusType === "performance" || e.statement || e.rivalry || enteredTop15 || meaningfulRankedWin;
+  const majorRankedWin = e.oppRank != null && e.oppRank > 0 && e.oppRank <= 5;
+  return e.bonusType === "performance" || e.statement || e.rivalry || enteredTop15 || e.underdogWin || majorRankedWin;
 }
 
 // ---- Rivals ---------------------------------------------------------------
@@ -1660,6 +1695,17 @@ function maybeFightChoice(state) {
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
+    // Matchmaking agency (choosing Easy/Ranked/Step-Up yourself) is
+    // something a fighter earns, not something day-one gets -- a 0-0
+    // rookie shouldn't be able to demand a ranked opponent. Gated on the
+    // smallest existing signal (total fights so far), no new progression
+    // field: before it clears, this same 22% probability slot just books
+    // through the ordinary default path instead -- the promotion is still
+    // choosing for you, exactly like every other fight that doesn't roll
+    // into a fightChoice decision. Training/media/off-cycle below are
+    // untouched; only this one branch is gated.
+    const hasMatchmakingAgency = (state.record.w + state.record.l) >= 3;
+    if (!hasMatchmakingAgency) return prepareFight(state, "default");
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
@@ -2342,7 +2388,7 @@ function commitFight(state) {
   // the moment, or when it's not a real callout-eligible fight to begin
   // with (a title fight, a Contender Series showcase, or a loss).
   const micTimeTargets = (!isContenderSeriesFight && !isTitleFight
-    && qualifiesForMicTime({ win: result.win, method: result.method, bonusType, statement: isStatement, rivalry: isRivalry, rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank }))
+    && qualifiesForMicTime({ win: result.win, bonusType, statement: isStatement, rivalry: isRivalry, rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank, underdogWin: isUnderdogWin }))
     ? generateMicTimeTargets(s.divisionRoster, playerRankAfterFight, s.rivals, [oppEntry.id, ...(s.recentOpponentIds || [])], { rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank })
     : null;
 
@@ -2698,6 +2744,7 @@ export {
   generateMatchmakerOptions,
   generateMicTimeTargets,
   generateOpponentProfile,
+  hasCalloutAccess,
   initCareer,
   isHotContender,
   isOnLosingSkid,
