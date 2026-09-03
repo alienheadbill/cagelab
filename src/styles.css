@@ -658,11 +658,9 @@
            state, reads as absence rather than a fighter you can pick. */
         .matchmaker-card.unavailable { cursor: default; border-style: dashed; opacity: 0.75; }
         .matchmaker-unavailable-title { font-family: 'Anton', sans-serif; font-size: 13px; color: var(--slate); letter-spacing: 0.02em; }
-        /* Persistent selected state -- distinct from the transient :active
-           press flash, this stays until confirmed or cancelled. The
-           transition is covered by the app-wide reduced-motion override,
-           same as everything else, so it needs no separate handling here. */
-        .matchmaker-card.selected { border-color: var(--brass); border-width: 2px; background: rgba(224,172,58,0.14); transition: border-color 0.15s ease, background 0.15s ease; }
+        /* Selected-badge label -- Mic Time only now (see mic-time-target
+           below); matchmaker cards and the callout list book on a single
+           tap and never carry a persistent selected state. */
         .target-selected-badge { font-size: 8.5px; letter-spacing: 0.08em; color: var(--brass); font-weight: 700; margin-top: 4px; }
 
         /* ---- Callout: pick a specific contender instead of matchmaking ---- */
@@ -672,17 +670,6 @@
           border: none; border-top: 1px dashed rgba(154,143,125,0.14); background: transparent; cursor: pointer; font-size: 12px; color: var(--ink); }
         .callout-row:first-child { border-top: none; }
         .callout-row:active { background: rgba(224,172,58,0.1); }
-        .callout-row.selected { background: rgba(224,172,58,0.16); border-radius: 6px; transition: background 0.15s ease; }
-        .callout-row.selected .rank-name { color: var(--brass); font-weight: 700; }
-
-        /* ---- Target confirm bar -- shared by matchmaker/callout/Mic Time,
-           the one place a selection actually books. ---- */
-        .target-confirm-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-          border: 1.5px solid var(--brass); border-radius: 8px; padding: 10px 12px; margin-top: 10px;
-          background: rgba(224,172,58,0.1); animation: cardIn 0.25s ease; }
-        .target-confirm-label { font-size: 12px; color: var(--ink); }
-        .target-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; }
-        .target-confirm-actions .btn { padding: 8px 12px; font-size: 11.5px; width: auto; }
 
         /* ---- Mic Time: a small, optional post-fight callout opportunity --
            lighter-weight than the decision panels, sits right under the

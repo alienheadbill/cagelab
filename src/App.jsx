@@ -139,12 +139,13 @@ export default function CageLab() {
   // effect below), rather than sharing the hub with fight-related decisions.
   const [careerTab, setCareerTab] = useState("career");
   const [calloutOpen, setCalloutOpen] = useState(false);
-  // Target confirmation -- shared across all three opponent-picking
-  // surfaces (matchmaker cards, the callout list, Mic Time targets): a
-  // click no longer books immediately, it just selects. { source, tag,
-  // targetId, name } | null. `source` distinguishes which panel a
-  // selection came from (matchmaker/callout share one confirm bar, since
-  // only one can ever be selected at a time; Mic Time gets its own).
+  // Mic Time's target pick -- the one opponent-picking surface with a real
+  // pause after the tap (the spotlight's own Continue button), so it's the
+  // one place a tap just highlights instead of booking outright; see
+  // handleSelectMicTimeTarget/handleAdvance. Matchmaker cards and the
+  // callout list book on a single tap, same as everything else in their
+  // panel (Demand the Title Shot, etc.) -- no selection state needed there.
+  // { tag, targetId, name } | null.
   const [selectedTarget, setSelectedTarget] = useState(null);
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
@@ -667,7 +668,21 @@ export default function CageLab() {
     // chiefly), or normal flow -- without ever skipping past any of them
     // by advancing the underlying career state in the same click. The
     // fight settles into the normal history feed the moment it clears.
-    if (spotlightFightId) { setSpotlightFightId(null); return; }
+    // A Mic Time pick (see handleSelectMicTimeTarget) stays highlighted
+    // right up until this tap -- Continue is the actual commit point: if
+    // a target is selected, book the callout first (same
+    // handleFightChoice/prepareFight path a matchmaker pick uses), THEN
+    // dismiss the spotlight. Nothing selected is the unchanged decline
+    // path -- just dismiss.
+    if (spotlightFightId) {
+      if (selectedTarget) {
+        const { tag, targetId } = selectedTarget;
+        setSelectedTarget(null);
+        handleFightChoice(tag, targetId);
+      }
+      setSpotlightFightId(null);
+      return;
+    }
     const next = advanceCareer(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
@@ -691,24 +706,17 @@ export default function CageLab() {
     sfx("select");
     setCareerState(prepareFight(careerState, tag, targetId));
   }
-  // Selecting a target (matchmaker card, callout row, Mic Time target) no
-  // longer books on the spot -- it just registers who's selected, with a
-  // persistent visual state, until the player explicitly confirms. Picking
-  // a different target just moves the selection; nothing is booked until
-  // handleConfirmSelection runs the exact same handleFightChoice/
-  // prepareFight path as before -- this is UI state only.
-  function handleSelectTarget(source, tag, targetId, name) {
+  // Mic Time is the one target-picking surface that has a real "next" step
+  // of its own (the spotlight's Continue button) sitting right below it, so
+  // it's the one place a tap just highlights rather than booking outright --
+  // tapping a different target moves the highlight, tapping the same one
+  // again clears it, and it stays lit until Continue (handleAdvance above)
+  // reads it. Matchmaker cards and the callout list have no such pause --
+  // choosing there IS the next step, same as Demand the Title Shot right
+  // next to them -- so those call handleFightChoice directly, single tap.
+  function handleSelectMicTimeTarget(tag, targetId, name) {
     sfx("select");
-    setSelectedTarget({ source, tag, targetId, name });
-  }
-  function handleConfirmSelection() {
-    if (!selectedTarget) return;
-    const { tag, targetId } = selectedTarget;
-    setSelectedTarget(null);
-    handleFightChoice(tag, targetId);
-  }
-  function handleCancelSelection() {
-    setSelectedTarget(null);
+    setSelectedTarget((cur) => (cur && cur.targetId === targetId ? null : { tag, targetId, name }));
   }
   function handleCommitFight() {
     const next = commitFight(careerState);
@@ -1359,10 +1367,11 @@ export default function CageLab() {
                 {/* Mic Time -- an optional post-fight beat, not a blocking
                     decision: the targets are read straight off the fight
                     entry's own micTimeTargets (computed once in commitFight,
-                    never re-derived here). Doing nothing and tapping Next
-                    below is the decline path -- there's no separate dismiss
-                    control needed since the panel disappears with the
-                    spotlight the moment the player moves on. */}
+                    never re-derived here). Tapping a target just highlights
+                    it -- it stays lit until Continue below, which is the
+                    real commit point (see handleAdvance): a target selected
+                    books the callout, nothing selected is the decline path.
+                    Tapping the same target again clears the pick. */}
                 {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (() => {
                   const circuitShort = clfTier(spotlightEntry.circuitTier).short;
                   return (
@@ -1377,7 +1386,7 @@ export default function CageLab() {
                           <button
                             className={`mic-time-target ${isSelected ? "selected" : ""}`}
                             key={t.fighterId}
-                            onClick={() => handleSelectTarget("micTime", "callout", t.fighterId, t.name)}
+                            onClick={() => handleSelectMicTimeTarget("callout", t.fighterId, t.name)}
                           >
                             <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
                             <span className="mic-time-target-name">{t.name}</span>
@@ -1387,20 +1396,11 @@ export default function CageLab() {
                         );
                       })}
                     </div>
-                    {selectedTarget && selectedTarget.source === "micTime" && (
-                      <div className="target-confirm-bar">
-                        <div className="target-confirm-label">Calling out <b>{selectedTarget.name}</b></div>
-                        <div className="target-confirm-actions">
-                          <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
-                          <button className="btn btn-primary" onClick={handleConfirmSelection}>Confirm Callout</button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                   );
                 })()}
                 <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
-                  Continue <ChevronRight size={16} />
+                  {selectedTarget ? <>Confirm Callout &amp; Continue</> : <>Continue</>} <ChevronRight size={16} />
                 </button>
               </>
             );
@@ -1459,12 +1459,11 @@ export default function CageLab() {
                   }
                   const wins = opt.recentForm.filter((r) => r === "W").length;
                   const losses = opt.recentForm.length - wins;
-                  const isSelected = selectedTarget && selectedTarget.targetId === opt.fighterId;
                   return (
                     <button
                       key={opt.fighterId}
-                      className={`matchmaker-card tag-${opt.tag} ${isSelected ? "selected" : ""}`}
-                      onClick={() => handleSelectTarget("matchmaker", opt.tag, opt.fighterId, opt.name)}
+                      className={`matchmaker-card tag-${opt.tag}`}
+                      onClick={() => handleFightChoice(opt.tag, opt.fighterId)}
                     >
                       <div className="matchmaker-tag mono">{meta.label}</div>
                       <div className="matchmaker-name">{opt.name}</div>
@@ -1484,7 +1483,6 @@ export default function CageLab() {
                         {circuitShort} &middot; {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
                       </div>
                       <div className="matchmaker-sub">{meta.sub}</div>
-                      {isSelected && <div className="target-selected-badge mono">SELECTED</div>}
                     </button>
                   );
                 })}
@@ -1513,35 +1511,16 @@ export default function CageLab() {
                   </button>
                   {calloutOpen && (
                     <div className="callout-list">
-                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => {
-                        const isSelected = selectedTarget && selectedTarget.targetId === f.id;
-                        return (
-                          <button className={`callout-row ${isSelected ? "selected" : ""}`} key={f.id} onClick={() => handleSelectTarget("callout", "callout", f.id, f.name)}>
-                            <span className="rank-num mono">{circuitShort} &middot; #{i + 1}</span>
-                            <span className="rank-name">{f.name}</span>
-                            <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
-                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
-                          </button>
-                        );
-                      })}
+                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
+                        <button className="callout-row" key={f.id} onClick={() => handleFightChoice("callout", f.id)}>
+                          <span className="rank-num mono">{circuitShort} &middot; #{i + 1}</span>
+                          <span className="rank-name">{f.name}</span>
+                          <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </>
-              )}
-              {/* One shared confirm/cancel bar -- a matchmaker pick and a
-                  callout pick can never both be selected at once (one
-                  selectedTarget, source-tagged), so a single bar covers
-                  both without duplicating the control. */}
-              {selectedTarget && (selectedTarget.source === "matchmaker" || selectedTarget.source === "callout") && (
-                <div className="target-confirm-bar">
-                  <div className="target-confirm-label">Fighting <b>{selectedTarget.name}</b></div>
-                  <div className="target-confirm-actions">
-                    <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
-                    <button className="btn btn-primary" onClick={handleConfirmSelection}>
-                      {selectedTarget.source === "callout" ? "Confirm Callout" : "Confirm Fight"}
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
             );
