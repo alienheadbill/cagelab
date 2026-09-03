@@ -1870,7 +1870,22 @@ function prepareFight(state, choiceTag, targetId) {
     // the belt IS a title shot, and that already has its own real path
     // (streak+ranking, or Demand/Short-Notice) with its own stakes.
     const target = s.divisionRoster.find((f) => f.id === targetId && !f.isChampion);
-    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, undefined, s.circuitTier);
+    // A callout's targetId is a specific fighter the player pointed at --
+    // unlike a matchmaker pick (below), there's no equivalent "any fighter
+    // matching this tier of difficulty" fallback that preserves what the
+    // player actually chose. If that exact fighter isn't resolvable
+    // anymore (division rebuilt by a same-fight promotion, roster
+    // otherwise stale), silently booking a different opponent via
+    // selectDivisionOpponent would violate the core invariant: what the
+    // player selects must be who the player fights. Fail safe instead --
+    // return the ORIGINAL, unmutated state (not the local s copy, and not
+    // even the fightGlobalIndex bump above) so nothing is booked and
+    // nothing changes. The caller's existing pendingDecision is left
+    // exactly as it was (still the callout list for a normal callout,
+    // simply nothing booked for a Mic Time confirm), which is already a
+    // valid, truthful place for the player to land -- no new UI needed.
+    if (!target) return state;
+    picked = { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) };
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
     // Falls back to a fresh draw if the targeted fighter somehow isn't in
@@ -2426,7 +2441,23 @@ function commitFight(state) {
   // instead of re-rolling on every render. null when this win didn't earn
   // the moment, or when it's not a real callout-eligible fight to begin
   // with (a title fight, a Contender Series showcase, or a loss).
-  const micTimeTargets = (!isContenderSeriesFight && !isTitleFight
+  //
+  // Also excluded whenever THIS fight changed the circuit tier
+  // (!tierChanged): a non-title win can still trigger a same-fight
+  // promotion (Regional->National on streak>=4, National->Contender
+  // Series on the gate) -- audited and confirmed as the root cause of
+  // stale-circuit Mic Time targets. Without this, a target generated here
+  // either gets drawn from the roster the promotion JUST rebuilt (Regional
+  // case -- a National fighter mislabeled with the old tier) or, worse,
+  // resolves later against a divisionRoster that's fine but with
+  // careerState.circuitTier already advanced underneath it (National->CS
+  // case -- the resulting fight gets permanently tagged with the wrong
+  // tier, corrupting its Legacy multiplier, purse, and the National
+  // win/quality gate that got the player into CS in the first place). A
+  // tier-changing fight already gets the bigger moment (a promotion, or a
+  // combined title+promotion milestone) -- losing the Mic Time follow-up
+  // on that one specific fight is a legibility improvement, not a loss.
+  const micTimeTargets = (!isContenderSeriesFight && !isTitleFight && !tierChanged
     && qualifiesForMicTime({ win: result.win, bonusType, statement: isStatement, rivalry: isRivalry, rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank, underdogWin: isUnderdogWin }))
     ? generateMicTimeTargets(s.divisionRoster, playerRankAfterFight, s.rivals, [oppEntry.id, ...(s.recentOpponentIds || [])], { rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank })
     : null;
