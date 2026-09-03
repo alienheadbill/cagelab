@@ -654,6 +654,16 @@
         .matchmaker-form-ratio { font-size: 10.5px; color: var(--slate); margin-left: auto; }
         .matchmaker-meta { font-size: 10px; color: var(--slate); margin-top: 2px; }
         .matchmaker-sub { font-size: 9.5px; color: var(--slate); }
+        /* A truthful "nobody qualifies" card -- dashed border, no press
+           state, reads as absence rather than a fighter you can pick. */
+        .matchmaker-card.unavailable { cursor: default; border-style: dashed; opacity: 0.75; }
+        .matchmaker-unavailable-title { font-family: 'Anton', sans-serif; font-size: 13px; color: var(--slate); letter-spacing: 0.02em; }
+        /* Persistent selected state -- distinct from the transient :active
+           press flash, this stays until confirmed or cancelled. The
+           transition is covered by the app-wide reduced-motion override,
+           same as everything else, so it needs no separate handling here. */
+        .matchmaker-card.selected { border-color: var(--brass); border-width: 2px; background: rgba(224,172,58,0.14); transition: border-color 0.15s ease, background 0.15s ease; }
+        .target-selected-badge { font-size: 8.5px; letter-spacing: 0.08em; color: var(--brass); font-weight: 700; margin-top: 4px; }
 
         /* ---- Callout: pick a specific contender instead of matchmaking ---- */
         .callout-toggle { width: 100%; margin-top: 8px; justify-content: center; }
@@ -662,6 +672,40 @@
           border: none; border-top: 1px dashed rgba(154,143,125,0.14); background: transparent; cursor: pointer; font-size: 12px; color: var(--ink); }
         .callout-row:first-child { border-top: none; }
         .callout-row:active { background: rgba(224,172,58,0.1); }
+        .callout-row.selected { background: rgba(224,172,58,0.16); border-radius: 6px; transition: background 0.15s ease; }
+        .callout-row.selected .rank-name { color: var(--brass); font-weight: 700; }
+
+        /* ---- Target confirm bar -- shared by matchmaker/callout/Mic Time,
+           the one place a selection actually books. ---- */
+        .target-confirm-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          border: 1.5px solid var(--brass); border-radius: 8px; padding: 10px 12px; margin-top: 10px;
+          background: rgba(224,172,58,0.1); animation: cardIn 0.25s ease; }
+        .target-confirm-label { font-size: 12px; color: var(--ink); }
+        .target-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .target-confirm-actions .btn { padding: 8px 12px; font-size: 11.5px; width: auto; }
+
+        /* ---- Mic Time: a small, optional post-fight callout opportunity --
+           lighter-weight than the decision panels, sits right under the
+           spotlighted fight card it's reacting to. */
+        .mic-time-panel { border: 1.5px solid rgba(224,172,58,0.35); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; background: rgba(224,172,58,0.06); }
+        .mic-time-eyebrow { display: flex; align-items: center; gap: 5px; font-size: 10.5px; letter-spacing: 0.08em; color: var(--brass); font-weight: 700; margin-bottom: 4px; }
+        .mic-time-line { font-size: 11.5px; color: var(--slate); font-style: italic; margin-bottom: 8px; }
+        .mic-time-prompt { font-size: 10px; letter-spacing: 0.05em; color: var(--ink); font-weight: 600; margin-bottom: 8px; }
+        .mic-time-targets { display: flex; flex-direction: column; gap: 6px; }
+        .mic-time-target { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+          border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px; padding: 8px 10px;
+          cursor: pointer; touch-action: manipulation; color: var(--ink); }
+        .mic-time-target:active { border-color: var(--brass); background: rgba(224,172,58,0.1); }
+        .mic-time-target.selected { border-color: var(--brass); border-width: 2px; background: rgba(224,172,58,0.14); transition: border-color 0.15s ease, background 0.15s ease; }
+        .mic-time-target-rank { font-size: 10px; color: var(--brass); font-weight: 700; flex-shrink: 0; }
+        .mic-time-target-name { font-family: 'Anton', sans-serif; font-size: 13px; flex: 1; }
+        .mic-time-target-rec { font-size: 9.5px; color: var(--slate); flex-shrink: 0; }
+
+        /* ---- Contender Series has no ladder of its own -- a plain note
+           where a rankings roster would otherwise go. ---- */
+        .cs-no-ladder-note { border: 1.5px dashed rgba(154,143,125,0.3); border-radius: 8px; padding: 12px 14px; margin: 10px 0 14px; text-align: center; }
+        .cs-no-ladder-title { font-size: 11px; letter-spacing: 0.1em; color: var(--slate); font-weight: 700; margin-bottom: 4px; }
+        .cs-no-ladder-line { font-size: 11.5px; color: var(--slate); line-height: 1.4; }
 
         /* ---- Coach card (Camp tab) ---- */
         .coach-card { border: 1.5px solid rgba(154,143,125,0.28); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; background: var(--card-bg); }
@@ -873,6 +917,27 @@
         .promotion-tier { font-size: 30px; line-height: 1.05; margin: 8px 0 6px; letter-spacing: 0.03em; }
         .promotion-blurb { font-size: 12px; color: var(--slate); max-width: 320px; margin: 0 auto; }
         .promotion-from { font-size: 9.5px; color: var(--slate); margin-top: 10px; opacity: 0.8; }
+        /* Live milestone: same card, blocking instead of passive -- a real
+           acknowledge button, slightly larger tier text than the History
+           card gets. */
+        .promotion-card.milestone-live { padding: 24px 18px; margin-bottom: 14px; }
+        .promotion-card.milestone-live .promotion-tier { font-size: 34px; }
+        .milestone-subtitle { font-size: 11px; letter-spacing: 0.1em; color: var(--slate); font-weight: 600; margin-top: 2px; }
+        .milestone-cta { margin-top: 16px; }
+
+        /* ---- Contender Series pre-fight stakes -- visually distinct from
+           an ordinary booking, not buried in the fight-week line. ---- */
+        .cs-stakes-strap { border: 1.5px solid var(--brass); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+          background: linear-gradient(160deg, rgba(224,172,58,0.14), var(--card-bg) 75%); }
+        .cs-stakes-title { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.08em;
+          color: var(--brass); font-weight: 700; margin-bottom: 8px; }
+        .cs-stakes-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .cs-stakes-item { text-align: center; border-radius: 6px; padding: 6px 4px; }
+        .cs-stakes-item.win { background: rgba(224,172,58,0.12); }
+        .cs-stakes-item.loss { background: rgba(154,143,125,0.1); }
+        .cs-stakes-label { font-size: 8.5px; letter-spacing: 0.1em; color: var(--slate); margin-bottom: 2px; }
+        .cs-stakes-item.win .cs-stakes-label { color: var(--brass); }
+        .cs-stakes-value { font-family: 'Anton', sans-serif; font-size: 12.5px; letter-spacing: 0.01em; line-height: 1.2; }
 
         /* ---- Circuit tier ramp: four saturation steps of the SAME gold, not
            four competing hues -- Regional (dimmest) through PREMIER (full

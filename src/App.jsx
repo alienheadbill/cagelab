@@ -4,7 +4,7 @@ import {
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
-  FileSignature, GraduationCap, Wallet, Flame, FlaskConical,
+  FileSignature, GraduationCap, Wallet, Flame, FlaskConical, Mic, Zap,
 } from "lucide-react";
 
 import "./styles.css";
@@ -30,9 +30,9 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
-  resolveContractNegotiation, resolveWeightMoveOffer, prepareFight, commitFight,
+  resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
 } from "./lib/career.js";
@@ -86,6 +86,42 @@ const MATCHMAKER_TAG_META = {
   stepUp: { label: "Step-Up Fight", sub: "Tough test, major reward" },
 };
 
+// A truthful empty state for Ranked/Step-Up when nobody in the division
+// actually qualifies -- shown instead of ever substituting an unranked or
+// bad-form fighter under a premium label.
+const MATCHMAKER_UNAVAILABLE_META = {
+  ranked: { title: "No Ranked Opponent Available", blurb: "Nobody in the Top 15 is bookable right now." },
+  stepUp: { title: "No Step-Up Available", blurb: "No contender has enough momentum to justify the booking right now." },
+};
+
+// Live presentation copy for the four circuitMove transitions -- keyed by
+// the exact from->to the engine already produces, so a new/unexpected
+// pairing just fails the lookup (defensive no-op) instead of ever
+// mismatching a transition to the wrong copy. Only these four exist in the
+// current ladder (see career.js's tier-promotion block).
+const MILESTONE_COPY = {
+  "CLF Regional->CLF National": {
+    eyebrow: "THE CALL CAME IN", showTitle: true, title: "SIGNED — MOVING UP", tierLabel: null,
+    blurb: "Televised cards. Bigger crowds. The division knows your name now.",
+    showTransition: true, cta: "ENTER NATIONAL",
+  },
+  "CLF National->CLF Contender Series": {
+    eyebrow: "YOU GOT THE INVITE", showTitle: false, tierLabel: null,
+    blurb: "ONE FIGHT. ONE CONTRACT. Win here and you're on the Premier roster.",
+    showTransition: true, cta: "ACCEPT THE OPPORTUNITY",
+  },
+  "CLF Contender Series->CLF PREMIER": {
+    eyebrow: "CONTRACT EARNED", showTitle: true, title: "WELCOME TO", tierLabel: null,
+    blurb: "You made the show. The main roster is waiting.",
+    showTransition: false, cta: "CONTINUE",
+  },
+  "CLF Contender Series->CLF National": {
+    eyebrow: "NOT TONIGHT", showTitle: false, tierLabel: "CONTENDER SERIES",
+    blurb: "The contract doesn't come. You're heading back to National — but your standing isn't erased.",
+    showTransition: true, cta: "BACK TO WORK",
+  },
+};
+
 export default function CageLab() {
   const [phase, setPhase] = useState("home");
   const [mode, setMode] = useState("classic"); // classic | blind | daily | challenge
@@ -103,6 +139,13 @@ export default function CageLab() {
   // effect below), rather than sharing the hub with fight-related decisions.
   const [careerTab, setCareerTab] = useState("career");
   const [calloutOpen, setCalloutOpen] = useState(false);
+  // Target confirmation -- shared across all three opponent-picking
+  // surfaces (matchmaker cards, the callout list, Mic Time targets): a
+  // click no longer books immediately, it just selects. { source, tag,
+  // targetId, name } | null. `source` distinguishes which panel a
+  // selection came from (matchmaker/callout share one confirm bar, since
+  // only one can ever be selected at a time; Mic Time gets its own).
+  const [selectedTarget, setSelectedTarget] = useState(null);
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
   // straight into the bottom of the ever-growing history feed -- otherwise
@@ -186,6 +229,15 @@ export default function CageLab() {
     revealTimeoutRef.current = setTimeout(() => setRevealPending(false), reducedMotion ? 0 : 700);
     return () => clearTimeout(revealTimeoutRef.current);
   }, [revealPending, reducedMotion]);
+
+  // No stale selection survives into a different decision, a different
+  // spotlighted fight, or a phase change -- a fightChoice re-roll, moving
+  // on from the spotlight, or leaving Career entirely all invalidate
+  // whatever was selected before them.
+  const pendingDecisionType = careerState && careerState.pendingDecision && careerState.pendingDecision.type;
+  useEffect(() => {
+    setSelectedTarget(null);
+  }, [pendingDecisionType, spotlightFightId, phase]);
 
   useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
@@ -610,9 +662,12 @@ export default function CageLab() {
   }
 
   function handleAdvance() {
-    // Whatever was spotlighted has been seen -- let it settle into the
-    // normal history feed as we move on to whatever's next.
-    setSpotlightFightId(null);
+    // Dismissing the spotlight reveals whatever's next -- a pending
+    // milestone, an existing pendingDecision (contract negotiation,
+    // chiefly), or normal flow -- without ever skipping past any of them
+    // by advancing the underlying career state in the same click. The
+    // fight settles into the normal history feed the moment it clears.
+    if (spotlightFightId) { setSpotlightFightId(null); return; }
     const next = advanceCareer(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
@@ -635,6 +690,25 @@ export default function CageLab() {
     // that's handleCommitFight's job once the player confirms.
     sfx("select");
     setCareerState(prepareFight(careerState, tag, targetId));
+  }
+  // Selecting a target (matchmaker card, callout row, Mic Time target) no
+  // longer books on the spot -- it just registers who's selected, with a
+  // persistent visual state, until the player explicitly confirms. Picking
+  // a different target just moves the selection; nothing is booked until
+  // handleConfirmSelection runs the exact same handleFightChoice/
+  // prepareFight path as before -- this is UI state only.
+  function handleSelectTarget(source, tag, targetId, name) {
+    sfx("select");
+    setSelectedTarget({ source, tag, targetId, name });
+  }
+  function handleConfirmSelection() {
+    if (!selectedTarget) return;
+    const { tag, targetId } = selectedTarget;
+    setSelectedTarget(null);
+    handleFightChoice(tag, targetId);
+  }
+  function handleCancelSelection() {
+    setSelectedTarget(null);
   }
   function handleCommitFight() {
     const next = commitFight(careerState);
@@ -665,6 +739,10 @@ export default function CageLab() {
   function handleContractNegotiation(contractId) {
     sfx("select");
     setCareerState(resolveContractNegotiation(careerState, contractId));
+  }
+  function handleAcknowledgeMilestone() {
+    sfx("select");
+    setCareerState(resolveMilestone(careerState));
   }
   function handleFastForward() {
     setSpotlightFightId(null);
@@ -1200,7 +1278,7 @@ export default function CageLab() {
 
       {phase === "sim" && careerState && (
         <>
-        <div className={`panel sim-panel ${careerTab === "career" && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
+        <div className={`panel sim-panel ${careerTab === "career" && !spotlightFightId && !careerState.pendingMilestone && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
@@ -1260,20 +1338,133 @@ export default function CageLab() {
               neither is ever missed just because the player was elsewhere. */}
           {careerTab === "career" && (
           <>
-          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (
+          {/* The fight that was just committed, spotlighted right here
+              instead of only living at the bottom of the history feed --
+              same FightResultCard the timeline itself uses below, just
+              filtered out of that list (see the timeline .filter below)
+              while it's spotlighted so it isn't shown twice at once. Shown
+              unconditionally on spotlightFightId -- NOT gated on
+              pendingDecision -- so a same-fight pendingDecision (contract
+              negotiation on the Contender Series win -> Premier fight,
+              chiefly) can never suppress it the way it used to. Required
+              order is spotlight -> milestone -> pending decision -> normal
+              flow; see the milestone block and the wrapped decision
+              cluster below for the rest of that sequencing. */}
+          {spotlightFightId && (() => {
+            const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
+            if (!spotlightEntry) return null;
+            return (
+              <>
+                <FightResultCard e={spotlightEntry} playerName={name} />
+                {/* Mic Time -- an optional post-fight beat, not a blocking
+                    decision: the targets are read straight off the fight
+                    entry's own micTimeTargets (computed once in commitFight,
+                    never re-derived here). Doing nothing and tapping Next
+                    below is the decline path -- there's no separate dismiss
+                    control needed since the panel disappears with the
+                    spotlight the moment the player moves on. */}
+                {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (() => {
+                  const circuitShort = clfTier(spotlightEntry.circuitTier).short;
+                  return (
+                  <div className="mic-time-panel">
+                    <div className="mic-time-eyebrow mono"><Mic size={13} /> MIC TIME</div>
+                    <div className="mic-time-line">The cage-side interviewer hands you the microphone.</div>
+                    <div className="mic-time-prompt mono">WHO DO YOU WANT NEXT?</div>
+                    <div className="mic-time-targets">
+                      {spotlightEntry.micTimeTargets.map((t) => {
+                        const isSelected = selectedTarget && selectedTarget.targetId === t.fighterId;
+                        return (
+                          <button
+                            className={`mic-time-target ${isSelected ? "selected" : ""}`}
+                            key={t.fighterId}
+                            onClick={() => handleSelectTarget("micTime", "callout", t.fighterId, t.name)}
+                          >
+                            <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
+                            <span className="mic-time-target-name">{t.name}</span>
+                            <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedTarget && selectedTarget.source === "micTime" && (
+                      <div className="target-confirm-bar">
+                        <div className="target-confirm-label">Calling out <b>{selectedTarget.name}</b></div>
+                        <div className="target-confirm-actions">
+                          <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
+                          <button className="btn btn-primary" onClick={handleConfirmSelection}>Confirm Callout</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  );
+                })()}
+                <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
+                  Continue <ChevronRight size={16} />
+                </button>
+              </>
+            );
+          })()}
+          {/* Career Milestone -- "this happened, acknowledge it," distinct
+              from a pendingDecision ("what do you choose"). Only shown
+              once the spotlight above has been dismissed, and always
+              before whatever pendingDecision (contract negotiation, most
+              notably) the same fight-commit may also have set. Reuses the
+              existing promotion-card look (History's circuitMove card) --
+              same up/down border treatment and tier-ramp accent, just
+              blocking here with its own acknowledge button instead of
+              sitting passively in a scroll feed. */}
+          {!spotlightFightId && careerState.pendingMilestone && (() => {
+            const m = careerState.pendingMilestone;
+            const copy = MILESTONE_COPY[`${m.from}->${m.to}`];
+            if (!copy) return null; // defensive only -- every real transition has copy
+            const t = clfTier(m.to);
+            return (
+              <div className={`promotion-card milestone-live ${m.promoted ? "up" : "down"}`}>
+                <div className="promotion-eyebrow mono">
+                  {m.promoted ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                  {copy.eyebrow}
+                </div>
+                {copy.showTitle && <div className="milestone-subtitle">{copy.title}</div>}
+                <div className={`promotion-tier display ${tierRampCls(m.to)}`}>{copy.tierLabel || t.short}</div>
+                <div className="promotion-blurb">{copy.blurb}</div>
+                {copy.showTransition && <div className="promotion-from mono">{clfTier(m.from).short} &rarr; {clfTier(m.to).short}</div>}
+                <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>{copy.cta}</button>
+              </div>
+            );
+          })()}
+          {!spotlightFightId && !careerState.pendingMilestone && (
+          <>
+          {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (() => {
+            const circuitShort = clfTier(careerState.circuitTier).short;
+            return (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Matchmaking Options</div>
               <div className="decision-sub">The promotion offers you a choice for the next booking &mdash; pick who you fight.</div>
               <div className="matchmaker-grid">
                 {(careerState.pendingDecision.options || []).map((opt) => {
                   const meta = MATCHMAKER_TAG_META[opt.tag];
+                  // A truthful empty state -- no candidate qualified, so
+                  // nothing is booked here. Never substitutes an unranked
+                  // or bad-form fighter to fill the card.
+                  if (!opt.available) {
+                    const unavailable = MATCHMAKER_UNAVAILABLE_META[opt.tag];
+                    return (
+                      <div className={`matchmaker-card tag-${opt.tag} unavailable`} key={opt.tag}>
+                        <div className="matchmaker-tag mono">{meta.label}</div>
+                        <div className="matchmaker-unavailable-title">{unavailable.title}</div>
+                        <div className="matchmaker-sub">{unavailable.blurb}</div>
+                      </div>
+                    );
+                  }
                   const wins = opt.recentForm.filter((r) => r === "W").length;
                   const losses = opt.recentForm.length - wins;
+                  const isSelected = selectedTarget && selectedTarget.targetId === opt.fighterId;
                   return (
                     <button
                       key={opt.fighterId}
-                      className={`matchmaker-card tag-${opt.tag}`}
-                      onClick={() => handleFightChoice(opt.tag, opt.fighterId)}
+                      className={`matchmaker-card tag-${opt.tag} ${isSelected ? "selected" : ""}`}
+                      onClick={() => handleSelectTarget("matchmaker", opt.tag, opt.fighterId, opt.name)}
                     >
                       <div className="matchmaker-tag mono">{meta.label}</div>
                       <div className="matchmaker-name">{opt.name}</div>
@@ -1290,9 +1481,10 @@ export default function CageLab() {
                         {opt.recentForm.length > 0 && <span className="matchmaker-form-ratio mono">{wins}-{losses}</span>}
                       </div>
                       <div className="matchmaker-meta mono">
-                        {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
+                        {circuitShort} &middot; {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
                       </div>
                       <div className="matchmaker-sub">{meta.sub}</div>
+                      {isSelected && <div className="target-selected-badge mono">SELECTED</div>}
                     </button>
                   );
                 })}
@@ -1308,26 +1500,52 @@ export default function CageLab() {
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
-              {careerState.divisionRoster && (
+              {/* Normal contender callouts are earned, not available from
+                  the start -- single source of truth in hasCalloutAccess
+                  (career.js): National only once genuinely Top 15 there,
+                  Premier unconditionally, Regional/Contender Series never.
+                  Before that, Mic Time (post-fight, a believable scoped
+                  pool) is the only callout route. */}
+              {careerState.divisionRoster && hasCalloutAccess(careerState.circuitTier, careerState.playerRank) && (
                 <>
                   <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
                     <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
                   </button>
                   {calloutOpen && (
                     <div className="callout-list">
-                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
-                        <button className="callout-row" key={f.id} onClick={() => { setCalloutOpen(false); handleFightChoice("callout", f.id); }}>
-                          <span className="rank-num mono">#{i + 1}</span>
-                          <span className="rank-name">{f.name}</span>
-                          <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
-                        </button>
-                      ))}
+                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => {
+                        const isSelected = selectedTarget && selectedTarget.targetId === f.id;
+                        return (
+                          <button className={`callout-row ${isSelected ? "selected" : ""}`} key={f.id} onClick={() => handleSelectTarget("callout", "callout", f.id, f.name)}>
+                            <span className="rank-num mono">{circuitShort} &middot; #{i + 1}</span>
+                            <span className="rank-name">{f.name}</span>
+                            <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                            {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </>
               )}
+              {/* One shared confirm/cancel bar -- a matchmaker pick and a
+                  callout pick can never both be selected at once (one
+                  selectedTarget, source-tagged), so a single bar covers
+                  both without duplicating the control. */}
+              {selectedTarget && (selectedTarget.source === "matchmaker" || selectedTarget.source === "callout") && (
+                <div className="target-confirm-bar">
+                  <div className="target-confirm-label">Fighting <b>{selectedTarget.name}</b></div>
+                  <div className="target-confirm-actions">
+                    <button className="btn btn-ghost" onClick={handleCancelSelection}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleConfirmSelection}>
+                      {selectedTarget.source === "callout" ? "Confirm Callout" : "Confirm Fight"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+            );
+          })()}
           {careerState.pendingDecision && careerState.pendingDecision.type === "trainingEvent" && (
             <div className="decision-panel">
               <div className="decision-title"><Target size={15} /> Training Camp</div>
@@ -1404,6 +1622,24 @@ export default function CageLab() {
                   {careerState.pendingFight.choiceTag === "shortNoticeTitle" ? "SHORT-NOTICE TITLE FIGHT" : careerState.pendingFight.isTitleShot ? "FOR THE TITLE" : "TITLE DEFENSE"}
                 </div>
               )}
+              {/* Contender Series is a one-fight showcase, not another
+                  normal booking -- the stakes need to be visible up front,
+                  not buried in the fight-week line below. */}
+              {careerState.pendingFight.isContenderSeriesFight && (
+                <div className="cs-stakes-strap">
+                  <div className="cs-stakes-title mono"><Zap size={14} /> CONTENDER SERIES SHOWCASE</div>
+                  <div className="cs-stakes-row">
+                    <div className="cs-stakes-item win">
+                      <div className="cs-stakes-label mono">WIN</div>
+                      <div className="cs-stakes-value">CLF PREMIER CONTRACT</div>
+                    </div>
+                    <div className="cs-stakes-item loss">
+                      <div className="cs-stakes-label mono">LOSS</div>
+                      <div className="cs-stakes-value">RETURN TO NATIONAL</div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="decision-title"><Calendar size={15} /> Fight Night</div>
               <div className="decision-sub">{careerState.pendingFight.fightWeekLine}</div>
 
@@ -1448,16 +1684,6 @@ export default function CageLab() {
               </div>
             </div>
           )}
-          {/* The fight that was just committed, spotlighted right here
-              instead of only living at the bottom of the history feed --
-              same FightResultCard the timeline itself uses below, just
-              filtered out of that list (see the timeline .filter below)
-              while it's spotlighted so it isn't shown twice at once. It
-              settles into the history the moment the player advances. */}
-          {!careerState.pendingDecision && spotlightFightId && (() => {
-            const spotlightEntry = careerState.timeline.find((e) => e.id === spotlightFightId);
-            return spotlightEntry ? <FightResultCard e={spotlightEntry} playerName={name} /> : null;
-          })()}
           {(!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") && (
             <div className="btn-row sim-advance-bar">
               {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" ? (
@@ -1485,6 +1711,8 @@ export default function CageLab() {
               )}
             </div>
           )}
+          </>
+          )}
 
           {/* Recent form: last few results at a glance, no scrolling required. */}
           {recentForm.length > 0 && (
@@ -1500,9 +1728,21 @@ export default function CageLab() {
             </div>
           )}
 
-          {careerState.divisionRoster && (
+          {/* Contender Series has no ladder of its own -- divisionRoster
+              here is the National roster, deliberately carried over rather
+              than rebuilt (see career.js), NOT a Contender Series
+              standing. Showing it as if it were current-tier rankings is
+              exactly the "#5 turned out to mean something else" confusion
+              from the playtest -- a plain note instead, no roster list. */}
+          {careerState.divisionRoster && careerState.circuitTier === "CLF Contender Series" && (
+            <div className="cs-no-ladder-note">
+              <div className="cs-no-ladder-title mono">CONTENDER SERIES</div>
+              <div className="cs-no-ladder-line">No active ladder. Your National standing is preserved if you return.</div>
+            </div>
+          )}
+          {careerState.divisionRoster && careerState.circuitTier !== "CLF Contender Series" && (
             <details className="rankings-details">
-              <summary>{careerState.division || "Division"} Rankings</summary>
+              <summary>{clfTier(careerState.circuitTier).short} Rankings</summary>
               <div className="rankings-list">
                 {careerState.playerRank === 0 && (
                   <div className="ranking-row you champ">
@@ -1786,6 +2026,12 @@ export default function CageLab() {
                 </div>
               </div>
 
+            {careerState.circuitTier === "CLF Contender Series" ? (
+              <div className="cs-no-ladder-note">
+                <div className="cs-no-ladder-title mono">CONTENDER SERIES</div>
+                <div className="cs-no-ladder-line">No active ladder. Your National standing is preserved if you return.</div>
+              </div>
+            ) : (
             <div className="rankings-list rankings-list-tab">
               {careerState.playerRank === 0 && (
                 <div className="ranking-row you champ">
@@ -1828,6 +2074,7 @@ export default function CageLab() {
                 </div>
               )}
             </div>
+            )}
             </>
           )}
 

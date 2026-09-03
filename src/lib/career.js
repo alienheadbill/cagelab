@@ -691,6 +691,37 @@ function pushForm(fighter, win) {
   fighter.recentForm = [win ? "W" : "L", ...(fighter.recentForm || [])].slice(0, 5);
 }
 
+// ---- Recent-form helpers ---------------------------------------------------
+// Small, derived-only readers over a fighter's existing recentForm/record --
+// no new persistent state, nothing that needs saving or migrating. Used by
+// matchmaking (Ranked/Step-Up eligibility) and Mic Time target selection.
+function currentWinStreak(fighter) {
+  const form = fighter.recentForm || [];
+  let n = 0;
+  for (const r of form) { if (r === "W") n += 1; else break; }
+  return n;
+}
+function recentWins(fighter) {
+  return (fighter.recentForm || []).filter((r) => r === "W").length;
+}
+function recentLosses(fighter) {
+  const form = fighter.recentForm || [];
+  return form.length - recentWins(fighter);
+}
+function isOnLosingSkid(fighter, n = 2) {
+  const form = fighter.recentForm || [];
+  let streak = 0;
+  for (const r of form) { if (r === "L") streak += 1; else break; }
+  return streak >= n;
+}
+// A real winning record, a real recent stretch, and not currently losing --
+// the baseline "this fighter is a live opportunity, not a name for the sake
+// of one" bar that both Step-Up eligibility and Mic Time's "hot nearby
+// contender" candidate lean on.
+function isHotContender(fighter) {
+  return fighter.record.w > fighter.record.l && recentWins(fighter) >= 3 && !isOnLosingSkid(fighter, 2);
+}
+
 // ---- Fighting-style choice: gives the archetype system real teeth ---------
 // Reuses the same ARCHETYPES multiplier tables that already drive opponent
 // generation, so "your style" and "their style" are the same underlying
@@ -1064,45 +1095,246 @@ function displayRankFor(division, index) {
   return displayRank <= DIVISION_SIZE ? displayRank : null;
 }
 
-// Three REAL, named candidates for the matchmaking panel -- replaces
-// picking a hidden difficulty label with actually seeing who you'd be
-// fighting: their name, archetype, and real last-5 form, before
-// committing to anything. Reuses selectDivisionOpponent's own easy/ranked/
-// stepUp bias, so the risk/reward promise behind each tag is exactly what
-// it already was -- just visible now instead of hidden behind the label.
-// The draws are chained through a growing avoid-list so the three options
-// are never the same person twice.
-function generateMatchmakerOptions(division, playerRankPoints, recentOpponentIds, circuitTier) {
-  const tags = ["easy", "ranked", "stepUp"];
+// Normal contender-callout access (browsing the roster and picking anyone
+// off it) is earned, not available from the start -- a Regional run, no
+// matter how good, doesn't unlock it; Contender Series has no roster to
+// browse at all. National only unlocks it once genuinely Top 15 there;
+// Premier unlocks it outright (you're already in the show). Single source
+// of truth for every UI entry point that gates on this, so the same rule
+// can't drift between the callout list and any future surface that needs
+// it.
+function hasCalloutAccess(circuitTier, playerRank) {
+  if (circuitTier === "CLF PREMIER") return true;
+  if (circuitTier === "CLF National") return playerRank != null && playerRank <= DIVISION_SIZE;
+  return false;
+}
+
+// All ranked (non-champion) division fighters within [loRank, hiRank]
+// (inclusive), excluding anyone on the avoid-list. Reads displayRankFor
+// per candidate rather than raw array index, so this stays correct
+// whether or not the title is currently vacant.
+function eligibleRankedInWindow(division, loRank, hiRank, avoid) {
+  const out = [];
+  division.forEach((f, idx) => {
+    if (f.isChampion || avoid.includes(f.id)) return;
+    const r = displayRankFor(division, idx);
+    if (r != null && r >= loRank && r <= hiRank) out.push(f);
+  });
+  return out;
+}
+
+// RANKED FIGHT's window: examples worked through in the audit --
+// unranked-nearing-Top-15 -> ~#11-15, #14 -> ~#10-15, #9 -> ~#5-10,
+// #4 -> ~#1-5. All of those fit [rank-4, rank+1] clamped to the ladder,
+// which is what this computes -- a tunable window, not hardcoded bands.
+function rankedCandidateWindow(playerRank) {
+  if (playerRank == null) return [DIVISION_SIZE - 4, DIVISION_SIZE];
+  return [clamp(playerRank - 4, 1, DIVISION_SIZE), clamp(playerRank + 1, 1, DIVISION_SIZE)];
+}
+
+// RANKED FIGHT must always resolve to an actually ranked opponent (hard
+// invariant) -- built from playerRank (the real ladder position), never
+// rankPoints (the internal momentum value the old index-jitter draw used,
+// which is exactly how an unranked fighter used to end up under this
+// label). Widens the window once if nothing qualifies; returns null
+// (truthful "no opponent" -- never substitutes an unranked fighter) only
+// if even the full ladder is exhausted by the avoid-list.
+function pickRankedCandidate(division, playerRank, avoid) {
+  const [lo, hi] = rankedCandidateWindow(playerRank);
+  let pool = eligibleRankedInWindow(division, lo, hi, avoid);
+  if (!pool.length) pool = eligibleRankedInWindow(division, 1, DIVISION_SIZE, avoid);
+  if (!pool.length) return null;
+  const fighter = pool[Math.floor(Math.random() * pool.length)];
+  return { fighter, rank: displayRankFor(division, division.indexOf(fighter)) };
+}
+
+// A candidate reads as "harder than Easy" if they're ranked and Easy
+// isn't, or (both ranked / both unranked) they carry the stronger raw
+// rating -- rank takes priority over overall when both are ranked, since
+// a worse-rated #6 is still a bigger jump than a better-rated #9.
+function isHarderThanEasy(fighter, division, easyFighter) {
+  const fRank = displayRankFor(division, division.indexOf(fighter));
+  const easyRank = displayRankFor(division, division.indexOf(easyFighter));
+  if (fRank != null && easyRank == null) return true;
+  if (fRank == null && easyRank != null) return false;
+  if (fRank != null && easyRank != null) return fRank !== easyRank ? fRank < easyRank : fighter.overall > easyFighter.overall;
+  return fighter.overall > easyFighter.overall;
+}
+
+// STEP-UP FIGHT's hard eligibility bar, all required: a real winning
+// record and recent form (isHotContender covers "winning overall record"
+// + "at least 3 wins in last 5" + "not on a 2+ fight losing streak" in
+// one read), and meaningfully tougher than the Easy option already drawn
+// for this same decision.
+function passesStepUpHardCriteria(fighter, division, easyFighter) {
+  return isHotContender(fighter) && isHarderThanEasy(fighter, division, easyFighter);
+}
+
+// STEP-UP FIGHT: a genuinely dangerous line-jump opportunity, never a
+// bad-form fighter wearing a premium label. If the player is ranked, the
+// candidate MUST be an actually-ranked fighter positioned above them --
+// no unranked fallback once Top 15 (per the approved clarification). If
+// the player is unranked, an unranked "hot prospect" can still qualify,
+// but only with real momentum (a live win streak) on top of the base
+// bar -- a ranked candidate (any rank) already clears that bar by being
+// ranked at all. Selection among eligible candidates is simple ordered
+// sorting, not a scored formula: ranked-above first, then better rank,
+// then higher OVR, then longer streak, then more recent wins, then the
+// most believable (closest) jump as the final tiebreak. Returns null
+// (truthful "no opportunity") if nobody qualifies -- never fabricated.
+// Maximum believable Step-Up jump: "you're #15, go fight #1" isn't a
+// step-up, it's a lottery ticket. Capped at 5 places -- #15 -> #10-14,
+// #10 -> #5-9, #5 -> #1-4. Reference position for the window is the
+// player's real rank if they have one, else DIVISION_SIZE + 1 (the same
+// "just below the ladder" virtual position used elsewhere for unranked
+// tiebreaks), which lands an unranked player's window on #11-15 -- the
+// bottom of the Top 15, not the top of it.
+const STEP_UP_MAX_JUMP = 5;
+
+function pickStepUpCandidate(division, playerRank, easyFighter, avoid) {
+  const referencePos = playerRank != null ? playerRank : DIVISION_SIZE + 1;
+  const windowLo = Math.max(1, referencePos - STEP_UP_MAX_JUMP);
+  const windowHi = referencePos - 1;
+  const candidates = [];
+  division.forEach((f, idx) => {
+    if (f.isChampion || avoid.includes(f.id) || f.id === easyFighter.id) return;
+    if (!passesStepUpHardCriteria(f, division, easyFighter)) return;
+    const rank = displayRankFor(division, idx);
+    if (playerRank != null) {
+      // Ranked player: must be ranked, above them, AND inside the
+      // believable jump window -- never widen past this just to fill the
+      // card; an empty window means "No Step-Up Available."
+      if (rank == null || rank < windowLo || rank > windowHi) return;
+    } else if (rank == null) {
+      if (currentWinStreak(f) < 2) return; // unranked-vs-unranked needs a real live streak, not just a good record
+    } else if (rank < windowLo || rank > windowHi) {
+      return; // unranked-vs-ranked: only the bottom-of-ladder window (#11-15) is believable
+    }
+    candidates.push({ fighter: f, rank });
+  });
+  if (!candidates.length) return null;
+  const target = referencePos;
+  candidates.sort((a, b) => {
+    const aRanked = a.rank != null ? 1 : 0;
+    const bRanked = b.rank != null ? 1 : 0;
+    if (aRanked !== bRanked) return bRanked - aRanked;
+    if (a.rank != null && b.rank != null && a.rank !== b.rank) return a.rank - b.rank;
+    if (a.fighter.overall !== b.fighter.overall) return b.fighter.overall - a.fighter.overall;
+    const streakDiff = currentWinStreak(b.fighter) - currentWinStreak(a.fighter);
+    if (streakDiff !== 0) return streakDiff;
+    const winsDiff = recentWins(b.fighter) - recentWins(a.fighter);
+    if (winsDiff !== 0) return winsDiff;
+    const aDist = Math.abs((a.rank ?? DIVISION_SIZE + 1) - target);
+    const bDist = Math.abs((b.rank ?? DIVISION_SIZE + 1) - target);
+    return aDist - bDist;
+  });
+  return candidates[0];
+}
+
+function matchmakerOptionFrom(tag, picked) {
+  return {
+    tag, available: true, fighterId: picked.fighter.id, rank: picked.rank,
+    name: picked.fighter.name, archetype: picked.fighter.archetype,
+    overall: picked.fighter.overall, record: picked.fighter.record,
+    recentForm: picked.fighter.recentForm || [],
+  };
+}
+
+// Three matchmaking candidates for the panel -- Easy keeps its existing
+// unconstrained centre-index draw (deliberately not tightened, per the
+// audit); Ranked and Step-Up are now built from real eligibility (rank
+// window / hard criteria) instead of an index-jitter draw, so their
+// labels are never dishonest about who's actually being offered. A tag
+// with no eligible candidate returns `available: false` instead of a
+// substituted opponent -- the UI renders a truthful empty state for it.
+function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier) {
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
-  return tags.map((tag) => {
-    // Distinct people is already guaranteed by the avoid-list, but their
-    // W-L record is a separate independent roll (see generateOpponentRecord)
-    // that doesn't scale with tier the way overall does -- two of the three
-    // panels landing on the exact same record isn't rare, and when it
-    // happens the "risk" framing has nothing backing it up: the Step-Up
-    // pick reads no tougher than Easy on paper, so there's no real reason
-    // not to always take the bigger reward. A few bounded re-draws against
-    // an already-picked record (same avoid-list mechanism as distinctness)
-    // usually finds someone whose record actually looks different; if the
-    // division's too thin to avoid it, showing the repeat beats looping.
-    let picked;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      picked = selectDivisionOpponent(division, playerRankPoints, false, avoid, tag, circuitTier);
-      const dupRecord = pickedRecords.some((r) => r.w === picked.fighter.record.w && r.l === picked.fighter.record.l);
-      if (!dupRecord) break;
-      avoid.push(picked.fighter.id);
+
+  let easyPicked;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    easyPicked = selectDivisionOpponent(division, playerRankPoints, false, avoid, "easy", circuitTier);
+    const dupRecord = pickedRecords.some((r) => r.w === easyPicked.fighter.record.w && r.l === easyPicked.fighter.record.l);
+    if (!dupRecord) break;
+    avoid.push(easyPicked.fighter.id);
+  }
+  avoid.push(easyPicked.fighter.id);
+  pickedRecords.push(easyPicked.fighter.record);
+
+  const rankedPicked = pickRankedCandidate(division, playerRank, avoid);
+  if (rankedPicked) avoid.push(rankedPicked.fighter.id);
+
+  const stepUpPicked = pickStepUpCandidate(division, playerRank, easyPicked.fighter, avoid);
+  if (stepUpPicked) avoid.push(stepUpPicked.fighter.id);
+
+  return [
+    matchmakerOptionFrom("easy", easyPicked),
+    rankedPicked ? matchmakerOptionFrom("ranked", rankedPicked) : { tag: "ranked", available: false },
+    stepUpPicked ? matchmakerOptionFrom("stepUp", stepUpPicked) : { tag: "stepUp", available: false },
+  ];
+}
+
+// A small, contextual Mic Time target pool -- never the full division.
+// Ranked player: 1-4 spots above them (the believable line-jump zone),
+// plus a hot nearby contender if one isn't already in that band. Unranked
+// player: nearby prospects, plus a fringe-ranked target ONLY when this
+// specific win's own context supports it (a real underdog scalp over a
+// ranked opponent, or breaking into the Top 15 with this very fight).
+// A real active rival is appended last, if one exists and isn't already
+// in the pool. Capped at 3 candidates.
+function generateMicTimeTargets(division, playerRank, rivals, avoid, fightEntry) {
+  const pool = [];
+  const push = (f) => { if (f && !f.isChampion && !avoid.includes(f.id) && !pool.some((p) => p.id === f.id)) pool.push(f); };
+
+  if (playerRank != null) {
+    const lo = clamp(playerRank - 4, 1, DIVISION_SIZE);
+    const hi = clamp(playerRank - 1, 1, DIVISION_SIZE);
+    if (hi >= lo) {
+      const nearbyAbove = eligibleRankedInWindow(division, lo, hi, avoid)
+        .sort((a, b) => currentWinStreak(b) - currentWinStreak(a) || recentWins(b) - recentWins(a));
+      nearbyAbove.slice(0, 2).forEach(push);
+      const hotNearby = eligibleRankedInWindow(division, clamp(lo - 2, 1, DIVISION_SIZE), hi, avoid).find(isHotContender);
+      if (pool.length < 2) push(hotNearby);
     }
-    avoid.push(picked.fighter.id);
-    pickedRecords.push(picked.fighter.record);
-    return {
-      tag, fighterId: picked.fighter.id, rank: picked.rank,
-      name: picked.fighter.name, archetype: picked.fighter.archetype,
-      overall: picked.fighter.overall, record: picked.fighter.record,
-      recentForm: picked.fighter.recentForm || [],
-    };
-  });
+  } else {
+    const contextSupportsRankedTarget = (fightEntry.rankAfter != null && fightEntry.rankAfter <= DIVISION_SIZE)
+      || (fightEntry.oppRank != null && fightEntry.oppRank > 0);
+    if (contextSupportsRankedTarget) {
+      eligibleRankedInWindow(division, DIVISION_SIZE - 2, DIVISION_SIZE, avoid).slice(0, 1).forEach(push);
+    }
+    division.forEach((f, idx) => {
+      if (pool.length >= 2 || idx <= DIVISION_SIZE || idx > DIVISION_SIZE + 4) return;
+      push(f);
+    });
+  }
+
+  const activeRivals = (rivals || []).filter((r) => r.active && r.isRival);
+  if (activeRivals.length) {
+    const rivalFighter = division.find((f) => f.id === activeRivals[0].id);
+    push(rivalFighter);
+  }
+
+  return pool.slice(0, 3).map((f) => ({
+    fighterId: f.id, name: f.name, rank: displayRankFor(division, division.indexOf(f)),
+    overall: f.overall, record: f.record, archetype: f.archetype,
+  }));
+}
+
+// Which fight results earn a Mic Time moment -- read straight off fields
+// commitFight already computes for every fight, never re-derived. A plain
+// finish and a win over any ranked opponent used to qualify on their own
+// (release-playtest found this firing on ~75% of wins, ~95% of finishes --
+// nowhere near "notable"). Tightened to genuinely meaningful results only:
+// a performance bonus, a statement win, a live rivalry win, breaking into
+// the Top 15 with this fight, a real upset, or beating someone actually
+// ranked in the Top 5 (not just anywhere in the Top 15). Loss never
+// qualifies. No cooldown/streak-suppression added yet -- this tighter set
+// alone is the first pass.
+function qualifiesForMicTime(e) {
+  if (!e.win) return false;
+  const enteredTop15 = e.rankAfter != null && e.rankAfter <= DIVISION_SIZE && (e.rankBefore == null || e.rankBefore > DIVISION_SIZE);
+  const majorRankedWin = e.oppRank != null && e.oppRank > 0 && e.oppRank <= 5;
+  return e.bonusType === "performance" || e.statement || e.rivalry || enteredTop15 || e.underdogWin || majorRankedWin;
 }
 
 // ---- Rivals ---------------------------------------------------------------
@@ -1221,6 +1453,18 @@ function resolveContractNegotiation(state, contractId) {
   return s;
 }
 
+// Acknowledges the live circuitMove milestone commitFight set. Nothing to
+// decide here -- the tier already changed, the timeline entry already
+// exists -- this only clears the presentation flag so the next render
+// falls through to whatever's actually next (a pendingDecision the same
+// fight-commit may also have set, e.g. contract negotiation, or normal
+// flow). A no-op past `!pendingMilestone` guards against a stray
+// double-acknowledge.
+function resolveMilestone(state) {
+  if (!state.pendingMilestone) return state;
+  return { ...state, pendingMilestone: null };
+}
+
 function initCareer(picks, options) {
   const base = {};
   SKILL_KEYS.forEach((k) => { base[k] = picks[k].scoreValue; });
@@ -1300,6 +1544,14 @@ function initCareer(picks, options) {
     ],
     fightGlobalIndex: 0,
     pendingDecision: { type: "campPlanning" }, pendingFight: null,
+    // "This happened, acknowledge it" -- deliberately separate from
+    // pendingDecision ("what do you choose"), so a circuitMove promotion
+    // and a same-fight pendingDecision (contract negotiation on the
+    // Contender Series win, chiefly) never compete for the same slot. Set
+    // only in commitFight, alongside the circuitMove timeline entry it
+    // presents; cleared by resolveMilestone. Missing on an old save
+    // behaves exactly like null (never inferred/retroactively promoted).
+    pendingMilestone: null,
     finished: false, legacyScore: 0, verdict: null, totalFightCount: 0,
   };
 }
@@ -1443,10 +1695,21 @@ function maybeFightChoice(state) {
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
+    // Matchmaking agency (choosing Easy/Ranked/Step-Up yourself) is
+    // something a fighter earns, not something day-one gets -- a 0-0
+    // rookie shouldn't be able to demand a ranked opponent. Gated on the
+    // smallest existing signal (total fights so far), no new progression
+    // field: before it clears, this same 22% probability slot just books
+    // through the ordinary default path instead -- the promotion is still
+    // choosing for you, exactly like every other fight that doesn't roll
+    // into a fightChoice decision. Training/media/off-cycle below are
+    // untouched; only this one branch is gated.
+    const hasMatchmakingAgency = (state.record.w + state.record.l) >= 3;
+    if (!hasMatchmakingAgency) return prepareFight(state, "default");
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.recentOpponentIds, state.circuitTier);
+    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.playerRank, state.recentOpponentIds, state.circuitTier);
     return { ...state, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -1578,12 +1841,44 @@ function prepareFight(state, choiceTag, targetId) {
     picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, undefined, s.circuitTier);
   } else if (isMatchmakerPick) {
     const target = s.divisionRoster.find((f) => f.id === targetId);
-    // Falls back to a fresh draw with the same difficulty bias if the
-    // targeted fighter somehow isn't in the roster anymore (e.g. the
-    // division regenerated between the offer being shown and picked --
-    // shouldn't happen inside one decision, but never leave the player
-    // stuck on a dead pick).
-    picked = target ? { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) } : selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
+    // Falls back to a fresh draw if the targeted fighter somehow isn't in
+    // the roster anymore (e.g. the division regenerated between the offer
+    // being shown and picked -- shouldn't happen inside one decision, but
+    // never leave the player stuck on a dead pick). Reuses the SAME
+    // eligibility-aware pickers generateMatchmakerOptions itself uses, not
+    // a second copy of the rules -- a regenerated-roster booking must obey
+    // the exact same Ranked/Step-Up invariants as a normal one. "easy"
+    // alone keeps the old unconstrained draw, unchanged, per the audit
+    // ("do not over-constrain Easy").
+    if (target) {
+      picked = { fighter: target, rank: displayRankFor(s.divisionRoster, s.divisionRoster.indexOf(target)) };
+    } else if (choiceTag === "ranked") {
+      picked = pickRankedCandidate(s.divisionRoster, s.playerRank, s.recentOpponentIds)
+        // Avoid-list exhaustion is the only realistic reason the picker's
+        // own internal ladder-wide widen would still come up empty here --
+        // drop it (same picker, same rules, just less to avoid) rather
+        // than ever falling through to an unranked substitute.
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, []);
+    } else if (choiceTag === "stepUp") {
+      // No freshly-drawn Easy option exists in this rebooking path -- draw
+      // one the same way generateMatchmakerOptions does, purely as the
+      // "harder than Easy" reference point Step-Up eligibility needs.
+      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier);
+      picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds)
+        || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [])
+        // Genuinely nobody clears the Step-Up bar even with nothing
+        // avoided (the panel's own "No Step-Up Available" case, just hit
+        // mid-flow instead of at generation time) -- degrade to Ranked's
+        // guaranteed-non-null pick rather than ever falling through to the
+        // unconstrained draw, so this booking still can't land on a
+        // losing-record or bad-form opponent under a Step-Up tag.
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, s.recentOpponentIds)
+        || pickRankedCandidate(s.divisionRoster, s.playerRank, []);
+    }
+    // Only "easy" (and the unreachable-in-practice absolute edge case)
+    // ever falls through to here -- Ranked/Step-Up are both structurally
+    // guaranteed non-null by the two-tier fallback above.
+    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -1661,7 +1956,7 @@ function prepareFight(state, choiceTag, targetId) {
 
   s.pendingDecision = { type: "preFight" };
   s.pendingFight = {
-    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout,
+    choiceTag, isTitleShot, isTitleDefense, isTitleFight, isCallout, isContenderSeriesFight,
     oppEntry, oppName, oppRank, opp, oppRecord,
     hype, effective, playerTraits, stanceBias, playerOverallNow,
     winProb: preview.winProb, matchup: preview.matchup,
@@ -2086,10 +2381,27 @@ function commitFight(state) {
     isTitleShot, isTitleDefense, isRivalry, isStatement, bonusType, fightWasClose,
   });
 
+  // Mic Time -- computed once, right here, off the fields this same commit
+  // already produced (never a second fight-result derivation), and stored
+  // on the fight entry itself so it's fixed for the life of the spotlight
+  // instead of re-rolling on every render. null when this win didn't earn
+  // the moment, or when it's not a real callout-eligible fight to begin
+  // with (a title fight, a Contender Series showcase, or a loss).
+  const micTimeTargets = (!isContenderSeriesFight && !isTitleFight
+    && qualifiesForMicTime({ win: result.win, bonusType, statement: isStatement, rivalry: isRivalry, rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank, underdogWin: isUnderdogWin }))
+    ? generateMicTimeTargets(s.divisionRoster, playerRankAfterFight, s.rivals, [oppEntry.id, ...(s.recentOpponentIds || [])], { rankBefore: playerRankBefore, rankAfter: playerRankAfterFight, oppRank })
+    : null;
+
   const timeline = [...s.timeline];
+  // pendingMilestone mirrors the exact same computation as the circuitMove
+  // timeline entry below -- one truth, two presentations (live acknowledge
+  // screen now, History card forever after). Never a second progression
+  // engine: circuitTier already changed above, this only presents it.
+  s.pendingMilestone = null;
   if (tierChanged) {
     const promoted = CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(tierBefore);
     timeline.push({ type: "circuitMove", id: `circuit-${s.fightGlobalIndex}`, promoted, from: tierBefore, to: s.circuitTier });
+    s.pendingMilestone = { type: "circuitMove", promoted, from: tierBefore, to: s.circuitTier };
   }
   if (rivalryJustBorn) timeline.push({ type: "rivalEvent", id: `rival-${s.fightGlobalIndex}`, oppName });
   if (hype) timeline.push({ type: "hypeEvent", id: `hype-${s.fightGlobalIndex}`, ...hype });
@@ -2116,6 +2428,7 @@ function commitFight(state) {
     titleShot: isTitleShot, titleDefense: isTitleDefense, shortNotice: choiceTag === "shortNoticeTitle", demanded: choiceTag === "demandShot",
     contenderSeries: isContenderSeriesFight, calledOut: isCallout,
     rivalry: isRivalry, statement: isStatement, bonusType, interview, underdogWin: isUnderdogWin,
+    micTimeTargets,
     // Raw playerRank/champion flags, not labels -- rankLabel() renders
     // these at display time, same convention as yearEnd's
     // rankBefore/rankAfter. playerRank is the real ladder position (the
@@ -2258,7 +2571,13 @@ function fastForwardCareer(state) {
   let s = state;
   let guard = 0;
   while (!s.finished && guard < 600) {
-    if (s.pendingDecision) {
+    if (s.pendingMilestone) {
+      // Presentation-only -- nothing to decide, never hold fast-forward
+      // waiting on a UI acknowledgment that can't happen here. Doesn't
+      // change the underlying progression outcome at all, only whether a
+      // live screen was shown for it.
+      s = resolveMilestone(s);
+    } else if (s.pendingDecision) {
       if (s.pendingDecision.type === "campPlanning") {
         s = resolveCampPlanning(s, { focusAttr: null, campQuality: "full", stance: "balanced" });
       } else if (s.pendingDecision.type === "fightChoice") {
@@ -2418,12 +2737,17 @@ export {
   computePlayerProfile,
   computeFightPreview,
   computeWinProbability,
+  currentWinStreak,
   deriveTraits,
   estimatePhaseControl,
   fastForwardCareer,
   generateMatchmakerOptions,
+  generateMicTimeTargets,
   generateOpponentProfile,
+  hasCalloutAccess,
   initCareer,
+  isHotContender,
+  isOnLosingSkid,
   maybeFightChoice,
   metaRankFor,
   phaseWeightedOutput,
@@ -2431,10 +2755,13 @@ export {
   prepareFight,
   rankLabel,
   rankToTierCls,
+  recentLosses,
+  recentWins,
   resolveCampPlanning,
   resolveContractNegotiation,
   resolveFight,
   resolveMediaEvent,
+  resolveMilestone,
   resolveOffCycleEvent,
   resolveTrainingEvent,
   resolveWeightMoveOffer,
