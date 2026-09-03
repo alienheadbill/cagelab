@@ -1371,7 +1371,11 @@ export default function CageLab() {
                     it -- it stays lit until Continue below, which is the
                     real commit point (see handleAdvance): a target selected
                     books the callout, nothing selected is the decline path.
-                    Tapping the same target again clears the pick. */}
+                    Tapping the same target again clears the pick.
+                    Grid + self-contained scroll (mic-time-targets) so this
+                    panel never inherits scroll position from the long
+                    FightResultCard above it -- capped at 3 targets, so the
+                    scroll container is a safety net, not the normal case. */}
                 {spotlightEntry.micTimeTargets && spotlightEntry.micTimeTargets.length > 0 && (() => {
                   const circuitShort = clfTier(spotlightEntry.circuitTier).short;
                   return (
@@ -1391,6 +1395,7 @@ export default function CageLab() {
                             <span className="mic-time-target-rank mono">{circuitShort} &middot; {t.rank ? `#${t.rank}` : "UNRANKED"}</span>
                             <span className="mic-time-target-name">{t.name}</span>
                             <span className="mic-time-target-rec mono">{t.record.w}-{t.record.l} &middot; {t.overall} OVR</span>
+                            {t.archetype && <span className="mic-time-target-archetype">{t.archetype}</span>}
                             {isSelected && <span className="target-selected-badge mono">SELECTED</span>}
                           </button>
                         );
@@ -1509,13 +1514,20 @@ export default function CageLab() {
                   <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
                     <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
                   </button>
+                  {/* Grid of compact cards in a self-contained scroll box
+                      (unchanged max-height from before this pass) -- own
+                      dedicated classes rather than the shared rank-num/
+                      rank-name/rank-rec spans, which the Rankings tab's
+                      horizontal rows still rely on unmodified. Single tap
+                      still books immediately, same as before. */}
                   {calloutOpen && (
                     <div className="callout-list">
                       {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
                         <button className="callout-row" key={f.id} onClick={() => handleFightChoice("callout", f.id)}>
-                          <span className="rank-num mono">{circuitShort} &middot; #{i + 1}</span>
-                          <span className="rank-name">{f.name}</span>
-                          <span className="rank-rec mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                          <span className="callout-card-rank mono">{circuitShort} &middot; #{i + 1}</span>
+                          <span className="callout-card-name">{f.name}</span>
+                          <span className="callout-card-meta mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                          {f.archetype && <span className="callout-card-archetype">{f.archetype}</span>}
                         </button>
                       ))}
                     </div>
