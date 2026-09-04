@@ -65,6 +65,15 @@
         .brand { font-size: 34px; line-height: 1; color: var(--ink); }
         .brand span { color: var(--brass); }
         .tagline { font-size: 12.5px; color: var(--slate); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+        /* Ranked Identity Presentation: a compact broadcast-style rank chip
+           sitting directly next to a fighter's name (Career hub tagline,
+           pre-fight/FightResultCard corner labels) -- deliberately tiny and
+           inline so it never pushes a name onto its own second line.
+           Champion gets the brass-filled variant (text, never a number) so
+           it visually supersedes an ordinary numeric badge. */
+        .rank-name-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+          padding: 1px 5px; border-radius: 4px; border: 1.5px solid var(--brass); color: var(--brass); vertical-align: middle; white-space: nowrap; }
+        .rank-name-badge.champion { background: var(--brass); color: #201603; border-color: var(--brass); }
         .brass-rule { height: 3px; background: linear-gradient(90deg, var(--brass), transparent); margin-top: 12px; border-radius: 2px; }
         .top-icons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
         .icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1.5px solid rgba(154,143,125,0.3); background: var(--card-bg);

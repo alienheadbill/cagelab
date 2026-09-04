@@ -1,7 +1,7 @@
 import React from "react";
 import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical, ChevronDown } from "lucide-react";
 import { ATTR_BY_KEY } from "../data/attrs.js";
-import { clfTier, TRAIT_DEFS, rankLabel } from "../lib/career.js";
+import { clfTier, TRAIT_DEFS, rankLabel, rankBadge } from "../lib/career.js";
 
 // Ordinal suffix for a title-defense count -- same one-liner as App.jsx's
 // copy (duplicated rather than imported, matching this file's existing
@@ -138,7 +138,21 @@ function FightResultCard({ e, playerName }) {
           above the name, where it used to read as clutter. */}
       <div className="event-matchup">
         <div className="event-corner you">
-          <div className="corner-label mono">{e.onStyle === false ? "OFF-STYLE" : "YOU"}</div>
+          {/* Ranked Identity Presentation: fight-TIME truth only --
+              championBefore/rankBefore + this fight's own circuitTier
+              (stored as tierBefore, see commitFight), never the career's
+              live current-state rank, which may have already moved past
+              this fight by the time it's rendered in the timeline. Same
+              "· #N"/"· CHAMPION" language as the pre-fight corner and the
+              opponent corner's own CHAMPION/#N/UNRANKED label just below,
+              for visual consistency between the two sides. The existing
+              rank-move-row further down already shows the before->after
+              movement, so this is deliberately just the one fight-time
+              identity, not a repeat of that. */}
+          <div className="corner-label mono">
+            {e.onStyle === false ? "OFF-STYLE" : "YOU"}
+            {e.championBefore ? " · CHAMPION" : rankBadge(e.rankBefore, e.circuitTier) ? ` · ${rankBadge(e.rankBefore, e.circuitTier)}` : ""}
+          </div>
           <div className="corner-name">{playerName}</div>
           {e.playerRecord && (
             <div className="corner-sub mono">

@@ -631,6 +631,28 @@ function rankLabel(playerRank, champion) {
   return "Top 15";
 }
 
+// Ranked Identity Presentation: the exact numeric badge shown directly next
+// to the player's own name (Career hub, pre-fight, FightResultCard) --
+// deliberately separate from rankLabel's bucketed text above, which stays
+// exactly as it was everywhere it's already used (Peak Ranking, rank-move
+// row, etc). Reads only the real playerRank ladder position, never the
+// hidden rankPoints value, and returns null (no badge) while unranked.
+// Also returns null during Contender Series even when playerRank still
+// holds a real carried-over National number (see the National -> CS
+// branch in commitFight) -- CS deliberately has no active ladder, same
+// truth the Rankings tab and the compact Division Rankings panel already
+// enforce with their own "No active ladder" note, so a bare numeric badge
+// here would be exactly the stale-looking "Contender Series fighter at
+// #1" confusion already fixed once elsewhere. Champion is intentionally
+// NOT handled here -- champion status is a distinct textual treatment
+// ("CHAMPION", never a number) each caller renders itself alongside this,
+// so this function only ever returns "#N" or null.
+function rankBadge(playerRank, circuitTier) {
+  if (circuitTier === "CLF Contender Series") return null;
+  if (playerRank == null) return null;
+  return `#${playerRank}`;
+}
+
 // ---- Career-stage progression (the promotional "ladder") ------------------
 // Purely derived from rankPoints, so it can also drop back down after a bad
 // losing stretch -- getting sent back to the Regional Circuit after losing
@@ -3239,6 +3261,7 @@ export {
   playSfxForTransition,
   prepareFight,
   previewCampFocus,
+  rankBadge,
   rankLabel,
   rankToTierCls,
   recentLosses,

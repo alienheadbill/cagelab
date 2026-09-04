@@ -30,7 +30,7 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, rankBadge, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
@@ -1387,7 +1387,21 @@ export default function CageLab() {
         <div className={`panel sim-panel ${careerTab === "career" && !spotlightFightId && !careerState.pendingMilestone && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
-              <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
+              <div className="tagline mono" style={{ marginBottom: 2 }}>
+                {name}
+                {/* Ranked Identity Presentation: a compact "#N"/"CHAMPION"
+                    chip right next to the name, distinct from the sim-rank
+                    bucketed label below (unchanged, still used elsewhere) --
+                    champion always reads as text, never a bare number, and
+                    the badge itself is already circuit-safe (rankBadge
+                    returns null while unranked or mid-Contender-Series). */}
+                {careerState.champion ? (
+                  <span className="rank-name-badge champion"> CHAMPION</span>
+                ) : rankBadge(careerState.playerRank, careerState.circuitTier) ? (
+                  <span className="rank-name-badge"> {rankBadge(careerState.playerRank, careerState.circuitTier)}</span>
+                ) : null}
+                {" "}&middot; {careerState.displayOverall} OVR
+              </div>
               <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{careerState.record.w}{"–"}{careerState.record.l}</div>
               <div className="sim-rank">{rankLabel(careerState.playerRank, careerState.champion)}</div>
             </div>
@@ -1832,7 +1846,16 @@ export default function CageLab() {
 
               <div className="prefight-matchup">
                 <div className="prefight-corner">
-                  <div className="corner-label mono">YOU</div>
+                  {/* Ranked Identity Presentation, pre-fight surface: same
+                      "YOU · #N"/"YOU · CHAMPION" language as the opponent
+                      corner's own CHAMPION/#N/UNRANKED label just below --
+                      the current playerRank/champion/circuitTier are exactly
+                      the booked fight's own context here (nothing mutates
+                      them between prepareFight and this screen), so this is
+                      already fight-time-correct without a separate snapshot. */}
+                  <div className="corner-label mono">
+                    YOU{careerState.champion ? " · CHAMPION" : rankBadge(careerState.playerRank, careerState.circuitTier) ? ` · ${rankBadge(careerState.playerRank, careerState.circuitTier)}` : ""}
+                  </div>
                   <div className="corner-name">{name}</div>
                   <div className="corner-sub mono">{careerState.record.w}-{careerState.record.l} &middot; {careerState.pendingFight.playerOverallNow} OVR</div>
                 </div>
