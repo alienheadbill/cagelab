@@ -109,14 +109,18 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
         <div className="setup-label">Fighting Style</div>
         <div className="style-option-list">
           {[...ARCHETYPES.filter((a) => a.name !== "Balanced"), { name: "Balanced", mult: {} }].map((a) => {
-            // What this style actually does to THIS build's own numbers --
-            // the whole point of showing stats here is picking with the
-            // real effect in view, not just a one-line blurb.
-            const deltas = base ? Object.entries(a.mult || {}).map(([key, m]) => {
-              const before = Math.round(base[key]);
-              const after = Math.round(base[key] * m);
-              return { key, before, after, up: after > before };
-            }) : [];
+            // Archetype effective-stat audit: the old chips here multiplied
+            // base x ARCHETYPES.mult and showed the raw product (e.g. "POW
+            // 96->106") -- a number that never existed anywhere in the
+            // engine. The real in-fight style bonus (see prepareFight) is a
+            // flat +3 to these same attributes, clamped to 30-99, and ONLY
+            // applied when this style is the fighter's natural fit; an
+            // off-style pick gets no combat-stat change at all. Rather than
+            // show a number that was never real (or a real one that's only
+            // true for one specific card), this names what the style
+            // leans on and gives up -- qualitative, not a fabricated value.
+            const boosts = Object.entries(a.mult || {}).filter(([, m]) => m > 1).map(([key]) => key);
+            const sacrifices = Object.entries(a.mult || {}).filter(([, m]) => m < 1).map(([key]) => key);
             return (
               <button key={a.name} className={`style-option ${style === a.name ? "active" : ""}`} onClick={() => { sfx("select"); setStyle(a.name); }}>
                 <div className="style-option-top">
@@ -124,13 +128,20 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
                   {a.name === naturalFit && <span className="style-fit-tag">NATURAL FIT</span>}
                 </div>
                 <div className="style-option-desc">{STYLE_DESCRIPTIONS[a.name]}</div>
-                {deltas.length > 0 && (
-                  <div className="style-option-deltas mono">
-                    {deltas.map((d) => (
-                      <span key={d.key} className={d.up ? "up" : "down"}>
-                        {ATTR_BY_KEY[d.key].abbr} {d.before}&rarr;{d.after}
-                      </span>
-                    ))}
+                {(boosts.length > 0 || sacrifices.length > 0) && (
+                  <div className="style-option-tradeoffs">
+                    {boosts.length > 0 && (
+                      <div className="style-option-tradeoff-row up">
+                        <span className="style-option-tradeoff-label mono">Boosts</span>
+                        <span>{boosts.map((k) => ATTR_BY_KEY[k].label).join(", ")}</span>
+                      </div>
+                    )}
+                    {sacrifices.length > 0 && (
+                      <div className="style-option-tradeoff-row down">
+                        <span className="style-option-tradeoff-label mono">Sacrifices</span>
+                        <span>{sacrifices.map((k) => ATTR_BY_KEY[k].label).join(", ")}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </button>
