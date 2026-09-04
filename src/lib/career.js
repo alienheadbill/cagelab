@@ -592,6 +592,28 @@ function updateRanking(rankPoints, win, oppOverall, isTitleFight) {
   return clamp(rankPoints - delta, 0, 100);
 }
 
+// The real playerRank climb formula (unchanged math, extracted so it has
+// one name and one place to live). Used both where playerRank is actually
+// mutated (division-update block in commitFight) and, read-only, to
+// preview what this fight's own win is about to do to playerRank before
+// that block runs -- see nationalTitleEligibleNow in commitFight, which
+// needs that answer earlier than the real assignment happens.
+function previewRankClimb(playerRank, oppRank, win, method) {
+  if (win && oppRank > 0) {
+    const startRank = playerRank != null ? playerRank : DIVISION_SIZE + 1;
+    if (oppRank < startRank) {
+      const gap = startRank - oppRank;
+      const mismatchBonus = gap >= 13 ? 5 : gap >= 9 ? 3 : gap >= 6 ? 1 : 0;
+      const isFinish = method === "KO/TKO" || method === "Submission";
+      const climb = 5 + mismatchBonus + (isFinish ? 1 : 0);
+      return Math.max(oppRank, startRank - climb);
+    }
+    return playerRank;
+  }
+  if (!win && playerRank != null) return Math.min(DIVISION_SIZE, playerRank + 1);
+  return playerRank;
+}
+
 // Reads off playerRank -- the actual division ladder position -- not
 // rankPoints. rankPoints is a hidden/continuous competitive-momentum value
 // used internally (matchmaking calibration, Legacy Score); it used to also
@@ -639,6 +661,21 @@ const clfTier = (name) => CLF_TIERS.find((t) => t.name === name) || CLF_TIERS[0]
 const TITLE_TIERS = ["CLF Regional", "CLF National", "CLF PREMIER"];
 function freshTitleTierCounts() {
   return TITLE_TIERS.reduce((acc, t) => { acc[t] = 0; return acc; }, {});
+}
+
+// National title-path audit (Option D, calibrated): the natural title-shot
+// rank bar is loosened to <=6 for National only -- simulation confirmed
+// the National title route was effectively invisible (offered <1% of the
+// time) at the original <=5 bar, because playerRank<=5 almost never
+// arrives before the National->Contender-Series performance gate does.
+// <=6 lands National title-offered/advancement rates inside the approved
+// V1 target range while the gate stays the clear majority route; <=7
+// (tried first) overshot that range. Regional and Premier are explicitly
+// untouched, still <=5.
+const NATIONAL_TITLE_RANK_THRESHOLD = 6;
+const DEFAULT_TITLE_RANK_THRESHOLD = 5;
+function naturalTitleRankThreshold(circuitTier) {
+  return circuitTier === "CLF National" ? NATIONAL_TITLE_RANK_THRESHOLD : DEFAULT_TITLE_RANK_THRESHOLD;
 }
 
 // A plausible W-L record for a generated opponent, scaled by how far into the
@@ -1544,6 +1581,9 @@ function initCareer(picks, options) {
     // text); these are additive, not a replacement.
     titleReignsByTier: freshTitleTierCounts(), titleDefensesByTier: freshTitleTierCounts(),
     streak: 0, longestStreak: 0,
+    // Repeat-title-shot lock (see commitFight) -- false by default, same
+    // as every other career-long flag.
+    specialTitleShotLockedUntilWin: false,
     // Scoped to CLF National fights only (see the National->Contender
     // Series gate in commitFight) -- never touched by Regional or Premier
     // fights, and never reset by a Contender Series loss bouncing back to
@@ -1722,8 +1762,10 @@ function maybeFightChoice(state) {
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
   // Mirrors prepareFight's isTitleShot gate exactly -- must stay in sync,
   // or this could skip straight to what it thinks is a title fight while
-  // prepareFight itself decides otherwise (or vice versa).
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.playerRank != null && state.playerRank <= 5);
+  // prepareFight itself decides otherwise (or vice versa). Rank threshold
+  // is tier-aware: National uses the loosened bar, everyone else keeps
+  // the original <=5 (see naturalTitleRankThreshold).
+  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.playerRank != null && state.playerRank <= naturalTitleRankThreshold(state.circuitTier));
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
@@ -1852,7 +1894,10 @@ function prepareFight(state, choiceTag, targetId) {
   // beaten anyone actually ranked. playerRank can only move by beating a
   // ranked opponent, so this now genuinely requires having climbed the
   // ladder into the top 5, on top of the existing streak requirement.
-  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.playerRank != null && s.playerRank <= 5) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  // Natural rank bar is tier-aware (naturalTitleRankThreshold): National
+  // <=6, Regional/Premier <=5. Demand/Short-Notice rank thresholds
+  // (<=3 / <=10, enforced in App.jsx) are unrelated and untouched.
+  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.playerRank != null && s.playerRank <= naturalTitleRankThreshold(s.circuitTier)) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
@@ -2090,6 +2135,22 @@ function commitFight(state) {
       s.titleDefensesByTier = { ...s.titleDefensesByTier, [tierBefore]: (s.titleDefensesByTier[tierBefore] || 0) + 1 };
     } else s.champion = false;
   }
+  // Repeat-title-shot lock. Demand/Short-Notice bypass the natural
+  // streak>=2 requirement by design (that's the whole point of "cash in
+  // your ranking right now") -- but a title-shot loss or a lost defense
+  // only costs playerRank a single +1 step, so without this a player
+  // sitting at, say, rank 2 or rank 8 could click Demand/Short-Notice
+  // again on the very next fightChoice screen and get an immediate
+  // rematch against the exact thing that just beat them. One legitimate
+  // win (of any kind, at this tier) clears it -- the natural
+  // streak>=2/rank<=N path is completely unaffected either way, it never
+  // reads this flag (enforced in App.jsx, not here -- see the button
+  // gating there).
+  if (result.win) {
+    s.specialTitleShotLockedUntilWin = false;
+  } else if (isTitleShot || isTitleDefense) {
+    s.specialTitleShotLockedUntilWin = true;
+  }
   // Snapshotted here, before a tier promotion (if this fight just triggered
   // one) resets rankPoints/champion for the next tier's fresh climb -- the
   // fight card should always show what actually happened in THIS fight
@@ -2133,6 +2194,28 @@ function commitFight(state) {
   const nationalGatePass = s.nationalWins >= 2
     && s.nationalWins > s.nationalLosses
     && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
+  // National title-path priority: the gate formula itself (above) is
+  // untouched -- this only decides whether it's allowed to fire on THIS
+  // fight. Two cases where it must defer to the National title
+  // opportunity instead of silently promoting past it:
+  //  1) this fight WAS itself a National title shot that was LOST -- a
+  //     loss just resumes normal National progression (streak resets,
+  //     the gate stays available for later fights), not "also get swept
+  //     into Contender Series in the same fight." A WON title shot is
+  //     unaffected -- justWonTierTitle already promotes via the title
+  //     route in the very next `||` clause below, same as before.
+  //  2) this ORDINARY win's own rank climb (previewed here, read-only,
+  //     via the same previewRankClimb the division-update block below
+  //     will apply for real a few lines later) just pushed the fighter
+  //     to playerRank<=6 with streak already >=2 -- they've earned the
+  //     shot this exact fight, so the natural wouldBeTitle check on the
+  //     next booking should get first crack at it, not the gate.
+  const nationalRankPreview = tierBefore === "CLF National"
+    ? previewRankClimb(playerRankBefore, oppRank, result.win, result.method)
+    : null;
+  const nationalTitleEligibleNow = tierBefore === "CLF National" && !s.champion
+    && s.streak >= 2 && nationalRankPreview != null && nationalRankPreview <= NATIONAL_TITLE_RANK_THRESHOLD;
+  const nationalGateShouldDefer = isTitleShot || nationalTitleEligibleNow;
   let resetForFreshTier = false;
   // True only for the National -> Contender Series branch below: champion
   // gets cleared without a fresh-tier reset (the National roster/standing
@@ -2142,7 +2225,7 @@ function commitFight(state) {
   if (s.circuitTier === "CLF Regional" && (justWonTierTitle || s.streak >= 4)) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || nationalGatePass)) {
+  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
     // title, no rank, no matter how you earned the invite. Winning the
@@ -2173,6 +2256,13 @@ function commitFight(state) {
     resetForFreshTier = result.win;
   }
   const tierChanged = s.circuitTier !== tierBefore;
+  // The repeat-shot lock is scoped to "this tier, until the next win" --
+  // it must never leak into a new tier's own Demand/Short-Notice
+  // eligibility (a fresh circuit is a fresh start, same as streak/rank/
+  // roster resets already are). Defensive on every tier change, not just
+  // resetForFreshTier ones -- covers National->CS (standings-intact, no
+  // reset) too.
+  if (tierChanged) s.specialTitleShotLockedUntilWin = false;
   // First real contract: the moment you actually make Premier is when the
   // promotion sits you down with a real deal, not before -- everyone
   // starts on the same regional minimum. Guarded by contractNegotiated so
@@ -2235,18 +2325,7 @@ function commitFight(state) {
     // primary driver, performance a small modifier, never the reverse.
     // Always floored at oppRank: a single win can never rank you better
     // than the person you just beat.
-    if (result.win && oppRank > 0) {
-      const startRank = s.playerRank != null ? s.playerRank : DIVISION_SIZE + 1;
-      if (oppRank < startRank) {
-        const gap = startRank - oppRank;
-        const mismatchBonus = gap >= 13 ? 5 : gap >= 9 ? 3 : gap >= 6 ? 1 : 0;
-        const isFinish = result.method === "KO/TKO" || result.method === "Submission";
-        const climb = 5 + mismatchBonus + (isFinish ? 1 : 0);
-        s.playerRank = Math.max(oppRank, startRank - climb);
-      }
-    } else if (!result.win && s.playerRank != null) {
-      s.playerRank = Math.min(DIVISION_SIZE, s.playerRank + 1);
-    }
+    s.playerRank = previewRankClimb(s.playerRank, oppRank, result.win, result.method);
     // Guarded against resetForFreshTier: winning the Regional (or Contender
     // Series) title just rebuilt s.divisionRoster into the NEXT tier's own
     // fresh roster a few lines up, and reset s.champion/s.playerRank back to
