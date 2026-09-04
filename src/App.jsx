@@ -35,6 +35,7 @@ import {
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
+  CAMP_FOCUSES, setFightStance, buildGameplanInsight,
 } from "./lib/career.js";
 
 import TierIcon from "./components/TierIcon.jsx";
@@ -50,6 +51,7 @@ import FightResultCard from "./components/FightResultCard.jsx";
 import DivisionRollPanel from "./components/DivisionRollPanel.jsx";
 import CareerSetupPanel from "./components/CareerSetupPanel.jsx";
 import CampPlanningPanel from "./components/CampPlanningPanel.jsx";
+import CampCompletePanel from "./components/CampCompletePanel.jsx";
 import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
@@ -190,6 +192,12 @@ export default function CageLab() {
   // history list (and stops being spotlighted) the moment the player moves
   // on, same tap as advancing the career.
   const [spotlightFightId, setSpotlightFightId] = useState(null);
+  // Training Camp Rework V1, item 13: true once the player has seen the
+  // CAMP COMPLETE result for the most recent camp (or hasn't taken one
+  // yet) -- false right after confirming a camp, showing the result state
+  // in the same Camp panel instead of silently dropping back to Career
+  // with nothing to show. Reset on every fresh career launch below.
+  const [campResultAck, setCampResultAck] = useState(true);
   const [goatScore, setGoatScore] = useState(null);
   const [statOrderOverride, setStatOrderOverride] = useState(null);
   const [buildSaved, setBuildSaved] = useState(false);
@@ -702,6 +710,7 @@ export default function CageLab() {
     // over from a previous career could otherwise collide with (and wrongly
     // hide) an unrelated fight here.
     setSpotlightFightId(null);
+    setCampResultAck(true);
     setPhase("sim");
   }
 
@@ -750,11 +759,25 @@ export default function CageLab() {
   function handleCampConfirm(choice) {
     sfx("select");
     setCareerState(resolveCampPlanning(careerState, choice));
-    // Camp planning has its own tab so it doesn't compete with fight-related
-    // decisions for the same panel, but once it's resolved there's nothing
-    // left to do there -- send the player back to the main hub instead of
-    // leaving them stranded on a now-idle Camp tab.
+    // Training Camp Rework V1, item 13: stay on the Camp tab -- it swaps
+    // into a CAMP COMPLETE result state (see the "camp" tab render below)
+    // showing the actual before/after instead of silently dropping back to
+    // Career with nothing to show. handleCampResultContinue is the one
+    // that actually leaves the tab, once the player has seen it.
+    setCampResultAck(false);
+  }
+  function handleCampResultContinue() {
+    sfx("select");
+    setCampResultAck(true);
     setCareerTab("career");
+  }
+  // Training Camp Rework V1, items 17-18: the pre-fight Gameplan choice --
+  // recomputes the SAME preview commitFight will read (see setFightStance
+  // in career.js), so the odds shown are never a second, possibly-drifted
+  // estimate.
+  function handleSetFightStance(stance) {
+    sfx("select");
+    setCareerState(setFightStance(careerState, stance));
   }
   function handleFightChoice(tag, targetId) {
     // Picking a booking type no longer resolves the fight on the spot --
@@ -1392,8 +1415,8 @@ export default function CageLab() {
               </div>
               {lastCampPlan && (
                 <div className="season-glance-camp">
-                  {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {lastCampPlan.stance === "standup" ? "Stand-Up" : lastCampPlan.stance === "ground" ? "Ground" : "Balanced"}
-                  {lastCampPlan.focusAttr ? ` · focused on ${ATTR_BY_KEY[lastCampPlan.focusAttr].label}` : ""}
+                  {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"}
+                  {lastCampPlan.focus && CAMP_FOCUSES[lastCampPlan.focus] ? ` · ${CAMP_FOCUSES[lastCampPlan.focus].label}` : " · no focus"}
                 </div>
               )}
               <div className="season-glance-remaining mono">
@@ -1675,7 +1698,7 @@ export default function CageLab() {
               <div className="decision-title"><Target size={15} /> Training Camp</div>
               <div className="decision-sub">Your coaches see a real weakness in {ATTR_BY_KEY[careerState.pendingDecision.attr].label}.</div>
               <div className="choice-row">
-                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, costs a sliver of your sharpest attributes</span></button>
+                <button className="choice-btn" onClick={() => handleTrainingEvent(true)}>Address It<span>Small permanent gain, no cost</span></button>
                 <button className="choice-btn" onClick={() => handleTrainingEvent(false)}>Stay the Course<span>Sharpens your best weapon for the next fight only</span></button>
               </div>
             </div>
@@ -1829,6 +1852,32 @@ export default function CageLab() {
                 );
               })()}
 
+              {/* Training Camp Rework V1, items 17-18: opponent-aware
+                  GAMEPLAN, built only from real matchup/archetype/trait
+                  data already loaded for this fight -- and the Stand-Up/
+                  Ground/Balanced choice itself, relocated here from annual
+                  Camp since the opponent is actually known now. Changing
+                  it live-recomputes the odds above via setFightStance --
+                  mechanically real, never silently chosen for the player. */}
+              {(() => {
+                const insight = buildGameplanInsight(careerState.pendingFight);
+                const stance = careerState.fightStance || "balanced";
+                return (
+                  <div className="gameplan-block">
+                    <div className="decision-group-label">Gameplan</div>
+                    <div className="gameplan-insight">
+                      <div className="gameplan-insight-title">{insight.title}</div>
+                      <div className="gameplan-insight-body">{insight.body}</div>
+                    </div>
+                    <div className="choice-row three">
+                      <button className={`choice-btn ${stance === "standup" ? "active" : ""}`} onClick={() => handleSetFightStance("standup")}>Stand-Up</button>
+                      <button className={`choice-btn ${stance === "balanced" ? "active" : ""}`} onClick={() => handleSetFightStance("balanced")}>Balanced</button>
+                      <button className={`choice-btn ${stance === "ground" ? "active" : ""}`} onClick={() => handleSetFightStance("ground")}>Ground</button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="prefight-odds-row">
                 <div className={`odds-chip ${careerState.pendingFight.winProb >= 0.5 ? "favorite" : ""}`}>{careerState.pendingFight.youOdds}</div>
                 <div className="odds-label mono">BETTING ODDS</div>
@@ -1949,7 +1998,6 @@ export default function CageLab() {
           {groupTimelineNewestYearFirst(careerState.timeline.filter((e) => e.id !== spotlightFightId)).map((e) => {
             if (e.type === "year") return <div className="year-divider" key={e.id}>Year {e.year}</div>;
             if (e.type === "campPlan") {
-              const stanceLabel = e.stance === "standup" ? "Stand-Up" : e.stance === "ground" ? "Ground" : "Balanced";
               const showLeap = e.year >= 3 && e.year <= 5;
               // rankPoints alone resets to 0 on every tier promotion, so a
               // player who just broke into National or Premier -- the real
@@ -1964,8 +2012,8 @@ export default function CageLab() {
                   <Sparkles size={15} style={{ marginTop: 2 }} />
                   <div>
                     <div>
-                      {e.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {stanceLabel} gameplan
-                      {e.focusAttr ? ` · focused on ${ATTR_BY_KEY[e.focusAttr].label}` : ""}
+                      {e.campQuality === "full" ? "Full camp" : "Short notice"}
+                      {e.focus && CAMP_FOCUSES[e.focus] ? ` · ${CAMP_FOCUSES[e.focus].label}` : " · no focus"}
                     </div>
                     {showLeap && (
                       <div className="leap-note">
@@ -2060,7 +2108,7 @@ export default function CageLab() {
                 <div className={`event-card ${e.addressed ? "good" : ""}`} key={e.id}>
                   <Target size={15} />
                   {e.addressed
-                    ? `Camp addresses the ${ATTR_BY_KEY[e.attr].label} weakness — a small permanent gain, at the cost of a sliver of your two sharpest attributes.`
+                    ? `Coaches address the ${ATTR_BY_KEY[e.attr].label} weakness — a small permanent gain.`
                     : `Coaches flagged a ${ATTR_BY_KEY[e.attr].label} weakness, but camp stayed the course — rhythm intact, best weapon sharpened for the next walkout.`}
                 </div>
               );
@@ -2236,6 +2284,7 @@ export default function CageLab() {
           )}
 
           {careerTab === "stats" && (
+            <>
             <div className="stat-grid" style={{ marginTop: 4 }}>
               {[
                 { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
@@ -2264,6 +2313,39 @@ export default function CageLab() {
                 </div>
               ))}
             </div>
+
+            {/* Training Camp Rework V1, item 14/6: a persistent, always-
+                reachable live Career attributes view -- the missing
+                surface the audit found (Camp's own panel was the only
+                place a current value ever briefly appeared). Reuses
+                applyAging(base, year, wear), the exact function every
+                other live-stat surface already calls -- no second
+                calculation, no shadow copy of s.base. */}
+            <div className="section-divider" style={{ marginTop: 14 }}>Current Fighter</div>
+            <div className="current-fighter-grid mono">
+              {(() => {
+                const live = applyAging(careerState.base, careerState.year, careerState.wear);
+                return ATTRS.map((a) => {
+                  const isPhysical = a.key === "HEIGHT" || a.key === "REACH";
+                  const current = a.key === "HEIGHT" ? careerState.heightScore : a.key === "REACH" ? careerState.reachScore : live[a.key];
+                  const draft = a.key === "HEIGHT" ? careerState.heightScore : a.key === "REACH" ? careerState.reachScore : careerState.draftBase[a.key];
+                  const curR = Math.round(current);
+                  const delta = curR - Math.round(draft);
+                  return (
+                    <div className="current-fighter-row" key={a.key}>
+                      <span className="current-fighter-label">{a.label}</span>
+                      <span className="current-fighter-value">
+                        {curR}
+                        {!isPhysical && delta !== 0 && (
+                          <span className={delta > 0 ? "good-text" : "bad-text"}> ({delta > 0 ? "+" : ""}{delta})</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            </>
           )}
 
           {careerTab === "camp" && (
@@ -2280,7 +2362,7 @@ export default function CageLab() {
                 <div className="coach-xp-track">
                   <div className="coach-xp-fill" style={{ width: `${careerState.coach.level >= 5 ? 100 : Math.round((careerState.coach.xp % 60) / 60 * 100)}%` }} />
                 </div>
-                <div className="coach-hint">Focus {ATTR_BY_KEY[careerState.coach.specialty].label} in camp to build the relationship faster -- a maxed-out coach adds +5 to that focus bonus.</div>
+                <div className="coach-hint">Focus {ATTR_BY_KEY[careerState.coach.specialty].label} in camp to build the relationship faster -- a maxed-out coach adds a small bonus to that focus's development.</div>
               </div>
             )}
             {careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning" ? (
@@ -2289,15 +2371,18 @@ export default function CageLab() {
                 year={careerState.year}
                 isFinalYear={careerState.year === careerState.totalYears}
                 currentStats={applyAging(careerState.base, careerState.year, careerState.wear)}
+                coach={careerState.coach}
               />
+            ) : !campResultAck && careerState.lastCampResult ? (
+              <CampCompletePanel result={careerState.lastCampResult} onContinue={handleCampResultContinue} />
             ) : (
               <div className="camp-idle-view">
                 {lastCampPlan ? (
                   <div className="event-card" style={{ alignItems: "flex-start" }}>
                     <Sparkles size={15} style={{ marginTop: 2 }} />
                     <div>
-                      Last camp: {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"} &middot; {lastCampPlan.stance === "standup" ? "Stand-Up" : lastCampPlan.stance === "ground" ? "Ground" : "Balanced"} gameplan
-                      {lastCampPlan.focusAttr ? ` · focused on ${ATTR_BY_KEY[lastCampPlan.focusAttr].label}` : ""}
+                      Last camp: {lastCampPlan.campQuality === "full" ? "Full camp" : "Short notice"}
+                      {lastCampPlan.focus && CAMP_FOCUSES[lastCampPlan.focus] ? ` · ${CAMP_FOCUSES[lastCampPlan.focus].label}` : " · no focus"}
                     </div>
                   </div>
                 ) : (
@@ -2317,11 +2402,9 @@ export default function CageLab() {
             { id: "camp", label: "Camp", icon: Dumbbell },
           ].map((t) => {
             const Icon = t.icon;
-            const pendingHere = careerState.pendingDecision && (
-              t.id === "camp"
-                ? careerState.pendingDecision.type === "campPlanning"
-                : t.id === "career" && careerState.pendingDecision.type !== "campPlanning"
-            );
+            const pendingHere = t.id === "camp"
+              ? (careerState.pendingDecision && careerState.pendingDecision.type === "campPlanning") || !campResultAck
+              : t.id === "career" && careerState.pendingDecision && careerState.pendingDecision.type !== "campPlanning";
             return (
               <button key={t.id} className={`tab-bar-btn ${careerTab === t.id ? "active" : ""}`} onClick={() => setCareerTab(t.id)}>
                 <span className="tab-bar-icon-wrap">

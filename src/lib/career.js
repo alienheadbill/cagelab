@@ -1478,7 +1478,9 @@ function refreshRivalActivity(rivals, playerOverall, division) {
 // to the ones that actually matter (see CareerSetupPanel). The coach is
 // assigned automatically at the first camp, then levels up through camps
 // actually spent training their specialty.
-const COACH_SPECIALTIES = ["STRIKING", "GRAPPLING", "WRESTLING", "CARDIO", "POWER", "CHIN", "SPEED", "IQ"];
+// CHIN removed (Training Camp Rework V1, item 3) -- a "Chin Coach" doesn't
+// make sense once Chin isn't a trainable specialty; matches TRAINABLE_KEYS.
+const COACH_SPECIALTIES = ["STRIKING", "GRAPPLING", "WRESTLING", "CARDIO", "POWER", "SPEED", "IQ"];
 
 function assignCoach() {
   const specialty = COACH_SPECIALTIES[Math.floor(Math.random() * COACH_SPECIALTIES.length)];
@@ -1573,7 +1575,19 @@ function initCareer(picks, options) {
   SKILL_KEYS.forEach((k) => { base[k] = picks[k].scoreValue; });
   const totalYears = 8 + Math.floor(Math.random() * 4);
   return {
-    base, reachScore: picks.REACH.scoreValue,
+    base,
+    // Immutable Career-start snapshot (Training Camp Rework V1) -- the
+    // ONLY source for "current vs drafted" comparisons (see the Stats
+    // tab's Current Fighter view). Never mutated after this; current
+    // permanent development is always just base - draftBase, never
+    // tracked as a separate running total.
+    draftBase: { ...base },
+    reachScore: picks.REACH.scoreValue,
+    // HEIGHT never feeds combat (only REACH does, via reachScore above)
+    // and never changes after the draft -- captured once here purely so
+    // the Current Fighter view has a real number to show alongside REACH,
+    // not a second calculation.
+    heightScore: picks.HEIGHT.scoreValue,
     displayOverall: Math.round(ATTRS.reduce((s, a) => s + picks[a.key].scoreValue, 0) / ATTRS.length),
     totalYears, year: 1,
     fightsRemainingThisYear: 0,
@@ -1639,7 +1653,14 @@ function initCareer(picks, options) {
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
-    yearFocusAttr: null, yearStance: "balanced", campQuality: "full", mediaBuff: null,
+    // Training Camp Rework V1: campFocus is this year's chosen Camp focus
+    // id (see CAMP_FOCUSES) or null; fightStance is the CURRENT pending
+    // fight's gameplan choice (see setFightStance), reset to neutral every
+    // new fight rather than carried year-long -- the annual/per-fight
+    // split is intentional (item 18). lastCampResult is the most recent
+    // camp's result only (see resolveCampPlanning) -- no Camp history.
+    campFocus: null, fightStance: "balanced", campQuality: "full", mediaBuff: null,
+    lastCampResult: null,
     wonTitleAsUnderdog: false,
     // Phase 4 (Career Arc): a coach relationship that deepens over camps,
     // fame built through off-cycle content (feeds sponsor money), a real
@@ -1671,17 +1692,139 @@ function initCareer(picks, options) {
   };
 }
 
-function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
+// =========================================================================
+//  TRAINING CAMP REWORK V1
+// =========================================================================
+// CHIN, HEIGHT and REACH are deliberately absent from every trainable set
+// below -- Chin is physiological durability (see applyAging's wear-based
+// decline, untouched by this pass), Height/Reach are fixed physical
+// measurements. Every Camp focus writes PERMANENTLY to s.base -- this
+// replaces the old temporary +4/-1/-1 "effective"-only boost (see the
+// removed yearFocusAttr block that used to live in prepareFight), which
+// reset every year with nothing to show for it. s.base stays the ONLY
+// authoritative permanent attribute store; there is no shadow copy, so a
+// Camp gain is automatically what applyAging, fight simulation, matchup
+// preview, archetype detection, traits, narrative, and the retirement
+// snapshot all see -- same guarantee every other s.base writer already had.
+const TRAINABLE_KEYS = ["STRIKING", "GRAPPLING", "WRESTLING", "CARDIO", "POWER", "SPEED", "IQ"];
+
+// Five MMA-authentic Camp focuses, each a primary (real development) +
+// small secondary (deterministic from the focus, never random) -- replaces
+// the old raw 8-button attribute picker. Conditioning is the one with no
+// stat secondary; its "secondary" is a recovery benefit (see
+// resolveCampPlanning) using the existing wear model instead.
+const CAMP_FOCUSES = {
+  striking: { label: "Striking Camp", primary: "STRIKING", secondary: "SPEED" },
+  wrestling: { label: "Wrestling Camp", primary: "WRESTLING", secondary: "CARDIO" },
+  grappling: { label: "Grappling Camp", primary: "GRAPPLING", secondary: "IQ" },
+  conditioning: { label: "Conditioning Camp", primary: "CARDIO", secondary: null, recovery: true },
+  power: { label: "Power & Mechanics", primary: "POWER", secondary: "STRIKING" },
+};
+// Fast-forward default (see fastForwardCareer): which focus best addresses
+// a given weakest-trainable attribute. IQ/SPEED are never a focus's PRIMARY
+// in the locked V1 set, only secondaries -- fall back to whichever focus's
+// secondary reaches them, so fast-forward still gives real attention
+// instead of skipping a focus IQ/SPEED happen to be weakest in.
+const CAMP_FOCUS_BY_PRIMARY = { STRIKING: "striking", WRESTLING: "wrestling", GRAPPLING: "grappling", CARDIO: "conditioning", POWER: "power" };
+const CAMP_FOCUS_BY_SECONDARY_FALLBACK = { SPEED: "striking", IQ: "grappling" };
+function focusForWeakestTrainable(base) {
+  const weakest = TRAINABLE_KEYS.slice().sort((a, b) => base[a] - base[b])[0];
+  return CAMP_FOCUS_BY_PRIMARY[weakest] || CAMP_FOCUS_BY_SECONDARY_FALLBACK[weakest] || "striking";
+}
+
+// Diminishing returns: the SAME small permanent gain lands very differently
+// on a 60-rated attribute than a 90-rated one -- today it didn't (a flat
+// gain regardless of rating), which is what let a fighter grind a stat as
+// easily at 90 as at 60. Piecewise-linear between the approved anchor
+// points, flat outside that range -- a lookup a player could sanity-check
+// by eye, not a hidden XP curve.
+const CAMP_DR_POINTS = [[60, 1.00], [70, 0.70], [80, 0.45], [90, 0.15]];
+function campDrMultiplier(rating) {
+  if (rating <= CAMP_DR_POINTS[0][0]) return CAMP_DR_POINTS[0][1];
+  const last = CAMP_DR_POINTS[CAMP_DR_POINTS.length - 1];
+  if (rating >= last[0]) return last[1];
+  for (let i = 0; i < CAMP_DR_POINTS.length - 1; i++) {
+    const [x0, y0] = CAMP_DR_POINTS[i], [x1, y1] = CAMP_DR_POINTS[i + 1];
+    if (rating >= x0 && rating <= x1) return y0 + (y1 - y0) * ((rating - x0) / (x1 - x0));
+  }
+  return last[1];
+}
+
+// Career-stage taper: development slows as a career matures (years 1-4
+// full, 5-7 reduced, 8+ maintenance-only) -- completely separate from, and
+// does not alter, applyAging's own decline curve. This only scales how
+// much Camp/Training Event can ADD; aging's own math is untouched.
+function campStageMultiplier(year) {
+  if (year <= 4) return 1.0;
+  if (year <= 7) return 0.55;
+  return 0.2;
+}
+
+const CAMP_PRIMARY_BASE_GAIN = 1.6;
+const CAMP_SECONDARY_FRACTION = 0.32; // ~25-40% of the primary, per spec
+const CAMP_RECOVERY_AMOUNT = 2; // wear.chin/wear.speed reduced by this much on a Conditioning Camp
+// Training Event's "Address It" stays a smaller, rarer contextual bonus,
+// not a second full development system -- same diminishing-returns curve
+// as Camp, deliberately smaller base target.
+const TRAINING_EVENT_BASE_GAIN = 1.0;
+
+// The EXACT formula resolveCampPlanning applies a moment later -- called
+// from there AND from the pre-confirm preview (App.jsx), so what the player
+// sees before "Begin Camp" can never be a second, possibly-drifted
+// estimate. Returns null for an unknown/no focus.
+function previewCampFocus(base, year, coach, focus) {
+  const def = CAMP_FOCUSES[focus];
+  if (!def) return null;
+  const stage = campStageMultiplier(year);
+  const coachBonus = (coach && coach.specialty === def.primary) ? coach.level * 0.3 : 0;
+  const primaryGain = (CAMP_PRIMARY_BASE_GAIN + coachBonus) * campDrMultiplier(base[def.primary]) * stage;
+  const secondaryGain = def.secondary ? CAMP_PRIMARY_BASE_GAIN * CAMP_SECONDARY_FRACTION * campDrMultiplier(base[def.secondary]) * stage : 0;
+  return { primaryAttr: def.primary, primaryGain, secondaryAttr: def.secondary, secondaryGain, recovery: !!def.recovery };
+}
+
+function resolveCampPlanning(state, { focus, campQuality }) {
   const s = { ...state };
-  s.yearFocusAttr = focusAttr;
+  s.campFocus = focus || null;
   s.campQuality = campQuality;
-  s.yearStance = stance;
   // Snapshot rank/title status right as the year begins, so the year-end
   // recap can show what changed over the course of the year.
   s.yearStartRank = state.playerRank;
   s.yearStartChampion = state.champion;
   s.yearStartTier = state.circuitTier;
   s.yearStartLegacy = state.runningLegacy;
+
+  // ---- Permanent development (Training Camp Rework V1) --------------
+  // Applied here, before the injury roll below reads s.base/s.wear, so a
+  // Conditioning Camp's recovery this same year genuinely lowers this
+  // year's injury risk -- one source of truth, no separate bookkeeping.
+  let lastCampResult = null;
+  if (focus && CAMP_FOCUSES[focus]) {
+    const def = CAMP_FOCUSES[focus];
+    const preview = previewCampFocus(s.base, s.year, state.coach, focus);
+    const primaryBefore = s.base[def.primary];
+    const primaryAfter = clamp(primaryBefore + preview.primaryGain, 30, 99);
+    s.base = { ...s.base, [def.primary]: primaryAfter };
+
+    let secondaryAttr = null, secondaryBefore = null, secondaryAfter = null;
+    if (def.secondary) {
+      secondaryAttr = def.secondary;
+      secondaryBefore = s.base[secondaryAttr];
+      secondaryAfter = clamp(secondaryBefore + preview.secondaryGain, 30, 99);
+      s.base = { ...s.base, [secondaryAttr]: secondaryAfter };
+    }
+
+    let wearRecovered = null;
+    if (def.recovery) {
+      const chinBefore = s.wear.chin, speedBefore = s.wear.speed;
+      s.wear = { chin: Math.max(0, s.wear.chin - CAMP_RECOVERY_AMOUNT), speed: Math.max(0, s.wear.speed - CAMP_RECOVERY_AMOUNT) };
+      if (s.wear.chin !== chinBefore || s.wear.speed !== speedBefore) {
+        wearRecovered = { chinBefore, chinAfter: s.wear.chin, speedBefore, speedAfter: s.wear.speed };
+      }
+    }
+
+    lastCampResult = { focus, primaryAttr: def.primary, primaryBefore, primaryAfter, secondaryAttr, secondaryBefore, secondaryAfter, wearRecovered };
+  }
+  s.lastCampResult = lastCampResult;
 
   const effective = applyAging(s.base, s.year, s.wear);
   const riskMult = campQuality === "full" ? 0.55 : 1.35;
@@ -1693,7 +1836,7 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
   // circuitTier/champion ride along too -- the "made the leap" read in the
   // UI needs to know whether a tier was already broken into, not just the
   // raw playerRank number, since that resets to null on every promotion.
-  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focusAttr, campQuality, stance, rankSnapshot: state.playerRank, circuitTier: state.circuitTier, champion: state.champion }];
+  const timeline = [...s.timeline, { type: "campPlan", id: `plan-${s.year}`, year: s.year, focus, campQuality, rankSnapshot: state.playerRank, circuitTier: state.circuitTier, champion: state.champion }];
   let champion = s.champion;
   if (injury) {
     s.wear = { chin: s.wear.chin + (injury.major ? 3 : 1), speed: s.wear.speed + (injury.major ? 3 : 1) };
@@ -1752,7 +1895,8 @@ function resolveCampPlanning(state, { focusAttr, campQuality, stance }) {
     s.coach = assignCoach();
     timeline.push({ type: "coachAssigned", id: `coach-${s.year}`, name: s.coach.name, specialty: s.coach.specialty });
   } else {
-    const focusMatch = focusAttr === s.coach.specialty;
+    const focusPrimary = focus && CAMP_FOCUSES[focus] ? CAMP_FOCUSES[focus].primary : null;
+    const focusMatch = focusPrimary === s.coach.specialty;
     const xpGain = 20 + (focusMatch ? 15 : 0);
     const levelBefore = s.coach.level;
     const xp = s.coach.xp + xpGain;
@@ -1838,31 +1982,29 @@ function maybeFightChoice(state) {
   return prepareFight(state, "default");
 }
 
+// CHIN excluded (Training Camp Rework V1, item 3/11) -- Training Event's
+// "Address It" is a permanent-growth path, same restriction as Camp focus.
 function pickWeakestSkill(base) {
-  let worst = { key: "STRIKING", value: 999 };
-  SKILL_KEYS.forEach((k) => { if (base[k] < worst.value) worst = { key: k, value: base[k] }; });
+  let worst = { key: TRAINABLE_KEYS[0], value: 999 };
+  TRAINABLE_KEYS.forEach((k) => { if (base[k] < worst.value) worst = { key: k, value: base[k] }; });
   return worst.key;
 }
 
-// A real trade either way -- "Address It" used to be a free permanent
-// stat with no cost at all, which made "Stay the Course" pointless. Now
-// both options cost something and gain something, just on different
-// timescales: shore up the weakness permanently at the cost of a sliver
-// of your strengths, or bank a one-fight sharpness edge on your best
-// weapon by keeping camp rhythm intact instead.
+// Training Camp Rework V1, item 11: the old model (+3 weakest, -1 to each
+// of the two STRONGEST) could erode a signature strength by 7-8 points
+// over a career just from repeatedly patching an unrelated weakness --
+// audit-confirmed, and squarely against "Camp must not destroy signature
+// strengths." Annual Camp (resolveCampPlanning) is now the primary
+// permanent-growth system; Training Event stays a smaller, rarer
+// contextual bonus on top of it -- same diminishing-returns curve, no
+// permanent negative at all (the smallest identity-preserving fix that
+// still keeps "Address It" meaningfully different from doing nothing).
 function resolveTrainingEvent(state, attr, addressed) {
   const s = { ...state };
   if (addressed) {
-    s.base = { ...s.base, [attr]: clamp(s.base[attr] + 3, 30, 99) };
-    // Extra mat time on the weak spot comes from somewhere -- the two
-    // attributes furthest ahead of it take a small permanent hit. Pulling
-    // from strengths (not other weaknesses, like camp planning's own focus
-    // trade-off does) keeps this feeling like a different mechanic, not a
-    // second copy of the same one.
-    const strongest = SKILL_KEYS.filter((k) => k !== attr)
-      .sort((a, b) => s.base[b] - s.base[a])
-      .slice(0, 2);
-    strongest.forEach((k) => { s.base = { ...s.base, [k]: clamp(s.base[k] - 1, 30, 99) }; });
+    const before = s.base[attr];
+    const gain = TRAINING_EVENT_BASE_GAIN * campDrMultiplier(before) * campStageMultiplier(s.year);
+    s.base = { ...s.base, [attr]: clamp(before + gain, 30, 99) };
   } else {
     // Staying the course keeps camp rhythm intact -- a one-fight sharpness
     // bump to the fighter's current best weapon for the very next fight,
@@ -2052,21 +2194,11 @@ function prepareFight(state, choiceTag, targetId) {
   }
 
   // Reuse the aging pass already computed above for the rival-dormancy check
-  // instead of recomputing the identical thing.
+  // instead of recomputing the identical thing. Camp's own development is
+  // no longer a temporary per-fight overlay here -- it already wrote
+  // permanently to s.base (see resolveCampPlanning), so agedNow already
+  // reflects it, same as any other permanent change.
   let effective = agedNow;
-  if (s.yearFocusAttr) {
-    // Focusing one attribute costs mat time elsewhere: +4 to the focus, -1 to
-    // the two weakest OTHER attributes. Without a cost, taking the focus every
-    // year would be strictly correct and therefore not a decision at all.
-    // A coach whose specialty matches adds their level on top -- the payoff
-    // for actually training with the same person year after year.
-    const coachBonus = (s.coach && s.coach.specialty === s.yearFocusAttr) ? s.coach.level : 0;
-    effective = { ...effective, [s.yearFocusAttr]: clamp(effective[s.yearFocusAttr] + 4 + coachBonus, 30, 99) };
-    const others = SKILL_KEYS.filter((k) => k !== s.yearFocusAttr)
-      .sort((a, b) => effective[a] - effective[b])
-      .slice(0, 2);
-    others.forEach((k) => { effective = { ...effective, [k]: clamp(effective[k] - 1, 30, 99) }; });
-  }
   if (hype) effective = { ...effective, [hype.attr]: clamp(effective[hype.attr] + hype.delta, 30, 99) };
   if (s.mediaBuff) effective = { ...effective, [s.mediaBuff.attr]: clamp(effective[s.mediaBuff.attr] + s.mediaBuff.delta, 30, 99) };
   if (s.weightPenaltyFightsLeft > 0) {
@@ -2082,7 +2214,12 @@ function prepareFight(state, choiceTag, targetId) {
     }
   }
   const playerTraits = deriveTraits(effective);
-  const stanceBias = s.yearStance === "ground" ? 0.08 : s.yearStance === "standup" ? -0.08 : 0;
+  // Gameplan (Stand-Up/Ground/Balanced) is now chosen on the pre-fight
+  // screen, where the opponent is actually known (see setFightStance) --
+  // annual Camp is development-only. Starts neutral every fight; nothing
+  // is silently chosen for the player.
+  s.fightStance = "balanced";
+  const stanceBias = 0;
 
   // Pre-fight odds -- the exact same deterministic computation resolveFight
   // itself will use a moment later at commit time, so what's shown here is
@@ -2101,6 +2238,67 @@ function prepareFight(state, choiceTag, targetId) {
     youOdds: formatOdds(preview.winProb), oppOdds: formatOdds(1 - preview.winProb),
   };
   return s;
+}
+
+// Training Camp Rework V1, items 17-18: relocates the Stand-Up/Ground/
+// Balanced gameplan choice to the pre-fight screen, where the opponent is
+// actually known (annual Camp no longer carries a stance at all -- it's
+// development-only now). Recomputes the SAME preview commitFight will read
+// a moment later (computeFightPreview) -- the odds/matchup shown are never
+// a second, possibly-drifted estimate, same guarantee prepareFight itself
+// already gives. A no-op if there's no fight actually pending.
+function setFightStance(state, stance) {
+  if (!state.pendingFight || !state.pendingDecision || state.pendingDecision.type !== "preFight") return state;
+  const s = { ...state };
+  const pf = { ...s.pendingFight };
+  const stanceBias = stance === "ground" ? 0.08 : stance === "standup" ? -0.08 : 0;
+  const preview = computeFightPreview(pf.effective, s.reachScore, pf.opp.attrs, stanceBias, pf.playerTraits, pf.opp.traits);
+  pf.stanceBias = stanceBias;
+  pf.winProb = preview.winProb;
+  pf.matchup = preview.matchup;
+  pf.youOdds = formatOdds(preview.winProb);
+  pf.oppOdds = formatOdds(1 - preview.winProb);
+  s.pendingFight = pf;
+  s.fightStance = stance;
+  return s;
+}
+
+// Training Camp Rework V1, item 17: a compact, opponent-aware GAMEPLAN
+// insight for the pre-fight screen -- built ONLY from real, already-loaded
+// opponent data (archetype, traits, the existing matchup read), never
+// fabricated. Ground/Stand-Up leans are read from the SAME archetype/trait
+// signals the engine already derives (see deriveTraits/ARCHETYPES); the
+// "who's actually got the edge" read reuses the exact matchup labels
+// buildMatchup already produces, not a second judgment.
+function buildGameplanInsight(pf) {
+  const opp = pf.opp;
+  const m = pf.matchup;
+  const GROUND_KEYS = ["WRESTLING", "GRAPPLING"];
+  const STAND_KEYS = ["STRIKING", "POWER"];
+  const oppGroundLean = opp.archetype === "Wrestler" || opp.archetype === "Submission Specialist"
+    || opp.traits.includes("WRESTLER") || opp.traits.includes("SUB_THREAT");
+  const oppStandLean = opp.archetype === "Striker" || opp.traits.includes("KO_THREAT");
+  const yourGroundEdge = !!(m && GROUND_KEYS.includes(m.yourStrength.key));
+  const yourStandEdge = !!(m && STAND_KEYS.includes(m.yourStrength.key));
+  const favorable = m && (m.label === "Favorable Matchup" || m.label === "Slight Advantage");
+
+  if (oppGroundLean) {
+    return yourGroundEdge
+      ? { title: "Opponent leans heavily on the ground game.", body: "You match up well there -- ground-focused preparation can press the advantage.", suggestedStance: "ground" }
+      : { title: "Opponent leans heavily on the ground game.", body: "Stand-Up preparation is recommended to keep this fight away from their strength.", suggestedStance: "standup" };
+  }
+  if (oppStandLean) {
+    return yourStandEdge
+      ? { title: "Opponent is a live striking threat.", body: "You hold real pop of your own -- Stand-Up preparation lets you meet it.", suggestedStance: "standup" }
+      : { title: "Opponent is a live striking threat.", body: "Ground-focused preparation is recommended to take the fight out of the pocket.", suggestedStance: "ground" };
+  }
+  if (favorable && yourStandEdge) {
+    return { title: `You hold a clear ${ATTR_BY_KEY[m.yourStrength.key].label.toLowerCase()} edge.`, body: "Stand-Up preparation keeps this fight standing.", suggestedStance: "standup" };
+  }
+  if (favorable && yourGroundEdge) {
+    return { title: `You hold a clear ${ATTR_BY_KEY[m.yourStrength.key].label.toLowerCase()} edge.`, body: "Ground-focused preparation lets you impose it.", suggestedStance: "ground" };
+  }
+  return { title: "An even matchup on paper.", body: "Balanced preparation keeps every option open.", suggestedStance: "balanced" };
 }
 
 // Resolves a fight that prepareFight already set up -- the actual coin
@@ -2822,7 +3020,12 @@ function fastForwardCareer(state) {
       s = resolveMilestone(s);
     } else if (s.pendingDecision) {
       if (s.pendingDecision.type === "campPlanning") {
-        s = resolveCampPlanning(s, { focusAttr: null, campQuality: "full", stance: "balanced" });
+        // Training Camp Rework V1, item 20: fast-forward now exercises the
+        // real development system too -- always addresses the current
+        // weakest directly-trainable attribute (CHIN excluded), the same
+        // instinct a player patching gaps would have, rather than skipping
+        // Camp's actual effect by picking no focus every year.
+        s = resolveCampPlanning(s, { focus: focusForWeakestTrainable(s.base), campQuality: "full" });
       } else if (s.pendingDecision.type === "fightChoice") {
         s = runFight(s, "default");
       } else if (s.pendingDecision.type === "preFight") {
@@ -2975,16 +3178,21 @@ const STYLE_DESCRIPTIONS = {
 export {
   ARCHETYPES,
   ARCHETYPE_TAGLINES,
+  CAMP_FOCUSES,
   CLF_TIERS,
   CONTRACT_TYPES,
   DIVISION_SIZE,
   STYLE_DESCRIPTIONS,
+  TRAINABLE_KEYS,
   TRAIT_DEFS,
   advanceCareer,
   applyAging,
   bestFitArchetypeFlat,
   buildDivision,
+  buildGameplanInsight,
   calculateLegacy,
+  campDrMultiplier,
+  campStageMultiplier,
   clfTier,
   commitFight,
   computeAchievements,
@@ -2995,6 +3203,7 @@ export {
   deriveTraits,
   estimatePhaseControl,
   fastForwardCareer,
+  focusForWeakestTrainable,
   generateMatchmakerOptions,
   generateMicTimeTargets,
   generateOpponentProfile,
@@ -3007,6 +3216,7 @@ export {
   phaseWeightedOutput,
   playSfxForTransition,
   prepareFight,
+  previewCampFocus,
   rankLabel,
   rankToTierCls,
   recentLosses,
@@ -3020,6 +3230,7 @@ export {
   resolveTrainingEvent,
   resolveWeightMoveOffer,
   runFight,
+  setFightStance,
   verdictFor,
   VERDICT_ORDER,
 };

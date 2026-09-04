@@ -637,6 +637,32 @@
         .choice-btn.danger { border-color: var(--blood); background: rgba(214,54,43,0.07); grid-column: 1 / -1; }
         .choice-btn.danger span { color: var(--blood); }
 
+        /* ---- Training Camp Rework V1: five Camp focuses, preview, result ---- */
+        .camp-focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+        .camp-focus-card { border: 1.5px solid rgba(154,143,125,0.28); background: var(--bone); border-radius: 8px; padding: 9px 10px;
+          cursor: pointer; color: var(--ink); touch-action: manipulation; }
+        .camp-focus-card.focused { border-color: var(--brass); background: rgba(224,172,58,0.1); }
+        .camp-focus-label { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+        .camp-focus-detail { font-size: 9.5px; color: var(--slate); }
+        .camp-preview { border: 1px dashed rgba(154,143,125,0.28); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 11px; }
+        .camp-preview-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+        .camp-preview-note { font-size: 9.5px; color: var(--slate); margin-top: 4px; }
+        .camp-result-grid { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+        .camp-result-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 12px; }
+        .camp-result-label { color: var(--slate); }
+        .camp-result-value { font-weight: 700; color: var(--brass); }
+
+        /* ---- Training Camp Rework V1: Current Fighter (Stats tab) ---- */
+        .current-fighter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px; }
+        .current-fighter-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; padding: 3px 0; border-bottom: 1px dashed rgba(154,143,125,0.14); }
+        .current-fighter-label { color: var(--slate); }
+        .current-fighter-value { font-weight: 700; color: var(--ink); }
+
+        /* ---- Training Camp Rework V1: pre-fight Gameplan ---- */
+        .gameplan-block { margin: 0 12px 10px; }
+        .gameplan-insight { font-size: 11px; color: var(--slate); margin-bottom: 8px; }
+        .gameplan-insight-title { font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+
         /* ---- Matchmaking: 3 real, named candidates instead of abstract
            Easy/Ranked/Step-Up buttons -- each card is a fighter you can
            actually see (archetype + real last-5 form) before you commit. */
