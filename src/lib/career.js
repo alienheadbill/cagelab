@@ -678,6 +678,31 @@ function naturalTitleRankThreshold(circuitTier) {
   return circuitTier === "CLF National" ? NATIONAL_TITLE_RANK_THRESHOLD : DEFAULT_TITLE_RANK_THRESHOLD;
 }
 
+// Premier progression curve pass, Part B: at Premier only, the natural
+// title shot used to fire the instant playerRank<=5 && streak>=2 -- audit
+// measured entry->Top5, entry->title shot, and entry->champion all
+// landing within ~0.6 fights of each other for elite runs, collapsing
+// "I'm a real contender" and "I earned the shot" into the same moment.
+// Adds one real beat in between: a Top 5 fighter has to win ONE MORE
+// fight while still ranked Top 5 (real existing fight/rank truth, no new
+// points/tokens/timers) before the natural path activates. Prototyped
+// against two smaller alternatives first -- streak>=3 instead of >=2
+// barely moved the gap (median stayed 0: a fighter already mid-streak
+// when they crest Top 5 just keeps the shot on the same fight), and
+// rank<=3 instead of <=5 was unreliable (median 0 despite a positive
+// average -- a single big climb can jump rank<=5 straight to <=3 in one
+// fight, same collapse, just at a different threshold). This is the one
+// that actually produces a consistent ~1-fight gap. Demand/Short-Notice
+// don't call this at all, by design -- untouched, and Regional/National
+// keep their exact existing natural formulas (the PREMIER-only branch is
+// the only new behavior).
+function naturalTitleShotReady(circuitTier, champion, streak, playerRank, provenAtTop5) {
+  if (champion || playerRank == null || streak < 2) return false;
+  if (playerRank > naturalTitleRankThreshold(circuitTier)) return false;
+  if (circuitTier === "CLF PREMIER") return !!provenAtTop5;
+  return true;
+}
+
 // A plausible W-L record for a generated opponent, scaled by how far into the
 // career this fight happens and how good the opponent's overall rating is.
 // Not a persistent identity across rematches (the engine regenerates
@@ -1095,6 +1120,19 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // this), so the underlying rankPoints stays truthful -- this only sets a
 // tier-driven floor on the matchmaking curve, not a fake ranking.
 const NATIONAL_MATCHMAKING_CEILING = 10;
+// Premier progression curve pass: Premier entry seeds rankPoints at 40
+// (see resetForFreshTier), not 0 -- without a floor of its own, that
+// seeds a natural centre deep in the unranked pool (~index 24),
+// materially WEAKER than National's own capped draw (audit measured
+// Premier-unranked opponents averaging ~56 OVR, actually below National's
+// ~68). Same architectural pattern as National's ceiling above: caps how
+// weak Premier's centre-of-the-draw can go, never how strong -- real
+// momentum built at Premier still pulls the draw tougher once it's
+// earned. 11 was chosen after prototyping 8/10/11/12: it lands ordinary
+// ("default") Premier opponents around 68-72 OVR (matching National, no
+// more difficulty drop) while leaving real room above for Top 15/Top 10/
+// Top 5/champion, and keeps Easy/Ranked/Step-Up clearly differentiated.
+const PREMIER_MATCHMAKING_CEILING = 11;
 
 function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier) {
   if (forTitle) {
@@ -1114,6 +1152,7 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   const span = division.length - 1;
   let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
   if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
+  else if (circuitTier === "CLF PREMIER") centre = Math.min(centre, PREMIER_MATCHMAKING_CEILING);
   // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
   // actually gets drawn -- lower array index is a stronger fighter (index 0
   // is the champion), so easy pushes the centre toward a higher index
@@ -1584,6 +1623,10 @@ function initCareer(picks, options) {
     // Repeat-title-shot lock (see commitFight) -- false by default, same
     // as every other career-long flag.
     specialTitleShotLockedUntilWin: false,
+    // Premier natural-title-chase beat (see naturalTitleShotReady) --
+    // false by default; set by a win recorded while already Top 5 at
+    // Premier, cleared by any loss.
+    provenAtTop5: false,
     // Scoped to CLF National fights only (see the National->Contender
     // Series gate in commitFight) -- never touched by Regional or Premier
     // fights, and never reset by a Contender Series loss bouncing back to
@@ -1762,10 +1805,10 @@ function maybeFightChoice(state) {
   if (state.circuitTier === "CLF Contender Series") return prepareFight(state, "contenderSeries");
   // Mirrors prepareFight's isTitleShot gate exactly -- must stay in sync,
   // or this could skip straight to what it thinks is a title fight while
-  // prepareFight itself decides otherwise (or vice versa). Rank threshold
-  // is tier-aware: National uses the loosened bar, everyone else keeps
-  // the original <=5 (see naturalTitleRankThreshold).
-  const wouldBeTitle = state.champion || (!state.champion && state.streak >= 2 && state.playerRank != null && state.playerRank <= naturalTitleRankThreshold(state.circuitTier));
+  // prepareFight itself decides otherwise (or vice versa). See
+  // naturalTitleShotReady for the full rule (tier-aware rank threshold,
+  // plus the Premier-only provenAtTop5 gate).
+  const wouldBeTitle = state.champion || naturalTitleShotReady(state.circuitTier, state.champion, state.streak, state.playerRank, state.provenAtTop5);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
   if (roll < 0.22) {
@@ -1894,10 +1937,11 @@ function prepareFight(state, choiceTag, targetId) {
   // beaten anyone actually ranked. playerRank can only move by beating a
   // ranked opponent, so this now genuinely requires having climbed the
   // ladder into the top 5, on top of the existing streak requirement.
-  // Natural rank bar is tier-aware (naturalTitleRankThreshold): National
-  // <=6, Regional/Premier <=5. Demand/Short-Notice rank thresholds
-  // (<=3 / <=10, enforced in App.jsx) are unrelated and untouched.
-  const isTitleShot = !isContenderSeriesFight && !isCallout && ((!s.champion && s.streak >= 2 && s.playerRank != null && s.playerRank <= naturalTitleRankThreshold(s.circuitTier)) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
+  // Natural path is naturalTitleShotReady (tier-aware rank threshold +
+  // the Premier-only provenAtTop5 gate). Demand/Short-Notice rank
+  // thresholds (<=3 / <=10, enforced in App.jsx) are unrelated and
+  // untouched -- they don't call naturalTitleShotReady at all.
+  const isTitleShot = !isContenderSeriesFight && !isCallout && (naturalTitleShotReady(s.circuitTier, s.champion, s.streak, s.playerRank, s.provenAtTop5) || choiceTag === "shortNoticeTitle" || choiceTag === "demandShot");
   const isTitleDefense = !isContenderSeriesFight && !isCallout && s.champion;
   const isTitleFight = isTitleShot || isTitleDefense;
 
@@ -2150,6 +2194,18 @@ function commitFight(state) {
     s.specialTitleShotLockedUntilWin = false;
   } else if (isTitleShot || isTitleDefense) {
     s.specialTitleShotLockedUntilWin = true;
+  }
+  // Premier natural-title-chase beat (see naturalTitleShotReady). Set by
+  // a win recorded while ALREADY ranked Top 5 walking into this fight
+  // (playerRankBefore, not the just-updated after-value -- the fight
+  // that first climbs INTO Top 5 doesn't itself count as the proof win,
+  // only a fight fought AS a Top 5 fighter does). Cleared by any loss --
+  // no hidden "earned" state survives a loss; a fresh climb back
+  // (including after losing the belt) has to prove itself again, same
+  // as the first time.
+  if (tierBefore === "CLF PREMIER") {
+    if (result.win && playerRankBefore != null && playerRankBefore <= 5) s.provenAtTop5 = true;
+    else if (!result.win) s.provenAtTop5 = false;
   }
   // Snapshotted here, before a tier promotion (if this fight just triggered
   // one) resets rankPoints/champion for the next tier's fresh climb -- the

@@ -879,13 +879,22 @@ export default function CageLab() {
   // What actually gets you promoted off the tier you're currently on --
   // mirrors the real gate logic in career.js's commitFight exactly, so this
   // text can never drift out of sync with what the game actually checks.
-  function circuitNextRequirement(tierName, isChampion) {
-    if (tierName === "CLF Regional") return "Win the Regional title to move up to National.";
+  function circuitNextRequirement(tierName, isChampion, playerRank, provenAtTop5) {
+    if (tierName === "CLF Regional") return "Win the Regional title, or win 4 straight, to move up to National.";
     if (tierName === "CLF National") return "Win the National title, or string together a serious win streak on its own, to earn a shot in the Contender Series.";
     if (tierName === "CLF Contender Series") return "One showcase fight decides it -- win it and the Premier contract is waiting. Lose it and it's back to National, standing untouched.";
-    return isChampion
-      ? "You hold the Premier title -- the top of the ladder. Defend it and build the legacy."
-      : "You've reached Premier -- the top of the ladder. Win the title and defend it to build the legacy.";
+    if (isChampion) return "You hold the Premier title -- the top of the ladder. Defend it and build the legacy.";
+    // Premier natural title-chase beat -- only ever shown when the state
+    // it describes is actually true (see naturalTitleShotReady in
+    // career.js): reaching Top 5 no longer books the title fight on the
+    // same breath, so the hub says exactly where the player really
+    // stands instead of leaving the gap unexplained.
+    if (playerRank != null && playerRank <= 5) {
+      return provenAtTop5
+        ? "Title contention -- one more win puts you in line for a shot."
+        : "Top 5 contender -- win to earn a title shot.";
+    }
+    return "You've reached Premier -- the top of the ladder. Win the title and defend it to build the legacy.";
   }
 
   // Last few results at a glance, oldest-to-newest so the strip reads like a
@@ -2164,7 +2173,7 @@ export default function CageLab() {
                 </div>
                 <div className="circuit-next">
                   <span className="circuit-next-label mono">NEXT</span>
-                  {circuitNextRequirement(careerState.circuitTier, careerState.champion)}
+                  {circuitNextRequirement(careerState.circuitTier, careerState.champion, careerState.playerRank, careerState.provenAtTop5)}
                 </div>
                 <div className="circuit-note">
                   Regional, National, and Premier each run their own independent roster --
