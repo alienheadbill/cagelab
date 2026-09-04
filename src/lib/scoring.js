@@ -1,6 +1,6 @@
 import { ATTRS, SKILL_KEYS, ATTR_BY_KEY, CLASS_PHYSICALS } from "../data/attrs.js";
 import { clamp } from "./utils.js";
-import { ARCHETYPES, estimatePhaseControl, phaseWeightedOutput, computeWinProbability } from "./career.js";
+import { ARCHETYPES, estimatePhaseControl, phaseWeightedOutput, computeWinProbability, applyAging, clfTier } from "./career.js";
 
 function relativeHeightScore(htInches, weightClass) {
   const mid = (CLASS_PHYSICALS[weightClass] && CLASS_PHYSICALS[weightClass].ht) || 72;
@@ -186,15 +186,45 @@ function estimateGoatSoFar(picks) {
   return clamp(Math.round(((avg - 50) / 49) * 100), 0, 100);
 }
 
+// Fight Result + Retirement cleanup, item 7: the draft-result screen calls
+// this with no `career` (nothing has happened yet -- DRAFTED BUILD is the
+// whole scorecard), while the retirement screen and the saved-Build Library
+// (CollectionScreen) pass the finished careerState. When a career IS
+// present, the scorecard names three separate things instead of quietly
+// mixing them: the ORIGINAL selections, what the fighter's attributes
+// actually LIVE as after Camp development + aging/wear (the exact same
+// applyAging(base, year, wear) vs draftBase source of truth as
+// FinalAttributesGrid -- never a second calculation), and the CAREER record
+// itself, tier-aware rather than a flat "Nx Champ" once more than one CLF
+// tier is in play.
 function buildScorecardText({ name, goatScore, picks, career }) {
-  const lines = [`CAGELAB • ${goatScore} GOAT`];
+  const lines = [`CAGELAB • ${goatScore} GOAT`, "", "DRAFTED BUILD"];
   ATTRS.forEach((a) => {
     const p = picks[a.key];
     lines.push(`${a.label}: ${p.fighter} (${p.display})`);
   });
+
   if (career) {
-    lines.push("");
-    lines.push(`Career: ${career.record.w}-${career.record.l} • ${career.titleReigns}× Champ • ${career.verdict}`);
+    const live = applyAging(career.base, career.year, career.wear);
+    lines.push("", "FINAL ATTRIBUTES");
+    ATTRS.forEach((a) => {
+      const isPhysical = a.key === "HEIGHT" || a.key === "REACH";
+      const current = a.key === "HEIGHT" ? career.heightScore : a.key === "REACH" ? career.reachScore : live[a.key];
+      const draft = a.key === "HEIGHT" ? career.heightScore : a.key === "REACH" ? career.reachScore : career.draftBase[a.key];
+      const curR = Math.round(current);
+      const delta = curR - Math.round(draft);
+      const deltaStr = !isPhysical && delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : "";
+      lines.push(`${a.label}: ${curR}${deltaStr}`);
+    });
+
+    const titleTiers = ["CLF PREMIER", "CLF National", "CLF Regional"]
+      .filter((t) => (career.titleReignsByTier[t] || 0) > 0)
+      .map((t) => `${career.titleReignsByTier[t]}x ${clfTier(t).short}`);
+    lines.push("", "CAREER");
+    lines.push(`Record: ${career.record.w}-${career.record.l}`);
+    lines.push(`Peak Circuit: ${clfTier(career.peakCircuitTier).short}`);
+    lines.push(`Titles: ${titleTiers.length > 0 ? titleTiers.join(", ") : "None"}`);
+    lines.push(`Verdict: ${career.verdict}`);
   }
   return lines.join("\n");
 }

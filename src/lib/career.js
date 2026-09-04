@@ -1661,6 +1661,11 @@ function initCareer(picks, options) {
     // camp's result only (see resolveCampPlanning) -- no Camp history.
     campFocus: null, fightStance: "balanced", campQuality: "full", mediaBuff: null,
     lastCampResult: null,
+    // Fight Result + Retirement cleanup, item 12: first-time-only rank
+    // achievement tracking (Top 5 / #1 contender) -- see commitFight. Never
+    // reset once true, so bouncing back out of and into the same threshold
+    // later in the career never re-fires it.
+    everReachedTop5: false, everReachedNumberOne: false,
     wonTitleAsUnderdog: false,
     // Phase 4 (Career Arc): a coach relationship that deepens over camps,
     // fame built through off-cycle content (feeds sponsor money), a real
@@ -2645,6 +2650,20 @@ function commitFight(state) {
     s.peakPlayerRank = s.peakPlayerRank == null ? peakCandidate : Math.min(s.peakPlayerRank, peakCandidate);
   }
 
+  // Fight Result + Retirement cleanup, item 12: lightweight, non-blocking
+  // rank-achievement flags for FightResultCard -- first-time-ever entry
+  // into Top 5 / #1 contender, derived from real rankAfter, gated on the
+  // career-long everReached* flags so bouncing in and out of the same
+  // threshold later never re-fires it. Excludes becoming champion outright
+  // (championAfterFight) -- that already gets the much bigger "AND NEW"
+  // milestone treatment, and reaching #1 or Top 5 legitimately again after
+  // a title loss and rebuild is still that career's first REAL climb back,
+  // so the flags are deliberately never reset either.
+  const firstTop5 = !s.everReachedTop5 && !championAfterFight && playerRankAfterFight != null && playerRankAfterFight <= 5;
+  const firstNumberOne = !s.everReachedNumberOne && !championAfterFight && playerRankAfterFight === 1;
+  if (firstTop5) s.everReachedTop5 = true;
+  if (firstNumberOne) s.everReachedNumberOne = true;
+
   // A rivalry is earned: 2+ meetings, at least one of them genuinely
   // competitive. Tracked as a proper record per opponent (id-keyed, not
   // name equality) so multiple rivals can be active at once, each with
@@ -2877,6 +2896,9 @@ function commitFight(state) {
     // internal rankPoints snapshots are kept too, unrendered, purely for
     // anything that still legitimately wants the hidden momentum value.
     rankBefore: playerRankBefore, championBefore, rankAfter: playerRankAfterFight, championAfter: championAfterFight,
+    // First-time-only rank achievement (see above) -- computed once, here,
+    // never re-derived at display time.
+    firstTop5, firstNumberOne,
     rankPointsBefore, rankPointsAfter: rankPointsAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
     roundNarratives: result.roundNarratives, moments: result.moments, howItHappened: result.howItHappened,
