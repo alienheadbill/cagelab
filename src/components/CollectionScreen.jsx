@@ -94,6 +94,20 @@ function CollectionScreen({
             {profile.favoriteFighter && (
               <div className="profile-line mono">Most-Used Fighter: <b>{profile.favoriteFighter.name}</b> ({profile.favoriteFighter.count}&times;)</div>
             )}
+            {/* Tier-aware résumé, supplementing the flat Championships
+                total above -- summed only from careerHistory entries that
+                actually recorded a titleReignsByTier breakdown (see
+                computePlayerProfile/saveCareerToHistory), so an older
+                entry's championship still counts in the flat total but is
+                never guessed into a specific tier here. Omitted entirely
+                when there's nothing tier-aware to show, so a profile with
+                only older/untiered championships isn't left with a
+                confusing all-zero line. */}
+            {(profile.premierChampionships > 0 || profile.nationalChampionships > 0 || profile.regionalChampionships > 0) && (
+              <div className="profile-line mono">
+                Premier Championships: <b>{profile.premierChampionships}</b> &middot; National Championships: <b>{profile.nationalChampionships}</b> &middot; Regional Championships: <b>{profile.regionalChampionships}</b>
+              </div>
+            )}
           </div>
 
           <div className="collection-block">

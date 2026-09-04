@@ -122,6 +122,35 @@ const MILESTONE_COPY = {
   },
 };
 
+// Live presentation copy for a titleWin milestone's blurb line -- keyed by
+// the tier the title was actually won at (m.tier). Only Premier reads
+// "WORLD CHAMPION" (see the champion-line build below) -- these are just
+// the reflective sentence under it.
+const TITLE_WIN_TIER_COPY = {
+  "CLF Regional": { blurb: "You conquered the Regional scene." },
+  "CLF National": { blurb: "You've reached the top of the feeder circuit." },
+  "CLF PREMIER": { blurb: "YOU MADE IT TO THE TOP." },
+};
+// A Regional/National title win is itself what triggers a same-fight
+// promotion (see justWonTierTitle in career.js) -- this is the compact
+// second beat folded into that ONE combined milestone card, keyed by
+// where the promotion actually lands (m.promotedTo). Premier title wins
+// never promote further, so they never read this table.
+const TITLE_WIN_PROMOTION_COPY = {
+  "CLF National": { label: "SIGNED — MOVING UP", tierLine: "CLF NATIONAL" },
+  "CLF Contender Series": { label: "CONTENDER SERIES INVITE EARNED", tierLine: null },
+};
+// Ordinal suffix for a title-defense count ("1ST", "3RD", "5TH TITLE
+// DEFENSE" on the blocking milestone; also reused by FightResultCard's
+// "AND STILL" treatment on every successful defense, not just 1st/3rd/
+// 5th). Duplicated in FightResultCard.jsx rather than imported -- same
+// one-liner-copy convention as tierRampCls already uses in this file.
+function ordinal(n) {
+  const suf = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${suf[(v - 20) % 10] || suf[v] || suf[0]}`;
+}
+
 export default function CageLab() {
   const [phase, setPhase] = useState("home");
   const [mode, setMode] = useState("classic"); // classic | blind | daily | challenge
@@ -622,7 +651,14 @@ export default function CageLab() {
       id: Date.now().toString(36), savedAt: new Date().toISOString(),
       fighterName: name, record: result.record, verdict: result.verdict,
       legacyScore: result.legacyScore, titleReigns: result.titleReigns,
-      titleDefenses: result.titleDefenses, rivalryWins: result.rivalryWins,
+      titleDefenses: result.titleDefenses,
+      // Immutable snapshot, same as everything else here -- a future
+      // Legacy/tier-prestige rebalance never touches an already-saved
+      // entry. Absent entirely on entries saved before this pass; every
+      // reader must treat that as "not recorded," never fabricate a
+      // breakdown from the flat totals above (see LegacyCareerDetail).
+      titleReignsByTier: result.titleReignsByTier, titleDefensesByTier: result.titleDefensesByTier,
+      rivalryWins: result.rivalryWins,
       statementWins: result.statementWins, longestStreak: result.longestStreak,
       totalFightCount: result.totalFightCount, wonTitleAsUnderdog: result.wonTitleAsUnderdog,
       peakPlayerRank: result.peakPlayerRank, peakCircuitTier: result.peakCircuitTier,
@@ -1454,6 +1490,54 @@ export default function CageLab() {
               sitting passively in a scroll feed. */}
           {!spotlightFightId && careerState.pendingMilestone && (() => {
             const m = careerState.pendingMilestone;
+
+            // Championship win -- Regional/National fold in a same-fight
+            // promotion beat (see promotedTo, and career.js's combined-
+            // milestone comment); Premier never promotes further, so it
+            // stands alone as the biggest active-career moment.
+            if (m.type === "titleWin") {
+              const t = clfTier(m.tier);
+              const isPremier = m.tier === "CLF PREMIER";
+              const tierCopy = TITLE_WIN_TIER_COPY[m.tier] || {};
+              const promoCopy = m.promotedTo ? TITLE_WIN_PROMOTION_COPY[m.promotedTo] : null;
+              return (
+                <div className="promotion-card milestone-live up title-milestone-card">
+                  <div className="promotion-eyebrow mono"><Crown size={13} /> AND NEW</div>
+                  <div className={`promotion-tier display ${tierRampCls(m.tier)}`}>{t.short}</div>
+                  <div className="milestone-subtitle">{(m.division || "").toUpperCase()} {isPremier ? "WORLD CHAMPION" : "CHAMPION"}</div>
+                  <div className="promotion-blurb">{tierCopy.blurb}</div>
+                  {isPremier && (
+                    <div className="title-milestone-meta mono">{name} &middot; {careerState.record.w}-{careerState.record.l} &middot; {m.division}</div>
+                  )}
+                  {promoCopy && (
+                    <div className="promotion-from mono title-milestone-promo">
+                      {promoCopy.label}{promoCopy.tierLine && <><br />{promoCopy.tierLine}</>}
+                    </div>
+                  )}
+                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                </div>
+              );
+            }
+
+            // 1st/3rd/5th successful defense -- every other defense still
+            // gets the enhanced "AND STILL" FightResultCard treatment (see
+            // titleDefenseCount there), just without a blocking screen.
+            if (m.type === "titleDefenseMilestone") {
+              const t = clfTier(m.tier);
+              return (
+                <div className="promotion-card milestone-live up title-milestone-card">
+                  <div className="promotion-eyebrow mono"><Crown size={13} /> AND STILL</div>
+                  <div className={`promotion-tier display ${tierRampCls(m.tier)}`}>{t.short}</div>
+                  <div className="milestone-subtitle">{(m.division || "").toUpperCase()} CHAMPION</div>
+                  <div className="promotion-blurb">{ordinal(m.defenseCount).toUpperCase()} TITLE DEFENSE</div>
+                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                </div>
+              );
+            }
+
+            // circuitMove -- unchanged from PR #20 (a prospect-route
+            // promotion, or a Contender Series bounce-back, neither of
+            // which involves a title at all).
             const copy = MILESTONE_COPY[`${m.from}->${m.to}`];
             if (!copy) return null; // defensive only -- every real transition has copy
             const t = clfTier(m.to);
@@ -1528,11 +1612,18 @@ export default function CageLab() {
                     hidden rankPoints momentum value -- these cash in an
                     ACTUAL ranked standing, so they need to track the same
                     ladder the Rankings tab shows, same as the automatic
-                    title-shot gate in prepareFight. */}
-                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 3 && (
+                    title-shot gate in prepareFight. Also gated on
+                    specialTitleShotLockedUntilWin -- engine-side,
+                    prepareFight doesn't enforce this itself (Demand/
+                    Short-Notice have no natural streak check to hook
+                    into), so the player must not be shown a button
+                    they're not meant to be able to use. Set after a lost
+                    title challenge or a lost title defense, cleared by
+                    the next win -- see commitFight. */}
+                {!careerState.champion && !careerState.specialTitleShotLockedUntilWin && careerState.playerRank != null && careerState.playerRank <= 3 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("demandShot")}>Demand the Title Shot<span>Cash in the ranking, fight for the belt now</span></button>
                 )}
-                {!careerState.champion && careerState.playerRank != null && careerState.playerRank <= 10 && (
+                {!careerState.champion && !careerState.specialTitleShotLockedUntilWin && careerState.playerRank != null && careerState.playerRank <= 10 && (
                   <button className="choice-btn danger" onClick={() => handleFightChoice("shortNoticeTitle")}>Short-Notice Title<span>Extremely risky, huge reward</span></button>
                 )}
               </div>
@@ -1640,12 +1731,45 @@ export default function CageLab() {
               the sticky bar) is what actually resolves it. */}
           {careerState.pendingDecision && careerState.pendingDecision.type === "preFight" && careerState.pendingFight && (
             <div className="decision-panel prefight-panel">
-              {(careerState.pendingFight.isTitleShot || careerState.pendingFight.isTitleDefense) && (
-                <div className="event-title-strap" style={{ marginBottom: 10 }}>
-                  <Crown size={14} />
-                  {careerState.pendingFight.choiceTag === "shortNoticeTitle" ? "SHORT-NOTICE TITLE FIGHT" : careerState.pendingFight.isTitleShot ? "FOR THE TITLE" : "TITLE DEFENSE"}
-                </div>
-              )}
+              {/* Names the actual championship (tier + weight class), not a
+                  generic "FOR THE TITLE" -- careerState.circuitTier/division
+                  are still fight-time-accurate here since the fight hasn't
+                  resolved yet (a same-fight promotion can't have happened). */}
+              {(careerState.pendingFight.isTitleShot || careerState.pendingFight.isTitleDefense) && (() => {
+                const t = clfTier(careerState.circuitTier);
+                const div = (careerState.division || "").toUpperCase();
+                const isShortNotice = careerState.pendingFight.choiceTag === "shortNoticeTitle";
+                const isDemand = careerState.pendingFight.choiceTag === "demandShot";
+                return (
+                  <>
+                    {/* Readability: the strap below (FOR THE ... TITLE) is
+                        correct but doesn't say WHY this fight is a title
+                        fight -- a natural shot, a forced-priority National
+                        opportunity, and a cashed-in Demand/Short-Notice all
+                        render identically otherwise. One compact line,
+                        fight-time truth (careerState.playerRank is the
+                        live rank right now, same value that gated this
+                        opportunity), no new component. Defenses don't need
+                        this -- "you're defending the belt" is already
+                        unambiguous. */}
+                    {careerState.pendingFight.isTitleShot && (
+                      <div className="mono" style={{ fontSize: 11, letterSpacing: "0.04em", opacity: 0.75, marginBottom: 4, lineHeight: 1.5 }}>
+                        {isShortNotice
+                          ? "SHORT-NOTICE TITLE OPPORTUNITY"
+                          : isDemand
+                          ? "DEMAND TITLE SHOT"
+                          : <>TITLE SHOT EARNED<br />{t.short} &middot; #{careerState.playerRank} CONTENDER</>}
+                      </div>
+                    )}
+                    <div className="event-title-strap" style={{ marginBottom: 10 }}>
+                      <Crown size={14} />
+                      {careerState.pendingFight.isTitleShot
+                        ? <>{isShortNotice ? "SHORT-NOTICE — " : ""}FOR THE {t.short} {div} TITLE</>
+                        : <>{t.short} {div} TITLE DEFENSE</>}
+                    </div>
+                  </>
+                );
+              })()}
               {/* Contender Series is a one-fight showcase, not another
                   normal booking -- the stakes need to be visible up front,
                   not buried in the fight-week line below. */}
@@ -2113,6 +2237,11 @@ export default function CageLab() {
                 { num: careerState.finishes.dec, lbl: "Decisions" },
                 { num: careerState.titleReigns, lbl: "Title Reigns" },
                 { num: careerState.titleDefenses, lbl: "Title Defenses" },
+                // Premier surfaced as the primary championship résumé line
+                // -- the flat totals above stay first (still useful at a
+                // glance), this just makes the hierarchy legible without a
+                // full per-tier dashboard live in-career.
+                { num: careerState.titleReignsByTier["CLF PREMIER"], lbl: "Premier Titles" },
                 { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
                 { num: careerState.statementWins, lbl: "Statement Wins" },
                 { num: careerState.rivalryWins, lbl: "Rivalries Won" },
@@ -2229,6 +2358,7 @@ export default function CageLab() {
               { num: careerState.finishes.sub, lbl: "Submissions" },
               { num: careerState.titleReigns, lbl: "Title Reigns" },
               { num: careerState.titleDefenses, lbl: "Title Defenses" },
+              { num: careerState.titleReignsByTier["CLF PREMIER"], lbl: "Premier Titles" },
               { num: careerState.longestStreak, lbl: "Best Streak" },
               { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
               { num: careerState.statementWins, lbl: "Statement Wins" },

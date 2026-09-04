@@ -22,6 +22,19 @@ function tierRampCls(tierName) {
   return `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
 }
 
+// Highest-tier reign actually won, Premier > National > Regional. Only
+// ever computed off titleReignsByTier -- an entry saved before that field
+// existed (see saveCareerToHistory) returns null here and the caller
+// falls back to the original generic Champion/Former Champion badge,
+// never a guessed tier.
+function highestTitleTier(c) {
+  if (!c.titleReignsByTier) return null;
+  if (c.titleReignsByTier["CLF PREMIER"] > 0) return "CLF PREMIER";
+  if (c.titleReignsByTier["CLF National"] > 0) return "CLF National";
+  if (c.titleReignsByTier["CLF Regional"] > 0) return "CLF Regional";
+  return null;
+}
+
 // A glanceable "how great was this career" card, sorted by the caller on
 // legacyScore DESC -- CageLab's own existing holistic career-greatness
 // number, not a new one invented for this screen. Deliberately tolerant of
@@ -61,9 +74,18 @@ function LegacyCareerCard({ career: c, onOpen }) {
           </span>
         )}
         {peakLabel && <span className="fight-tier-tag legacy-rank-tag">Peak {peakLabel}</span>}
-        {(c.champion || c.titleReigns > 0) && (
-          <span className="fight-tier-tag legacy-champ-tag"><Crown size={10} /> {c.champion ? "Champion" : "Former Champion"}</span>
-        )}
+        {(() => {
+          const topTier = highestTitleTier(c);
+          if (topTier) {
+            const t = CLF_TIERS.find((x) => x.name === topTier) || {};
+            return <span className="fight-tier-tag legacy-champ-tag"><Crown size={10} /> CLF {t.short} CHAMPION</span>;
+          }
+          // No tier breakdown recorded (older entry) -- unchanged generic
+          // fallback, never a guessed tier.
+          return (c.champion || c.titleReigns > 0) && (
+            <span className="fight-tier-tag legacy-champ-tag"><Crown size={10} /> {c.champion ? "Champion" : "Former Champion"}</span>
+          );
+        })()}
         {c.division && <span className="fight-tier-tag legacy-division-tag">{c.division}</span>}
       </div>
     </button>
