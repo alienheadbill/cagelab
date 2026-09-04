@@ -882,14 +882,17 @@
         .style-option-name { font-family: 'Anton', sans-serif; font-size: 14.5px; }
         .style-fit-tag { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; font-weight: 700; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 1px 6px; }
         .style-option-desc { font-size: 11px; color: var(--slate); line-height: 1.4; }
-        /* Four color-coded deltas used to run together as one dense wrapped
-           line -- bumped a touch larger and each one gets its own tinted
-           pill (same chip language as .fight-tag) so it reads as four
-           separate, individually legible facts instead of a run-on string. */
-        .style-option-deltas { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; font-size: 10.5px; font-weight: 700; }
-        .style-option-deltas span { padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
-        .style-option-deltas .up { color: var(--brass); background: rgba(224,172,58,0.14); }
-        .style-option-deltas .down { color: var(--blood); background: rgba(214,54,43,0.12); }
+        /* Archetype effective-stat audit: qualitative boosts/sacrifices --
+           attribute names only, no fabricated before->after numbers (see
+           CareerSetupPanel.jsx for why). Same brass/blood language the old
+           delta chips used, just one labeled row per direction instead of
+           a value per attribute. */
+        .style-option-tradeoffs { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; font-size: 11px; }
+        .style-option-tradeoff-row { display: flex; gap: 6px; align-items: baseline; }
+        .style-option-tradeoff-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+        .style-option-tradeoff-row.up .style-option-tradeoff-label { color: var(--brass); }
+        .style-option-tradeoff-row.down .style-option-tradeoff-label { color: var(--blood); }
+        .style-option-tradeoff-row span:last-child { color: var(--ink); }
 
         /* ---- CLF event card: every fight is a card on a numbered event ---- */
         .event-card-wrap { border: 1.5px solid rgba(154,143,125,0.22); border-radius: 10px; margin-bottom: 12px; overflow: hidden;
