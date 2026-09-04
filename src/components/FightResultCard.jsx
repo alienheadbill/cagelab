@@ -153,6 +153,23 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
+      {/* Career Presentation + Pacing Polish, item 7: lightweight,
+          non-blocking first-time acknowledgment for Top 5 / #1 contender --
+          computed once in commitFight (firstTop5/firstNumberOne), never
+          re-derived here. Not a milestone screen, doesn't repeat on later
+          fights once it's fired once. #1 takes priority over Top 5 on the
+          rare fight that clears both at once, rather than stacking two
+          banners for the same climb. */}
+      {(e.firstNumberOne || e.firstTop5) && (
+        <div className="rank-achievement-banner">
+          <Crown size={12} />
+          <div>
+            <div className="rank-achievement-eyebrow mono">{e.firstNumberOne ? "#1 Contender" : "Top 5"}</div>
+            <div className="rank-achievement-text">{e.firstNumberOne ? "Title shot within reach." : "You're in title contention."}</div>
+          </div>
+        </div>
+      )}
+
       {e.matchup && (
         <div className={`matchup-line ${matchupWarn ? "warn" : ""}`}>
           {matchupWarn && <AlertTriangle size={12} />}

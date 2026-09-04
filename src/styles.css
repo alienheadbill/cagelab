@@ -578,6 +578,13 @@
 
         .sim-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .sim-rank { font-size: 11px; color: var(--brass); font-weight: 600; margin-top: 2px; }
+        /* Career Presentation + Pacing Polish: restrained champion header --
+           reuses the existing brass/championship language (same accent as
+           promotion-card/title-result-block), no new animation, no confetti. */
+        .champion-header { margin-top: 3px; display: flex; flex-direction: column; gap: 1px; }
+        .champion-header-label { display: flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: 0.08em; font-weight: 700; color: var(--brass); }
+        .champion-header-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .champion-header-defenses { font-size: 10px; color: var(--slate); }
         .sim-progress { font-size: 10px; color: var(--slate); margin-top: 2px; }
         .legacy-box { text-align: right; }
         .legacy-num { font-family: 'Anton', sans-serif; font-size: 26px; color: var(--brass); animation: pulseScale 0.4s ease; }
@@ -590,6 +597,14 @@
         .season-glance-record { font-size: 13px; font-weight: 700; color: var(--ink); }
         .season-glance-camp { font-size: 11px; color: var(--slate); margin-top: 3px; }
         .season-glance-remaining { font-size: 10px; color: var(--brass); margin-top: 3px; }
+
+        /* Career Presentation + Pacing Polish: compact persistent goal
+           block on the Career hub -- brass-accented (vs season-glance's
+           neutral tone) so it reads as orientation, not just a status row. */
+        .next-goal-block { border: 1.5px solid rgba(224,172,58,0.3); border-radius: 8px; padding: 8px 12px; margin: 10px 0 6px;
+          background: rgba(224,172,58,0.06); display: flex; flex-direction: column; gap: 2px; }
+        .next-goal-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--brass); font-weight: 700; }
+        .next-goal-text { font-size: 13px; font-weight: 600; color: var(--ink); }
 
         .year-divider { text-align: center; margin: 16px 0 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
           letter-spacing: 0.16em; color: var(--brass); text-transform: uppercase; animation: cardIn 0.3s ease; }
@@ -946,6 +961,14 @@
           border-top: 1px dashed rgba(154,143,125,0.16); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; }
         .rank-move-row.up { color: var(--brass); }
         .rank-move-row.down { color: var(--blood); }
+
+        /* Career Presentation + Pacing Polish, item 7: lightweight,
+           non-blocking rank-achievement banner -- same brass language as
+           the champion header/milestone cards, deliberately smaller. */
+        .rank-achievement-banner { display: flex; align-items: center; gap: 8px; margin: 6px 12px; padding: 7px 10px;
+          border: 1px solid rgba(224,172,58,0.35); border-radius: 7px; background: rgba(224,172,58,0.08); color: var(--brass); }
+        .rank-achievement-eyebrow { font-size: 9.5px; letter-spacing: 0.06em; font-weight: 700; }
+        .rank-achievement-text { font-size: 12px; font-weight: 600; color: var(--ink); }
 
         .interview-line { display: flex; align-items: flex-start; gap: 7px; margin: 0 12px 10px; padding: 8px 10px;
           background: rgba(154,143,125,0.06); border-radius: 6px; font-size: 11.5px; font-style: italic; color: var(--ink); line-height: 1.4; }
