@@ -631,6 +631,28 @@ function rankLabel(playerRank, champion) {
   return "Top 15";
 }
 
+// Ranked Identity Presentation: the exact numeric badge shown directly next
+// to the player's own name (Career hub, pre-fight, FightResultCard) --
+// deliberately separate from rankLabel's bucketed text above, which stays
+// exactly as it was everywhere it's already used (Peak Ranking, rank-move
+// row, etc). Reads only the real playerRank ladder position, never the
+// hidden rankPoints value, and returns null (no badge) while unranked.
+// Also returns null during Contender Series even when playerRank still
+// holds a real carried-over National number (see the National -> CS
+// branch in commitFight) -- CS deliberately has no active ladder, same
+// truth the Rankings tab and the compact Division Rankings panel already
+// enforce with their own "No active ladder" note, so a bare numeric badge
+// here would be exactly the stale-looking "Contender Series fighter at
+// #1" confusion already fixed once elsewhere. Champion is intentionally
+// NOT handled here -- champion status is a distinct textual treatment
+// ("CHAMPION", never a number) each caller renders itself alongside this,
+// so this function only ever returns "#N" or null.
+function rankBadge(playerRank, circuitTier) {
+  if (circuitTier === "CLF Contender Series") return null;
+  if (playerRank == null) return null;
+  return `#${playerRank}`;
+}
+
 // ---- Career-stage progression (the promotional "ladder") ------------------
 // Purely derived from rankPoints, so it can also drop back down after a bad
 // losing stretch -- getting sent back to the Regional Circuit after losing
@@ -1661,6 +1683,11 @@ function initCareer(picks, options) {
     // camp's result only (see resolveCampPlanning) -- no Camp history.
     campFocus: null, fightStance: "balanced", campQuality: "full", mediaBuff: null,
     lastCampResult: null,
+    // Fight Result + Retirement cleanup, item 12: first-time-only rank
+    // achievement tracking (Top 5 / #1 contender) -- see commitFight. Never
+    // reset once true, so bouncing back out of and into the same threshold
+    // later in the career never re-fires it.
+    everReachedTop5: false, everReachedNumberOne: false,
     wonTitleAsUnderdog: false,
     // Phase 4 (Career Arc): a coach relationship that deepens over camps,
     // fame built through off-cycle content (feeds sponsor money), a real
@@ -2645,6 +2672,20 @@ function commitFight(state) {
     s.peakPlayerRank = s.peakPlayerRank == null ? peakCandidate : Math.min(s.peakPlayerRank, peakCandidate);
   }
 
+  // Fight Result + Retirement cleanup, item 12: lightweight, non-blocking
+  // rank-achievement flags for FightResultCard -- first-time-ever entry
+  // into Top 5 / #1 contender, derived from real rankAfter, gated on the
+  // career-long everReached* flags so bouncing in and out of the same
+  // threshold later never re-fires it. Excludes becoming champion outright
+  // (championAfterFight) -- that already gets the much bigger "AND NEW"
+  // milestone treatment, and reaching #1 or Top 5 legitimately again after
+  // a title loss and rebuild is still that career's first REAL climb back,
+  // so the flags are deliberately never reset either.
+  const firstTop5 = !s.everReachedTop5 && !championAfterFight && playerRankAfterFight != null && playerRankAfterFight <= 5;
+  const firstNumberOne = !s.everReachedNumberOne && !championAfterFight && playerRankAfterFight === 1;
+  if (firstTop5) s.everReachedTop5 = true;
+  if (firstNumberOne) s.everReachedNumberOne = true;
+
   // A rivalry is earned: 2+ meetings, at least one of them genuinely
   // competitive. Tracked as a proper record per opponent (id-keyed, not
   // name equality) so multiple rivals can be active at once, each with
@@ -2877,6 +2918,9 @@ function commitFight(state) {
     // internal rankPoints snapshots are kept too, unrendered, purely for
     // anything that still legitimately wants the hidden momentum value.
     rankBefore: playerRankBefore, championBefore, rankAfter: playerRankAfterFight, championAfter: championAfterFight,
+    // First-time-only rank achievement (see above) -- computed once, here,
+    // never re-derived at display time.
+    firstTop5, firstNumberOne,
     rankPointsBefore, rankPointsAfter: rankPointsAfterFight,
     matchup: result.matchup, narrative: result.narrative, playerTraits,
     roundNarratives: result.roundNarratives, moments: result.moments, howItHappened: result.howItHappened,
@@ -3217,6 +3261,7 @@ export {
   playSfxForTransition,
   prepareFight,
   previewCampFocus,
+  rankBadge,
   rankLabel,
   rankToTierCls,
   recentLosses,

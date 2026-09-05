@@ -1,7 +1,7 @@
 import React from "react";
-import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical } from "lucide-react";
+import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical, ChevronDown } from "lucide-react";
 import { ATTR_BY_KEY } from "../data/attrs.js";
-import { clfTier, TRAIT_DEFS, rankLabel } from "../lib/career.js";
+import { clfTier, TRAIT_DEFS, rankLabel, rankBadge } from "../lib/career.js";
 
 // Ordinal suffix for a title-defense count -- same one-liner as App.jsx's
 // copy (duplicated rather than imported, matching this file's existing
@@ -12,8 +12,17 @@ function ordinal(n) {
   return `${n}${suf[(v - 20) % 10] || suf[v] || suf[0]}`;
 }
 
-// ---------- Camp Planning decision panel ----------
-// ---------- Fight result card: W/L badge + collapsible stat breakdown ----------
+// ---------- Fight result card ----------
+// Hierarchy (Fight Result + Retirement cleanup, items 8-11): ALWAYS
+// VISIBLE covers "did I win, how, what changed" -- event header, title/CS
+// stakes, tale of tape, rank movement, the rank-achievement banner, and one
+// concise How It Happened line. Everything else (round-by-round, moments,
+// stat comparison, matchup scouting, tags, the interview quote) moves into
+// exactly two <details> disclosures so deeper detail stays one tap away
+// without ever being removed. Major fights (title/CS/rivalry/upset) default
+// those disclosures OPEN; routine fights default them closed -- same
+// content either way, just a different starting point, so a routine fight
+// reads short and a major one still shows everything without an extra tap.
 function FightResultCard({ e, playerName }) {
   const isTitle = e.titleShot || e.titleDefense;
   const matchupWarn = e.matchup && (e.matchup.label === "Dangerous Matchup" || e.matchup.label === "Nightmare Matchup");
@@ -22,6 +31,11 @@ function FightResultCard({ e, playerName }) {
   // A finish should read with more weight than a decision -- not a scoring
   // change, just a louder presentation for the fights that earned it.
   const isFinish = e.method.startsWith("KO/TKO") || e.method.startsWith("Submission");
+  // A major fight gets its detail sections auto-expanded; a routine one
+  // starts collapsed. Mirrors the same "major moment" list used elsewhere
+  // (title shot/defense/win/loss, Contender Series, a real rivalry win, a
+  // real upset) -- nothing new, just read off fields the card already has.
+  const isMajorFight = isTitle || e.contenderSeries || e.rivalry || e.underdogWin;
 
   // FAST_STARTER is a confirmed fully-inert trait (audited: no modifier,
   // no narrative hook, nothing downstream reads it) -- deriveTraits still
@@ -49,6 +63,9 @@ function FightResultCard({ e, playerName }) {
   // an improvement.
   const rankSortValue = (r) => (r == null ? 999 : r);
   const rankImproved = rankMoved && (e.championAfter || (!e.championBefore && rankSortValue(e.rankAfter) < rankSortValue(e.rankBefore)));
+
+  const hasBreakdown = !!((e.rounds && e.rounds.length > 0) || (e.moments && e.moments.length > 0) || (stats && stats.scorecards) || stats);
+  const hasScouting = !!(e.matchup || e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0 || e.interview);
 
   return (
     <div className={`event-card-wrap ${isTitle ? "title-event" : ""} ${e.win ? "won" : "lost"} ${isFinish ? "finish" : "decision"}`}>
@@ -121,7 +138,21 @@ function FightResultCard({ e, playerName }) {
           above the name, where it used to read as clutter. */}
       <div className="event-matchup">
         <div className="event-corner you">
-          <div className="corner-label mono">{e.onStyle === false ? "OFF-STYLE" : "YOU"}</div>
+          {/* Ranked Identity Presentation: fight-TIME truth only --
+              championBefore/rankBefore + this fight's own circuitTier
+              (stored as tierBefore, see commitFight), never the career's
+              live current-state rank, which may have already moved past
+              this fight by the time it's rendered in the timeline. Same
+              "· #N"/"· CHAMPION" language as the pre-fight corner and the
+              opponent corner's own CHAMPION/#N/UNRANKED label just below,
+              for visual consistency between the two sides. The existing
+              rank-move-row further down already shows the before->after
+              movement, so this is deliberately just the one fight-time
+              identity, not a repeat of that. */}
+          <div className="corner-label mono">
+            {e.onStyle === false ? "OFF-STYLE" : "YOU"}
+            {e.championBefore ? " · CHAMPION" : rankBadge(e.rankBefore, e.circuitTier) ? ` · ${rankBadge(e.rankBefore, e.circuitTier)}` : ""}
+          </div>
           <div className="corner-name">{playerName}</div>
           {e.playerRecord && (
             <div className="corner-sub mono">
@@ -153,18 +184,28 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {e.matchup && (
-        <div className={`matchup-line ${matchupWarn ? "warn" : ""}`}>
-          {matchupWarn && <AlertTriangle size={12} />}
-          Your {ATTR_BY_KEY[e.matchup.yourStrength.key].label} {Math.round(e.matchup.yourStrength.value)} vs their {ATTR_BY_KEY[e.matchup.oppStrength.key].label} {Math.round(e.matchup.oppStrength.value)} &mdash; {e.matchup.label}
+      {/* First-time-only rank achievement -- computed once in commitFight
+          (firstTop5/firstNumberOne), never re-derived here. Not a milestone
+          screen, doesn't repeat on later fights once it's fired once. #1
+          takes priority over Top 5 on the rare fight that clears both at
+          once, rather than stacking two banners for the same climb. Always
+          visible -- compression must never bury this (item 12). */}
+      {(e.firstNumberOne || e.firstTop5) && (
+        <div className="rank-achievement-banner">
+          <Crown size={12} />
+          <div>
+            <div className="rank-achievement-eyebrow mono">{e.firstNumberOne ? "#1 Contender" : "Top 5"}</div>
+            <div className="rank-achievement-text">{e.firstNumberOne ? "Title shot within reach." : "You're in title contention."}</div>
+          </div>
         </div>
       )}
 
       {/* "How it happened" -- a short synthesis of the whole fight's arc,
-          replacing the old flat 2-line narrative. Only present on fights
-          resolved after the narrative layer shipped (see narrative.js);
-          older saved fights fall back to the original narrative lines so
-          existing career history doesn't go blank. */}
+          always visible (item 9): this is the one line that actually
+          answers HOW a win/loss happened, so compression never touches it.
+          Only present on fights resolved after the narrative layer shipped
+          (see narrative.js); older saved fights fall back to the original
+          narrative lines so existing career history doesn't go blank. */}
       {e.howItHappened ? (
         <div className="fight-narrative how-it-happened">
           <div className="how-it-happened-lbl mono">How It Happened</div>
@@ -176,103 +217,120 @@ function FightResultCard({ e, playerName }) {
         </div>
       )}
 
-      {/* Breakdown is always visible now -- every fight should feel like an
-          event, not a row you have to click to unfold. */}
-      {stats && (
-        <div className="fight-breakdown">
-          {/* Round-by-round: pip (who won) + a short line explaining why,
-              generated once at fight-resolution time from the actual
-              per-round data (see narrative.js) -- never invented, never
-              re-rolled on render. Falls back to pip-only for fights saved
-              before this existed (no roundNarratives on the entry). */}
-          {e.rounds && e.rounds.length > 0 && (e.roundNarratives ? (
-            <div className="round-narrative-list">
-              {e.rounds.map((r, i) => (
-                <div key={r.round} className={`round-narrative-row ${r.playerWon ? "you" : "opp"} ${r.finishThisRound ? "finish" : ""}`}>
-                  <div className="round-narrative-head mono">
-                    ROUND {r.round}{r.finishThisRound ? " — FINISH" : ""}
+      {/* Disclosure 1: FIGHT BREAKDOWN -- round-by-round, fight moments,
+          scorecards, the stat-compare grid. Defaults open on a major fight,
+          closed on a routine one -- same content either way. */}
+      {hasBreakdown && (
+        <details className="fight-detail-section" open={isMajorFight}>
+          <summary>Fight Breakdown <ChevronDown size={13} className="fight-detail-chevron" /></summary>
+          <div className="fight-breakdown">
+            {/* Round-by-round: pip (who won) + a short line explaining why,
+                generated once at fight-resolution time from the actual
+                per-round data (see narrative.js) -- never invented, never
+                re-rolled on render. Falls back to pip-only for fights saved
+                before this existed (no roundNarratives on the entry). */}
+            {e.rounds && e.rounds.length > 0 && (e.roundNarratives ? (
+              <div className="round-narrative-list">
+                {e.rounds.map((r, i) => (
+                  <div key={r.round} className={`round-narrative-row ${r.playerWon ? "you" : "opp"} ${r.finishThisRound ? "finish" : ""}`}>
+                    <div className="round-narrative-head mono">
+                      ROUND {r.round}{r.finishThisRound ? " — FINISH" : ""}
+                    </div>
+                    <div className="round-narrative-text">{e.roundNarratives[i]}</div>
                   </div>
-                  <div className="round-narrative-text">{e.roundNarratives[i]}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="round-tracker">
-              {e.rounds.map((r) => (
-                <div
-                  key={r.round}
-                  className={`round-pip ${r.playerWon ? "you" : "opp"} ${stats.finishRound === r.round ? "finish" : ""}`}
-                  title={`Round ${r.round}: ${r.playerWon ? "You" : "Opponent"}${stats.finishRound === r.round ? " -- fight-ending round" : ""}`}
-                >
-                  R{r.round}
-                </div>
-              ))}
-            </div>
-          ))}
-          {/* Fight moments -- standout events pulled from the whole fight
-              (real danger, a knockdown, a comeback), deliberately kept
-              separate from the round-by-round prose above so a non-finish
-              knockdown never gets claimed as something that happened IN a
-              specific round's text -- only that it happened, attributed to
-              (not recorded by the sim as belonging to) the round with the
-              strongest supporting evidence. */}
-          {e.moments && e.moments.length > 0 && (
-            <div className="fight-moments">
-              {e.moments.map((m, i) => (
-                <div className={`fight-moment moment-${m.type}`} key={i}>
-                  <div className="fight-moment-label mono">{m.label}{m.round ? ` · R${m.round}` : ""}</div>
-                  <div className="fight-moment-text">{m.text}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {stats.scorecards && (
-            <div className="scorecards-row">
-              <span className="scorecard-label mono">JUDGES</span>
-              {stats.scorecards.map((sc, i) => (
-                <span className="scorecard-chip mono" key={i}>{sc.player}&ndash;{sc.opp}</span>
-              ))}
-            </div>
-          )}
-          <div className="stat-compare-grid">
-            <div className="stat-compare-row"><b>{stats.player.sigStrikes}</b><span>Sig. Strikes</span><b>{stats.opp.sigStrikes}</b></div>
-            <div className="stat-compare-row"><b>{stats.player.takedowns}</b><span>Takedowns</span><b>{stats.opp.takedowns}</b></div>
-            <div className="stat-compare-row"><b>{stats.player.controlPct}%</b><span>Control</span><b>{stats.opp.controlPct}%</b></div>
-            <div className="stat-compare-row"><b>{stats.player.knockdowns}</b><span>Knockdowns</span><b>{stats.opp.knockdowns}</b></div>
-          </div>
-        </div>
-      )}
-
-      {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0) && (
-        <div className="fight-bottom-row">
-          <div className="fight-tags">
-            {e.calledOut && <div className="fight-tag rivalry">CALLED OUT</div>}
-            {e.rivalry && <div className="fight-tag rivalry">RIVALRY</div>}
-            {e.statement && <div className="fight-tag statement">STATEMENT WIN</div>}
-            {e.bonusType === "performance" && <div className="fight-tag bonus">PERFORMANCE BONUS</div>}
-            {e.bonusType === "fotn" && <div className="fight-tag bonus">FIGHT OF THE NIGHT</div>}
-            {/* Betting odds are shown pre-fight now -- a real underdog win
-                (winProb < .35 at the odds the player actually saw) earns a
-                Legacy Score bump (see career.js) and, so that bonus isn't
-                invisible, this tag. */}
-            {e.underdogWin && <div className="fight-tag bonus">UPSET WIN</div>}
-            {visibleTraits.map((t) => (
-              <div className="fight-tag trait" key={t} title={TRAIT_DEFS[t] ? TRAIT_DEFS[t].desc : ""}>
-                {TRAIT_DEFS[t] ? TRAIT_DEFS[t].label : t}
+                ))}
+              </div>
+            ) : (
+              <div className="round-tracker">
+                {e.rounds.map((r) => (
+                  <div
+                    key={r.round}
+                    className={`round-pip ${r.playerWon ? "you" : "opp"} ${stats.finishRound === r.round ? "finish" : ""}`}
+                    title={`Round ${r.round}: ${r.playerWon ? "You" : "Opponent"}${stats.finishRound === r.round ? " -- fight-ending round" : ""}`}
+                  >
+                    R{r.round}
+                  </div>
+                ))}
               </div>
             ))}
+            {/* Fight moments -- standout events pulled from the whole fight
+                (real danger, a knockdown, a comeback), deliberately kept
+                separate from the round-by-round prose above so a non-finish
+                knockdown never gets claimed as something that happened IN a
+                specific round's text -- only that it happened, attributed to
+                (not recorded by the sim as belonging to) the round with the
+                strongest supporting evidence. */}
+            {e.moments && e.moments.length > 0 && (
+              <div className="fight-moments">
+                {e.moments.map((m, i) => (
+                  <div className={`fight-moment moment-${m.type}`} key={i}>
+                    <div className="fight-moment-label mono">{m.label}{m.round ? ` · R${m.round}` : ""}</div>
+                    <div className="fight-moment-text">{m.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {stats.scorecards && (
+              <div className="scorecards-row">
+                <span className="scorecard-label mono">JUDGES</span>
+                {stats.scorecards.map((sc, i) => (
+                  <span className="scorecard-chip mono" key={i}>{sc.player}&ndash;{sc.opp}</span>
+                ))}
+              </div>
+            )}
+            <div className="stat-compare-grid">
+              <div className="stat-compare-row"><b>{stats.player.sigStrikes}</b><span>Sig. Strikes</span><b>{stats.opp.sigStrikes}</b></div>
+              <div className="stat-compare-row"><b>{stats.player.takedowns}</b><span>Takedowns</span><b>{stats.opp.takedowns}</b></div>
+              <div className="stat-compare-row"><b>{stats.player.controlPct}%</b><span>Control</span><b>{stats.opp.controlPct}%</b></div>
+              <div className="stat-compare-row"><b>{stats.player.knockdowns}</b><span>Knockdowns</span><b>{stats.opp.knockdowns}</b></div>
+            </div>
           </div>
-        </div>
+        </details>
       )}
 
-      {/* Post-fight mic-in-face soundbite -- generated from the same result
-          the narrative above already read from, just in the fighter's own
-          voice instead of broadcast third-person. */}
-      {e.interview && (
-        <div className="interview-line">
-          <Mic size={13} />
-          <span>{e.interview}</span>
-        </div>
+      {/* Disclosure 2: SCOUTING / NOTES -- the pre-fight matchup read,
+          narrative/context tags, and the post-fight interview quote.
+          Same open/closed default as Fight Breakdown above. */}
+      {hasScouting && (
+        <details className="fight-detail-section" open={isMajorFight}>
+          <summary>Scouting / Notes <ChevronDown size={13} className="fight-detail-chevron" /></summary>
+          {e.matchup && (
+            <div className={`matchup-line ${matchupWarn ? "warn" : ""}`}>
+              {matchupWarn && <AlertTriangle size={12} />}
+              Your {ATTR_BY_KEY[e.matchup.yourStrength.key].label} {Math.round(e.matchup.yourStrength.value)} vs their {ATTR_BY_KEY[e.matchup.oppStrength.key].label} {Math.round(e.matchup.oppStrength.value)} &mdash; {e.matchup.label}
+            </div>
+          )}
+          {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0) && (
+            <div className="fight-bottom-row">
+              <div className="fight-tags">
+                {e.calledOut && <div className="fight-tag rivalry">CALLED OUT</div>}
+                {e.rivalry && <div className="fight-tag rivalry">RIVALRY</div>}
+                {e.statement && <div className="fight-tag statement">STATEMENT WIN</div>}
+                {e.bonusType === "performance" && <div className="fight-tag bonus">PERFORMANCE BONUS</div>}
+                {e.bonusType === "fotn" && <div className="fight-tag bonus">FIGHT OF THE NIGHT</div>}
+                {/* Betting odds are shown pre-fight now -- a real underdog win
+                    (winProb < .35 at the odds the player actually saw) earns a
+                    Legacy Score bump (see career.js) and, so that bonus isn't
+                    invisible, this tag. */}
+                {e.underdogWin && <div className="fight-tag bonus">UPSET WIN</div>}
+                {visibleTraits.map((t) => (
+                  <div className="fight-tag trait" key={t} title={TRAIT_DEFS[t] ? TRAIT_DEFS[t].desc : ""}>
+                    {TRAIT_DEFS[t] ? TRAIT_DEFS[t].label : t}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Post-fight mic-in-face soundbite -- generated from the same result
+              the narrative above already read from, just in the fighter's own
+              voice instead of broadcast third-person. */}
+          {e.interview && (
+            <div className="interview-line">
+              <Mic size={13} />
+              <span>{e.interview}</span>
+            </div>
+          )}
+        </details>
       )}
     </div>
   );

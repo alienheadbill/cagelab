@@ -30,7 +30,7 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, rankBadge, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
@@ -52,6 +52,7 @@ import DivisionRollPanel from "./components/DivisionRollPanel.jsx";
 import CareerSetupPanel from "./components/CareerSetupPanel.jsx";
 import CampPlanningPanel from "./components/CampPlanningPanel.jsx";
 import CampCompletePanel from "./components/CampCompletePanel.jsx";
+import FinalAttributesGrid from "./components/FinalAttributesGrid.jsx";
 import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
@@ -142,6 +143,12 @@ const TITLE_WIN_PROMOTION_COPY = {
   "CLF National": { label: "SIGNED — MOVING UP", tierLine: "CLF NATIONAL" },
   "CLF Contender Series": { label: "CONTENDER SERIES INVITE EARNED", tierLine: null },
 };
+// Fight Result + Retirement cleanup, item 6: tier-aware retirement title
+// résumé -- careerState.titleReignsByTier / titleDefensesByTier are always
+// keyed by these three real tier names (see freshTitleTierCounts in
+// career.js). Premier-first ordering, same as the task's own example
+// ("PREMIER TITLES 1 / NATIONAL TITLES 1 / REGIONAL TITLES 0").
+const TITLE_RESUME_TIERS = ["CLF PREMIER", "CLF National", "CLF Regional"];
 // Ordinal suffix for a title-defense count ("1ST", "3RD", "5TH TITLE
 // DEFENSE" on the blocking milestone; also reused by FightResultCard's
 // "AND STILL" treatment on every successful defense, not just 1st/3rd/
@@ -1380,7 +1387,21 @@ export default function CageLab() {
         <div className={`panel sim-panel ${careerTab === "career" && !spotlightFightId && !careerState.pendingMilestone && (!careerState.pendingDecision || careerState.pendingDecision.type === "preFight") ? "has-advance-bar" : ""}`}>
           <div className="sim-head">
             <div>
-              <div className="tagline mono" style={{ marginBottom: 2 }}>{name} &middot; {careerState.displayOverall} OVR</div>
+              <div className="tagline mono" style={{ marginBottom: 2 }}>
+                {name}
+                {/* Ranked Identity Presentation: a compact "#N"/"CHAMPION"
+                    chip right next to the name, distinct from the sim-rank
+                    bucketed label below (unchanged, still used elsewhere) --
+                    champion always reads as text, never a bare number, and
+                    the badge itself is already circuit-safe (rankBadge
+                    returns null while unranked or mid-Contender-Series). */}
+                {careerState.champion ? (
+                  <span className="rank-name-badge champion"> CHAMPION</span>
+                ) : rankBadge(careerState.playerRank, careerState.circuitTier) ? (
+                  <span className="rank-name-badge"> {rankBadge(careerState.playerRank, careerState.circuitTier)}</span>
+                ) : null}
+                {" "}&middot; {careerState.displayOverall} OVR
+              </div>
               <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{careerState.record.w}{"–"}{careerState.record.l}</div>
               <div className="sim-rank">{rankLabel(careerState.playerRank, careerState.champion)}</div>
             </div>
@@ -1825,7 +1846,16 @@ export default function CageLab() {
 
               <div className="prefight-matchup">
                 <div className="prefight-corner">
-                  <div className="corner-label mono">YOU</div>
+                  {/* Ranked Identity Presentation, pre-fight surface: same
+                      "YOU · #N"/"YOU · CHAMPION" language as the opponent
+                      corner's own CHAMPION/#N/UNRANKED label just below --
+                      the current playerRank/champion/circuitTier are exactly
+                      the booked fight's own context here (nothing mutates
+                      them between prepareFight and this screen), so this is
+                      already fight-time-correct without a separate snapshot. */}
+                  <div className="corner-label mono">
+                    YOU{careerState.champion ? " · CHAMPION" : rankBadge(careerState.playerRank, careerState.circuitTier) ? ` · ${rankBadge(careerState.playerRank, careerState.circuitTier)}` : ""}
+                  </div>
                   <div className="corner-name">{name}</div>
                   <div className="corner-sub mono">{careerState.record.w}-{careerState.record.l} &middot; {careerState.pendingFight.playerOverallNow} OVR</div>
                 </div>
@@ -2322,29 +2352,7 @@ export default function CageLab() {
                 other live-stat surface already calls -- no second
                 calculation, no shadow copy of s.base. */}
             <div className="section-divider" style={{ marginTop: 14 }}>Current Fighter</div>
-            <div className="current-fighter-grid mono">
-              {(() => {
-                const live = applyAging(careerState.base, careerState.year, careerState.wear);
-                return ATTRS.map((a) => {
-                  const isPhysical = a.key === "HEIGHT" || a.key === "REACH";
-                  const current = a.key === "HEIGHT" ? careerState.heightScore : a.key === "REACH" ? careerState.reachScore : live[a.key];
-                  const draft = a.key === "HEIGHT" ? careerState.heightScore : a.key === "REACH" ? careerState.reachScore : careerState.draftBase[a.key];
-                  const curR = Math.round(current);
-                  const delta = curR - Math.round(draft);
-                  return (
-                    <div className="current-fighter-row" key={a.key}>
-                      <span className="current-fighter-label">{a.label}</span>
-                      <span className="current-fighter-value">
-                        {curR}
-                        {!isPhysical && delta !== 0 && (
-                          <span className={delta > 0 ? "good-text" : "bad-text"}> ({delta > 0 ? "+" : ""}{delta})</span>
-                        )}
-                      </span>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
+            <FinalAttributesGrid careerState={careerState} />
             </>
           )}
 
@@ -2443,16 +2451,21 @@ export default function CageLab() {
           )}
 
           {/* Badges drop in one at a time rather than all appearing at once,
-              matching the GOAT-reveal treatment on the draft result screen. */}
+              matching the GOAT-reveal treatment on the draft result screen.
+              Flat Title Reigns/Title Defenses/Premier Titles removed --
+              superseded by the tier-aware Title Résumé block below, which
+              says the same thing without the "1x Champ" vagueness a flat
+              total can't avoid once more than one tier is in play. Peak
+              Circuit added alongside Peak Ranking -- the highest tier this
+              career actually reached, read straight off peakCircuitTier
+              (already-tracked truth, never inferred). */}
           <div className="stat-grid">
             {[
               { num: careerState.finishes.ko, lbl: "KO/TKO" },
               { num: careerState.finishes.sub, lbl: "Submissions" },
-              { num: careerState.titleReigns, lbl: "Title Reigns" },
-              { num: careerState.titleDefenses, lbl: "Title Defenses" },
-              { num: careerState.titleReignsByTier["CLF PREMIER"], lbl: "Premier Titles" },
               { num: careerState.longestStreak, lbl: "Best Streak" },
               { num: rankLabel(careerState.peakPlayerRank, careerState.peakPlayerRank === 0), lbl: "Peak Ranking" },
+              { num: clfTier(careerState.peakCircuitTier).short, lbl: "Peak Circuit" },
               { num: careerState.statementWins, lbl: "Statement Wins" },
               { num: careerState.rivalryWins, lbl: "Rivalries Won" },
               { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },
@@ -2464,6 +2477,45 @@ export default function CageLab() {
               </div>
             ))}
           </div>
+
+          {/* Tier-aware title résumé -- only rendered at all for a career
+              that actually won something (a journeyman career showing
+              three zero rows is clutter, not truth worth stating). Reigns
+              always show for all three tiers once shown at all (a real "0"
+              is still real information, per the locked example); defenses
+              only get their own row for a tier this fighter actually held,
+              never a defense count for a belt they never won. */}
+          {careerState.titleReigns > 0 && (
+            <div className="title-resume-block reveal-stagger reveal-delay-4">
+              <div className="setup-label" style={{ marginBottom: 6 }}>Title Résumé</div>
+              {TITLE_RESUME_TIERS.map((tier) => {
+                const reigns = careerState.titleReignsByTier[tier] || 0;
+                const defenses = careerState.titleDefensesByTier[tier] || 0;
+                return (
+                  <React.Fragment key={tier}>
+                    <div className="title-resume-row">
+                      <span>{clfTier(tier).short} Titles</span>
+                      <span className="mono">{reigns}</span>
+                    </div>
+                    {reigns > 0 && (
+                      <div className="title-resume-row sub">
+                        <span>{clfTier(tier).short} Defenses</span>
+                        <span className="mono">{defenses}</span>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Final Fighter -- what this fighter actually became: Camp
+              development + aging + wear, not the original draft picks.
+              Same FinalAttributesGrid the in-career Stats tab uses -- one
+              source of truth (applyAging(base, year, wear) vs draftBase),
+              never a second calculation. */}
+          <div className="section-divider" style={{ marginTop: 14 }}>Final Fighter</div>
+          <FinalAttributesGrid careerState={careerState} />
 
           {/* Broadcast-style signature wins -- the actual names beat, not
               just a count (statementWins above already covers the count). */}
@@ -2480,6 +2532,8 @@ export default function CageLab() {
             </div>
           )}
 
+          {/* What If stays its own thing, apart from the action grid below --
+              a replay/analysis feature, not a navigation or share action. */}
           {careerState.definingLoss && (
             <div className="whatif-block">
               <button className="btn btn-ghost" onClick={replayDefiningLoss}>
@@ -2497,23 +2551,14 @@ export default function CageLab() {
 
           <pre className="scorecard-pre">{buildScorecardText({ name, goatScore, picks, career: careerState })}</pre>
 
-          <div className="btn-row">
-            <CopyScorecardButton text={buildScorecardText({ name, goatScore, picks, career: careerState })} />
-            <ShareCardCanvas name={name} goatScore={goatScore} tierLabel={tierOf(goatScore).label} picks={picks} />
-          </div>
-          <div className="btn-row">
-            <button className="btn btn-ghost" onClick={saveCurrentBuild} disabled={buildSaved}>
-              <Trophy size={16} /> {buildSaved ? "Saved!" : "Save Build"}
-            </button>
-            <button className="btn btn-ghost" onClick={runItBack}>
-              <RotateCw size={16} /> Run It Back (New Division)
-            </button>
-          </div>
-
-          {/* Just one way back to Home down here -- the top-nav Home icon
-              (always visible whenever phase !== "home") already covers the
-              other case, so a second Home button in this row was pure
-              duplication on every single career verdict screen. */}
+          {/* Action hierarchy (Fight Result + Retirement cleanup, item 2):
+              PRIMARY (Play Again, or Back to Home for a one-shot Daily run
+              -- unchanged special case) -> SECONDARY (Run It Back, Save
+              Build) -> SHARE (Copy Scorecard, Download Image) -> NAVIGATION
+              (an explicit Back to Home, visually distinct/ghost-styled,
+              separate from Play Again -- the gap this whole item exists to
+              close: previously the only way back to Home from a non-Daily
+              retirement was the small top-corner icon). */}
           <div className="btn-row">
             {mode === "daily" ? (
               <button className="btn btn-primary" onClick={goHome}>
@@ -2525,6 +2570,23 @@ export default function CageLab() {
               </button>
             )}
           </div>
+          <div className="btn-row">
+            <button className="btn btn-ghost" onClick={runItBack}>
+              <RotateCw size={16} /> Run It Back (New Division)
+            </button>
+            <button className="btn btn-ghost" onClick={saveCurrentBuild} disabled={buildSaved}>
+              <Trophy size={16} /> {buildSaved ? "Saved!" : "Save Build"}
+            </button>
+          </div>
+          <div className="btn-row">
+            <CopyScorecardButton text={buildScorecardText({ name, goatScore, picks, career: careerState })} />
+            <ShareCardCanvas name={name} goatScore={goatScore} tierLabel={tierOf(goatScore).label} picks={picks} />
+          </div>
+          {mode !== "daily" && (
+            <button className="btn btn-ghost full-span retirement-home-btn" onClick={goHome}>
+              <Home size={16} /> Back to Home
+            </button>
+          )}
         </div>
         );
       })()}
