@@ -807,6 +807,17 @@ export default function CageLab() {
     sfx("select");
     setSelectedTarget((cur) => (cur && cur.targetId === targetId ? null : { tag, targetId, name }));
   }
+  // Career Presentation recovery pass, item 8: an explicit Mic Time
+  // decline -- clears any selection and dismisses the spotlight directly,
+  // rather than going through handleAdvance (whose selectedTarget read
+  // would otherwise still book whatever was tapped earlier). Mic Time's
+  // own trigger conditions, targets, and booking logic are untouched --
+  // this is purely "close the screen without calling anyone out."
+  function handleShowRespect() {
+    sfx("select");
+    setSelectedTarget(null);
+    setSpotlightFightId(null);
+  }
   function handleCommitFight() {
     const next = commitFight(careerState);
     playSfxForTransition(careerState, next);
@@ -907,24 +918,22 @@ export default function CageLab() {
   const tierRampCls = (tierName) => `tier-ramp-${Math.max(0, CLF_TIERS.findIndex((t) => t.name === tierName))}`;
 
   // What actually gets you promoted off the tier you're currently on --
-  // mirrors the real gate logic in career.js's commitFight exactly, so this
-  // text can never drift out of sync with what the game actually checks.
-  function circuitNextRequirement(tierName, isChampion, playerRank, provenAtTop5) {
+  // Regional/National/Contender Series mirror the real gate logic in
+  // career.js's commitFight exactly, so this text can never drift out of
+  // sync with what the game actually checks. Premier is a truthful,
+  // stage-aware 5-bucket read of real playerRank/champion state only (never
+  // the hidden rankPoints value) -- Career Presentation recovery pass,
+  // item 2. One function, two presentations (this Rankings-tab "NEXT" line
+  // and the Career hub's own compact block below both call it).
+  function circuitNextRequirement(tierName, isChampion, playerRank) {
     if (tierName === "CLF Regional") return "Win the Regional title, or win 4 straight, to move up to National.";
     if (tierName === "CLF National") return "Win the National title, or string together a serious win streak on its own, to earn a shot in the Contender Series.";
     if (tierName === "CLF Contender Series") return "One showcase fight decides it -- win it and the Premier contract is waiting. Lose it and it's back to National, standing untouched.";
-    if (isChampion) return "You hold the Premier title -- the top of the ladder. Defend it and build the legacy.";
-    // Premier natural title-chase beat -- only ever shown when the state
-    // it describes is actually true (see naturalTitleShotReady in
-    // career.js): reaching Top 5 no longer books the title fight on the
-    // same breath, so the hub says exactly where the player really
-    // stands instead of leaving the gap unexplained.
-    if (playerRank != null && playerRank <= 5) {
-      return provenAtTop5
-        ? "Title contention -- one more win puts you in line for a shot."
-        : "Top 5 contender -- win to earn a title shot.";
-    }
-    return "You've reached Premier -- the top of the ladder. Win the title and defend it to build the legacy.";
+    if (isChampion) return "Defend the championship.";
+    if (playerRank == null) return "Break into the Top 15.";
+    if (playerRank === 1) return "Next stop: title shot.";
+    if (playerRank <= 5) return "Title contention.";
+    return "Climb the Premier rankings.";
   }
 
   // Last few results at a glance, oldest-to-newest so the strip reads like a
@@ -952,6 +961,36 @@ export default function CageLab() {
     : [];
   const thisYearWins = thisYearFights.filter((f) => f.win).length;
   const thisYearLosses = thisYearFights.length - thisYearWins;
+
+  // Career Presentation recovery pass, items 5 & 11: championship reveal
+  // timing. The engine flips careerState.champion the instant commitFight
+  // resolves a title win -- correct, and untouched here -- but the Career
+  // hub header used to read that live value too, so it could already say
+  // Champion (and, since PR #28, show the CHAMPION identity chip) while
+  // the player is still looking at the Fight Result spotlight or the
+  // blocking title-win milestone screen, spoiling the "AND NEW" reveal
+  // before they ever reach it. While either is still showing, the header
+  // reads this fight's own PRE-fight truth instead (rankBefore/
+  // championBefore, already stored on every fight timeline entry) -- a
+  // pure display-time read, no new persisted state, no change to when the
+  // engine itself updates. Once both clear, the live value takes over and
+  // the header reflects Champion for the first time right where the
+  // milestone screen just handed off. Every access below is guarded for
+  // careerState being null (the Home screen) -- the earlier version of
+  // this logic crashed there once; this one never reads a property off a
+  // null careerState.
+  const holdingReveal = !!(spotlightFightId || (careerState && careerState.pendingMilestone));
+  const lastFightEntry = holdingReveal && careerState
+    ? [...careerState.timeline].reverse().find((e) => e.type === "fight")
+    : null;
+  const headerRank = lastFightEntry ? lastFightEntry.rankBefore : careerState && careerState.playerRank;
+  const headerChampion = lastFightEntry ? lastFightEntry.championBefore : !!(careerState && careerState.champion);
+  // Same pre-fight snapshot for circuitTier -- covers the rare same-fight
+  // promotion case (e.g. a National title win that also bumps the player
+  // into Contender Series) so the numeric badge and Next Goal copy read
+  // consistently with headerRank/headerChampion above, not a mix of pre-
+  // and post-fight truth.
+  const headerCircuitTier = lastFightEntry ? lastFightEntry.circuitTier : careerState && careerState.circuitTier;
 
   return (
     <div className={`app-root ${darkMode ? "dark" : ""} ${reducedMotion ? "reduced-motion" : ""}`}>
@@ -1389,21 +1428,43 @@ export default function CageLab() {
             <div>
               <div className="tagline mono" style={{ marginBottom: 2 }}>
                 {name}
-                {/* Ranked Identity Presentation: a compact "#N"/"CHAMPION"
-                    chip right next to the name, distinct from the sim-rank
-                    bucketed label below (unchanged, still used elsewhere) --
-                    champion always reads as text, never a bare number, and
-                    the badge itself is already circuit-safe (rankBadge
-                    returns null while unranked or mid-Contender-Series). */}
-                {careerState.champion ? (
+                {/* Ranked Identity Presentation (PR #28): a compact
+                    "#N"/"CHAMPION" chip right next to the name, distinct
+                    from the champion-header/sim-rank line below. Reads
+                    headerChampion/headerRank rather than live
+                    careerState.champion/playerRank -- see the reveal-
+                    timing comment above -- so this chip can't flip to
+                    CHAMPION (or clear a stale #N) a beat before the title-
+                    win milestone screen itself reveals it. */}
+                {headerChampion ? (
                   <span className="rank-name-badge champion"> CHAMPION</span>
-                ) : rankBadge(careerState.playerRank, careerState.circuitTier) ? (
-                  <span className="rank-name-badge"> {rankBadge(careerState.playerRank, careerState.circuitTier)}</span>
+                ) : rankBadge(headerRank, headerCircuitTier) ? (
+                  <span className="rank-name-badge"> {rankBadge(headerRank, headerCircuitTier)}</span>
                 ) : null}
                 {" "}&middot; {careerState.displayOverall} OVR
               </div>
               <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{careerState.record.w}{"–"}{careerState.record.l}</div>
-              <div className="sim-rank">{rankLabel(careerState.playerRank, careerState.champion)}</div>
+              {/* Career Presentation recovery pass, item 4: a restrained but
+                  materially different treatment once headerChampion is true
+                  (see the reveal-timing comment above) -- circuit/division/
+                  title identity + defense count, reusing the existing
+                  brass/championship styling language already used for the
+                  milestone cards, not a new visual system. Falls back to
+                  the plain bucketed rank label otherwise -- normal circuit
+                  context (the tier tag row right below) is never hidden
+                  either way, and the numeric badge above never doubles up
+                  with this (champion supersedes it there too). */}
+              {headerChampion ? (
+                <div className="champion-header">
+                  <div className="champion-header-label mono"><Crown size={12} /> CHAMPION</div>
+                  <div className="champion-header-title">{clfTier(careerState.circuitTier).short} {(careerState.division || "").toUpperCase()} CHAMPION</div>
+                  <div className="champion-header-defenses mono">
+                    {careerState.titleDefensesByTier[careerState.circuitTier] || 0} TITLE DEFENSE{(careerState.titleDefensesByTier[careerState.circuitTier] || 0) === 1 ? "" : "S"}
+                  </div>
+                </div>
+              ) : (
+                <div className="sim-rank">{rankLabel(headerRank, headerChampion)}</div>
+              )}
             </div>
             <div className="legacy-box">
               <div className="legacy-num" key={careerState.runningLegacy}>{careerState.runningLegacy}</div>
@@ -1416,6 +1477,24 @@ export default function CageLab() {
               <span className={`fight-tier-tag ${careerState.styleIsNaturalFit ? "on-style" : careerState.careerStyle === "Balanced" ? "" : "off-style"}`}>
                 {careerState.careerStyle}{careerState.styleIsNaturalFit ? " (Natural Fit)" : careerState.careerStyle !== "Balanced" ? " (Off-Style)" : ""}
               </span>
+            </div>
+          )}
+          {/* Career Presentation recovery pass, item 3: a compact, always-
+              subordinate "Next Goal" line -- same circuitNextRequirement
+              truth the Rankings tab's "NEXT" row already reads, surfaced
+              here too so it doesn't take a tab switch to see. Sits below
+              identity (name/badge) and circuit status (tier chip) on
+              purpose, reuses the Rankings tab's own .circuit-next styling
+              rather than inventing a second visual language for the same
+              kind of line. No progress meter, no checklist -- one line.
+              Reads headerRank/headerChampion/headerCircuitTier (same
+              reveal-timing guard as the badge/champion-header above) so
+              this can't jump to "Defend the championship" a beat before
+              the title-win milestone itself reveals Champion. */}
+          {!careerState.finished && (
+            <div className="circuit-next hub-next-goal">
+              <span className="circuit-next-label mono">NEXT GOAL</span>
+              {circuitNextRequirement(headerCircuitTier, headerChampion, headerRank)}
             </div>
           )}
           <div className="progress-bar-track">
@@ -1526,9 +1605,29 @@ export default function CageLab() {
                     })}
                   </div>
                 </div>
-                <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 14 }}>
-                  {selectedTarget ? <>Confirm Callout &amp; Continue</> : <>Continue</>} <ChevronRight size={16} />
-                </button>
+                {/* Career Presentation recovery pass, items 8-9: an
+                    explicit "Show Respect" decline, distinct from
+                    confirming a callout -- not just silently tapping
+                    Continue. Target selected -> Confirm Callout & Continue
+                    stays PRIMARY, Show Respect is a smaller SECONDARY
+                    right below it (clears the pick without booking it).
+                    No target selected -> the single button IS Show
+                    Respect; a second identical "Continue" button next to
+                    it would just be the same action twice. */}
+                {selectedTarget ? (
+                  <>
+                    <button className="btn btn-primary full-span" onClick={handleAdvance} style={{ marginBottom: 8 }}>
+                      Confirm Callout &amp; Continue <ChevronRight size={16} />
+                    </button>
+                    <button className="btn btn-ghost full-span" onClick={handleShowRespect} style={{ marginBottom: 14 }}>
+                      Show Respect
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn btn-primary full-span" onClick={handleShowRespect} style={{ marginBottom: 14 }}>
+                    Show Respect <ChevronRight size={16} />
+                  </button>
+                )}
               </>
             );
           })()}
@@ -2251,7 +2350,7 @@ export default function CageLab() {
                 </div>
                 <div className="circuit-next">
                   <span className="circuit-next-label mono">NEXT</span>
-                  {circuitNextRequirement(careerState.circuitTier, careerState.champion, careerState.playerRank, careerState.provenAtTop5)}
+                  {circuitNextRequirement(careerState.circuitTier, careerState.champion, careerState.playerRank)}
                 </div>
                 <div className="circuit-note">
                   Regional, National, and Premier each run their own independent roster --

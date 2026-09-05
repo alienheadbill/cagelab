@@ -1688,6 +1688,9 @@ function initCareer(picks, options) {
     // reset once true, so bouncing back out of and into the same threshold
     // later in the career never re-fires it.
     everReachedTop5: false, everReachedNumberOne: false,
+    // Career Presentation recovery pass, item 6: one-shot flag consumed by
+    // maybeFightChoice's very next roll -- see there and commitFight.
+    suppressNextFlavorEvent: false,
     wonTitleAsUnderdog: false,
     // Phase 4 (Career Arc): a coach relationship that deepens over camps,
     // fame built through off-cycle content (feeds sponsor money), a real
@@ -1982,6 +1985,20 @@ function maybeFightChoice(state) {
   const wouldBeTitle = state.champion || naturalTitleShotReady(state.circuitTier, state.champion, state.streak, state.playerRank, state.provenAtTop5);
   if (wouldBeTitle) return prepareFight(state, "default");
   const roll = Math.random();
+  // Career Presentation recovery pass, item 6: post-fight event
+  // hierarchy. A major milestone (title win, a promotion, Premier
+  // arrival, a 1st/3rd/5th defense) was just acknowledged --
+  // suppressNextFlavorEvent (set once, in commitFight, alongside that
+  // milestone) skips the next random flavor/development-event roll so
+  // the moment gets room to breathe instead of immediately dissolving
+  // into Training/Media/Off-Cycle filler. One-shot: consumed by this
+  // roll whether or not it actually needed to suppress anything (so it
+  // can never get stuck across multiple fights). Matchmaking agency (the
+  // fightChoice menu -- real player agency, not flavor) and the required
+  // contractNegotiation/campPlanning/weightMoveOffer decisions elsewhere
+  // are never touched by this flag.
+  const suppressFlavor = !!state.suppressNextFlavorEvent;
+  const rolled = suppressFlavor ? { ...state, suppressNextFlavorEvent: false } : state;
   if (roll < 0.22) {
     // Matchmaking agency (choosing Easy/Ranked/Step-Up yourself) is
     // something a fighter earns, not something day-one gets -- a 0-0
@@ -1992,21 +2009,21 @@ function maybeFightChoice(state) {
     // choosing for you, exactly like every other fight that doesn't roll
     // into a fightChoice decision. Training/media/off-cycle below are
     // untouched; only this one branch is gated.
-    const hasMatchmakingAgency = (state.record.w + state.record.l) >= 3;
-    if (!hasMatchmakingAgency) return prepareFight(state, "default");
+    const hasMatchmakingAgency = (rolled.record.w + rolled.record.l) >= 3;
+    if (!hasMatchmakingAgency) return prepareFight(rolled, "default");
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(state.divisionRoster, state.rankPoints, state.playerRank, state.recentOpponentIds, state.circuitTier);
-    return { ...state, pendingDecision: { type: "fightChoice", options } };
+    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier);
+    return { ...rolled, pendingDecision: { type: "fightChoice", options } };
   }
-  if (roll < 0.30) return { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
-  if (roll < 0.36) return { ...state, pendingDecision: { type: "mediaEvent" } };
+  if (roll < 0.30) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
+  if (roll < 0.36) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "mediaEvent" } };
   // Off-cycle content -- not tied to any particular fight, just building
   // fame between them. Kept rare (4% total) so it reads as a real event,
   // not a third flavor of the fight-week media roll above.
-  if (roll < 0.38) return { ...state, pendingDecision: { type: "offCycleEvent" } };
-  return prepareFight(state, "default");
+  if (roll < 0.38) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "offCycleEvent" } };
+  return prepareFight(rolled, "default");
 }
 
 // CHIN excluded (Training Camp Rework V1, item 3/11) -- Training Event's
@@ -2872,6 +2889,13 @@ function commitFight(state) {
     // 1st/3rd/5th also get a blocking live acknowledgment.
     s.pendingMilestone = { type: "titleDefenseMilestone", tier: tierBefore, division: s.division, defenseCount: s.titleDefensesByTier[tierBefore] };
   }
+  // Career Presentation recovery pass, item 6/7: any of the three
+  // pendingMilestone shapes above (a title win, a combined title+
+  // promotion, a promotion alone, or a 1st/3rd/5th title defense) is
+  // exactly the "major career moment" list this flag targets -- one flag,
+  // read once by maybeFightChoice's next roll, so a random flavor/
+  // development event never wedges in right on top of it.
+  if (s.pendingMilestone) s.suppressNextFlavorEvent = true;
   if (rivalryJustBorn) timeline.push({ type: "rivalEvent", id: `rival-${s.fightGlobalIndex}`, oppName });
   if (hype) timeline.push({ type: "hypeEvent", id: `hype-${s.fightGlobalIndex}`, ...hype });
   // Event branding: numbered CLF cards, with a real card position. Title
