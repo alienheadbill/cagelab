@@ -35,7 +35,7 @@ import {
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
-  CAMP_FOCUSES, setFightStance, buildGameplanInsight,
+  CAMP_FOCUSES, setFightStance, buildGameplanInsight, TRAIT_DEFS,
 } from "./lib/career.js";
 
 import TierIcon from "./components/TierIcon.jsx";
@@ -1871,13 +1871,52 @@ export default function CageLab() {
                 </div>
               </div>
 
+              {/* SCOUTING REPORT (Move Scouting Content to Pre-Fight, items
+                  19-21): every predictive read on THIS matchup, compact and
+                  labeled, using only data already known before the fight --
+                  never anything the sim decides later. Attribute Edge and
+                  Matchup are the exact same buildMatchup() truth the old
+                  inline matchup-line already read (just laid out as labeled
+                  rows instead of one run-on sentence); Opponent Threats is
+                  new here -- pf.opp.traits was already computed for combat
+                  (see generateOpponentProfile/traitModifiers) but never
+                  actually shown to the player anywhere before now. FAST_STARTER
+                  filtered the same as FightResultCard's own visibleTraits --
+                  a confirmed fully-inert trait, opponent or player. Gameplan
+                  right below already turns this into a stance recommendation,
+                  so this block stays factual/comparative and never repeats
+                  Gameplan's own sentence. */}
               {careerState.pendingFight.matchup && (() => {
                 const m = careerState.pendingFight.matchup;
                 const warn = m.label === "Dangerous Matchup" || m.label === "Nightmare Matchup";
+                const oppThreats = (careerState.pendingFight.opp.traits || []).filter((t) => t !== "FAST_STARTER");
                 return (
-                  <div className={`matchup-line ${warn ? "warn" : ""}`}>
-                    {warn && <AlertTriangle size={12} />}
-                    Your {ATTR_BY_KEY[m.yourStrength.key].label} {Math.round(m.yourStrength.value)} vs their {ATTR_BY_KEY[m.oppStrength.key].label} {Math.round(m.oppStrength.value)} &mdash; {m.label}
+                  <div className="scouting-report">
+                    <div className="decision-group-label">Scouting Report</div>
+                    <div className="scouting-row">
+                      <div className="scouting-row-label mono">ATTRIBUTE EDGE</div>
+                      <div className="scouting-row-value">
+                        Your {ATTR_BY_KEY[m.yourStrength.key].label} {Math.round(m.yourStrength.value)} &middot; Their {ATTR_BY_KEY[m.oppStrength.key].label} {Math.round(m.oppStrength.value)}
+                      </div>
+                    </div>
+                    {oppThreats.length > 0 && (
+                      <div className="scouting-row">
+                        <div className="scouting-row-label mono">OPPONENT THREATS</div>
+                        <div className="fight-tags scouting-tags">
+                          {oppThreats.map((t) => (
+                            <div className="fight-tag trait" key={t} title={TRAIT_DEFS[t] ? TRAIT_DEFS[t].desc : ""}>
+                              {TRAIT_DEFS[t] ? TRAIT_DEFS[t].label : t}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="scouting-row">
+                      <div className="scouting-row-label mono">MATCHUP</div>
+                      <div className={`scouting-row-value ${warn ? "warn" : ""}`}>
+                        {warn && <AlertTriangle size={12} />} {m.label}
+                      </div>
+                    </div>
                   </div>
                 );
               })()}

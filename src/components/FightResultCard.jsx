@@ -1,6 +1,5 @@
 import React from "react";
-import { Crown, AlertTriangle, Mic, TrendingUp, TrendingDown, Zap, FlaskConical, ChevronDown } from "lucide-react";
-import { ATTR_BY_KEY } from "../data/attrs.js";
+import { Crown, Mic, TrendingUp, TrendingDown, Zap, FlaskConical, ChevronDown } from "lucide-react";
 import { clfTier, TRAIT_DEFS, rankLabel, rankBadge } from "../lib/career.js";
 
 // Ordinal suffix for a title-defense count -- same one-liner as App.jsx's
@@ -17,15 +16,18 @@ function ordinal(n) {
 // VISIBLE covers "did I win, how, what changed" -- event header, title/CS
 // stakes, tale of tape, rank movement, the rank-achievement banner, and one
 // concise How It Happened line. Everything else (round-by-round, moments,
-// stat comparison, matchup scouting, tags, the interview quote) moves into
-// exactly two <details> disclosures so deeper detail stays one tap away
-// without ever being removed. Major fights (title/CS/rivalry/upset) default
-// those disclosures OPEN; routine fights default them closed -- same
-// content either way, just a different starting point, so a routine fight
-// reads short and a major one still shows everything without an extra tap.
+// stat comparison, context tags, the interview quote) moves into exactly
+// two <details> disclosures so deeper detail stays one tap away without
+// ever being removed. Major fights (title/CS/rivalry/upset) default those
+// disclosures OPEN; routine fights default them closed -- same content
+// either way, just a different starting point, so a routine fight reads
+// short and a major one still shows everything without an extra tap.
+// Move Scouting Content to Pre-Fight: the predictive matchup read (this
+// card's own former "Scouting / Notes" line) now lives entirely on the
+// pre-fight screen, where it can still inform a decision -- Fight Notes
+// (this card's second disclosure) is genuinely post-fight/contextual only.
 function FightResultCard({ e, playerName }) {
   const isTitle = e.titleShot || e.titleDefense;
-  const matchupWarn = e.matchup && (e.matchup.label === "Dangerous Matchup" || e.matchup.label === "Nightmare Matchup");
   const stats = e.stats;
   const tier = clfTier(e.circuitTier);
   // A finish should read with more weight than a decision -- not a scoring
@@ -65,7 +67,12 @@ function FightResultCard({ e, playerName }) {
   const rankImproved = rankMoved && (e.championAfter || (!e.championBefore && rankSortValue(e.rankAfter) < rankSortValue(e.rankBefore)));
 
   const hasBreakdown = !!((e.rounds && e.rounds.length > 0) || (e.moments && e.moments.length > 0) || (stats && stats.scorecards) || stats);
-  const hasScouting = !!(e.matchup || e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0 || e.interview);
+  // Move Scouting Content to Pre-Fight, item 20: the predictive matchup
+  // read (e.matchup -- "Your X vs their Y -- Favorable Matchup") moved to
+  // the pre-fight Scouting Report, where it's actually useful for a
+  // decision instead of stale trivia after the fact. This section is now
+  // genuinely post-fight/contextual only -- no e.matchup here.
+  const hasNotes = !!(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0 || e.interview);
 
   return (
     <div className={`event-card-wrap ${isTitle ? "title-event" : ""} ${e.win ? "won" : "lost"} ${isFinish ? "finish" : "decision"}`}>
@@ -288,18 +295,15 @@ function FightResultCard({ e, playerName }) {
         </details>
       )}
 
-      {/* Disclosure 2: SCOUTING / NOTES -- the pre-fight matchup read,
-          narrative/context tags, and the post-fight interview quote.
-          Same open/closed default as Fight Breakdown above. */}
-      {hasScouting && (
+      {/* Disclosure 2: FIGHT NOTES -- genuinely post-fight/contextual
+          content only (narrative/context tags, the interview quote). The
+          predictive scouting read now lives entirely on the pre-fight
+          screen (see App.jsx's Scouting Report), so this never repeats a
+          "Favorable Matchup"-style verdict after the outcome is already
+          known. Same open/closed default as Fight Breakdown above. */}
+      {hasNotes && (
         <details className="fight-detail-section" open={isMajorFight}>
-          <summary>Scouting / Notes <ChevronDown size={13} className="fight-detail-chevron" /></summary>
-          {e.matchup && (
-            <div className={`matchup-line ${matchupWarn ? "warn" : ""}`}>
-              {matchupWarn && <AlertTriangle size={12} />}
-              Your {ATTR_BY_KEY[e.matchup.yourStrength.key].label} {Math.round(e.matchup.yourStrength.value)} vs their {ATTR_BY_KEY[e.matchup.oppStrength.key].label} {Math.round(e.matchup.oppStrength.value)} &mdash; {e.matchup.label}
-            </div>
-          )}
+          <summary>Fight Notes <ChevronDown size={13} className="fight-detail-chevron" /></summary>
           {(e.rivalry || e.statement || e.bonusType || e.underdogWin || e.calledOut || visibleTraits.length > 0) && (
             <div className="fight-bottom-row">
               <div className="fight-tags">
