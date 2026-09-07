@@ -702,15 +702,23 @@ function freshTitleTierCounts() {
 }
 
 // National title-path audit (Option D, calibrated): the natural title-shot
-// rank bar is loosened to <=6 for National only -- simulation confirmed
-// the National title route was effectively invisible (offered <1% of the
-// time) at the original <=5 bar, because playerRank<=5 almost never
-// arrives before the National->Contender-Series performance gate does.
-// <=6 lands National title-offered/advancement rates inside the approved
-// V1 target range while the gate stays the clear majority route; <=7
-// (tried first) overshot that range. Regional and Premier are explicitly
+// rank bar was originally loosened to <=6 for National only, since
+// playerRank<=5 almost never arrived before the National->Contender-Series
+// performance gate did. Realism-v1 follow-up found <=6 still wasn't enough
+// -- the gate itself (nationalGatePass, a couple hundred lines down) only
+// needs 2 quality wins, which a real ranked climb (needing several wins to
+// actually reach a single-digit rank from a fresh National entry) still
+// couldn't reliably beat. Raising the gate's own win requirement instead
+// was tried and rejected (it cost ELITE/GOAT-tier Premier reach); <=8 was
+// also tried and overshot (National title-route promotions jumped from
+// ~2% to ~16% of the total, no longer "rare but real"). <=7 is the
+// settled value: title-route promotions land around ~7% (vs the 2%
+// baseline) while the gate stays the clear majority route, same shape as
+// the original Option D calibration this comment describes, just moved
+// one further given the follow-up's larger sample. Regional has its own
+// threshold (see REGIONAL_TITLE_RANK_THRESHOLD below); Premier is
 // untouched, still <=5.
-const NATIONAL_TITLE_RANK_THRESHOLD = 6;
+const NATIONAL_TITLE_RANK_THRESHOLD = 7;
 // Matchmaking Realism V1: the audit found the Regional title route even
 // more starved than National's pre-Option-D state was (0 wins in 65,036
 // Regional fights) -- the flat streak>=4 fast-track (see
@@ -718,7 +726,7 @@ const NATIONAL_TITLE_RANK_THRESHOLD = 6;
 // Regional climb, mostly against the 24 unranked prospects who fill early
 // matchmaking, could ever reach rank<=5. Loosened the same way National's
 // was (Option D above), plus the fast-track itself now requires the streak
-// to include a real ranked win (see regionalRankedStreakWins in
+// to include a real ranked win (see regionalEverBeatRanked in
 // commitFight) so the two changes work together rather than one alone
 // trying to fix it.
 const REGIONAL_TITLE_RANK_THRESHOLD = 7;
@@ -1171,20 +1179,55 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // this), so the underlying rankPoints stays truthful -- this only sets a
 // tier-driven floor on the matchmaking curve, not a fake ranking.
 const NATIONAL_MATCHMAKING_CEILING = 10;
-// Matchmaking Realism V1: Regional had no ceiling of its own at all -- at
-// rankPoints=0 (every fresh Regional run, and any run that hasn't yet beaten
-// a high-enough-rated opponent to move the needle) centre sits at 39, deep
-// in the 24-fighter unranked tail, with no way for the +-3 jitter window to
-// ever reach the ranked pool (indices 1-15). The audit's "0 Regional title
-// wins in 65,036 fights" traces to exactly this: playerRank (which only
-// moves on a ranked win) and the Regional title gate that reads it both
-// depend on a ranked opponent ever being drawn at all, and under the old
-// uncapped formula that basically never happened before streak>=4 already
-// promoted the fighter out. Deliberately a much looser ceiling than
-// National's (10) or Premier's (11) -- Regional is meant to still mostly
-// read as small-hall, prospect-level fights, with a real (not majority)
-// chance of an early ranked test, not a guaranteed one.
-const REGIONAL_MATCHMAKING_CEILING = 17;
+// Matchmaking Realism V1 shipped a flat REGIONAL_MATCHMAKING_CEILING (17)
+// here, applied to every Regional fighter regardless of how their own
+// career was actually going -- it fixed the "0 Regional title wins in
+// 65,036 fights" problem (playerRank only moves on a ranked win, and the
+// old uncapped formula at low rankPoints essentially never drew one before
+// streak>=4 promoted the fighter out anyway) but the follow-up audit found
+// a real cost: a flat ceiling pulls a fighter toward ranked opposition
+// purely for having LOW rankPoints (i.e. being early/struggling), not for
+// having demonstrated anything, so a genuinely weak build's Regional run
+// got measurably harder across the board (win% 44%->30%) even on the
+// fights it was already losing.
+//
+// V2 (below, regionalCompetitionCeiling) replaces the flat number with a
+// small step function over DEMONSTRATED recent performance -- current win
+// streak, and whether that streak already includes a real ranked win --
+// never anything about the fighter's underlying attributes or draft
+// quality, which this code has no access to anyway. A fighter who just
+// lost, or hasn't strung wins together, gets Regional's original wide-open
+// draw back (no ceiling at all, exactly pre-Realism-V1 behavior); a
+// fighter on a real streak gets progressively tested; a fighter who has
+// already beaten someone actually ranked while streaking gets the full
+// ceiling this constant used to apply unconditionally. This is precisely
+// "developmental / rising / contender" from the realism-v1-followup brief,
+// intentionally not persisted as a stored label -- it's re-derived from
+// state that already exists (streak, regionalEverBeatRanked) every time
+// a fight is booked, so it can never drift out of sync with the fighter's
+// actual current form.
+const REGIONAL_RISING_STREAK = 2;
+const REGIONAL_RISING_CEILING = 22;
+const REGIONAL_CONTENDER_STREAK = 4;
+const REGIONAL_CONTENDER_CEILING = 17;
+function regionalCompetitionCeiling(streak, regionalEverBeatRanked) {
+  const s = streak || 0;
+  if (s < REGIONAL_RISING_STREAK) return null; // developmental -- no ceiling, Regional's original wide-open draw
+  if (s >= REGIONAL_CONTENDER_STREAK && regionalEverBeatRanked) return REGIONAL_CONTENDER_CEILING;
+  // Still building a case: proven momentum (streak>=2) but no ranked win
+  // to show for it yet. A flat "rising" ceiling for the whole stretch
+  // between here and either a ranked win or the streak>=7 dominance
+  // override left a real gap -- a fighter who reaches streak 4-6 without
+  // ever having been drawn a ranked opponent was stuck circling the same
+  // soft pool (never qualifying for the tighter contender ceiling, since
+  // that itself requires the ranked win this loop is waiting on) until the
+  // override finally kicked in at 7. Tightening 2 points per fight past
+  // the rising threshold, floored at the contender ceiling, means every
+  // extra fight on an unrewarded streak gets a real, growing chance at a
+  // ranked draw instead of an indefinite wait for the override.
+  const tightened = REGIONAL_RISING_CEILING - 2 * (s - REGIONAL_RISING_STREAK);
+  return Math.max(REGIONAL_CONTENDER_CEILING, tightened);
+}
 // Premier progression curve pass: Premier entry seeds rankPoints at 40
 // (see resetForFreshTier), not 0 -- without a floor of its own, that
 // seeds a natural centre deep in the unranked pool (~index 24),
@@ -1199,7 +1242,7 @@ const REGIONAL_MATCHMAKING_CEILING = 17;
 // Top 5/champion, and keeps Easy/Ranked/Step-Up clearly differentiated.
 const PREMIER_MATCHMAKING_CEILING = 11;
 
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier) {
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier, streak, regionalEverBeatRanked) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -1216,8 +1259,10 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
-  if (circuitTier === "CLF Regional") centre = Math.min(centre, REGIONAL_MATCHMAKING_CEILING);
-  else if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
+  if (circuitTier === "CLF Regional") {
+    const regionalCeiling = regionalCompetitionCeiling(streak, regionalEverBeatRanked);
+    if (regionalCeiling != null) centre = Math.min(centre, regionalCeiling);
+  } else if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
   else if (circuitTier === "CLF PREMIER") centre = Math.min(centre, PREMIER_MATCHMAKING_CEILING);
   // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
   // actually gets drawn -- lower array index is a stronger fighter (index 0
@@ -1474,13 +1519,15 @@ function matchmakerOptionFrom(tag, picked, playerRank) {
 // substituted opponent -- the UI renders a truthful empty state for it.
 // playerStreak (realism pass, item 5/6) gates Step-Up on the PLAYER's own
 // current momentum, not just the opponent's -- see pickStepUpCandidate.
-function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier, playerStreak) {
+// regionalEverBeatRanked (realism-v1 follow-up) feeds the Regional
+// competition-level step function -- see regionalCompetitionCeiling.
+function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier, playerStreak, regionalEverBeatRanked) {
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
 
   let easyPicked;
   for (let attempt = 0; attempt < 5; attempt++) {
-    easyPicked = selectDivisionOpponent(division, playerRankPoints, false, avoid, "easy", circuitTier);
+    easyPicked = selectDivisionOpponent(division, playerRankPoints, false, avoid, "easy", circuitTier, playerStreak, regionalEverBeatRanked);
     const dupRecord = pickedRecords.some((r) => r.w === easyPicked.fighter.record.w && r.l === easyPicked.fighter.record.l);
     if (!dupRecord) break;
     avoid.push(easyPicked.fighter.id);
@@ -1821,12 +1868,20 @@ function initCareer(picks, options) {
     // winning shouldn't earn the same invite as one who isn't, no matter
     // how good the wins they do have were.
     nationalWins: 0, nationalLosses: 0, nationalOppQualitySum: 0,
-    // Realism pass, item 16/17: Regional-scoped "did this win streak
-    // include a real ranked opponent" counter -- see its use in
-    // commitFight's Regional fast-track gate. Missing entirely on an old
-    // save behaves like 0 (read with `|| 0` everywhere it's used), same
-    // convention as every other compatibility-sensitive field here.
-    regionalRankedStreakWins: 0,
+    // Realism-v1 follow-up: has this Regional run ever beaten an actually-
+    // ranked Regional opponent -- a permanent resume fact for this
+    // Regional stint, NOT reset by a later losing skid (an earlier
+    // version scoped this to the current win streak only, which meant an
+    // otherwise-dominant run that took one early loss anywhere lost credit
+    // for a ranked win it had already earned, and measurably cost ELITE/
+    // GOAT-tier fighters Regional time -- see commitFight's fast-track
+    // gate and regionalCompetitionCeiling). Missing entirely on an old
+    // save reads as falsy (`|| false` / truthiness checks everywhere it's
+    // used), same convention as every other compatibility-sensitive field
+    // here. Reset back to false only where a fresh Regional stint actually
+    // starts (a brand-new career, or a weight-class move -- see
+    // resolveWeightMoveOffer).
+    regionalEverBeatRanked: false,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
@@ -2116,6 +2171,11 @@ function resolveWeightMoveOffer(state, accept) {
     s.rankPoints = 0;
     s.champion = false;
     s.weightPenaltyFightsLeft = 2;
+    // A brand-new division's Top 15 -- any ranked win recorded against the
+    // OLD one shouldn't still count as resume evidence in this one (see
+    // regionalEverBeatRanked). Moot outside Regional (nothing reads this
+    // flag past that tier), harmless to always reset.
+    s.regionalEverBeatRanked = false;
     s.timeline = [...s.timeline, { type: "weightMove", id: `wm-${s.year}-${s.fightGlobalIndex}`, direction, division: s.division }];
   } else {
     s.timeline = [...s.timeline, { type: "weightMoveDeclined", id: `wmd-${s.year}-${s.fightGlobalIndex}`, division: s.division }];
@@ -2169,7 +2229,7 @@ function maybeFightChoice(state) {
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier, rolled.streak);
+    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier, rolled.streak, rolled.regionalEverBeatRanked);
     return { ...rolled, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -2340,7 +2400,7 @@ function prepareFight(state, choiceTag, targetId) {
       // No freshly-drawn Easy option exists in this rebooking path -- draw
       // one the same way generateMatchmakerOptions does, purely as the
       // "harder than Easy" reference point Step-Up eligibility needs.
-      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier);
+      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier, s.streak, s.regionalEverBeatRanked);
       picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds, s.streak)
         || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [], s.streak)
         // Genuinely nobody clears the Step-Up bar even with nothing
@@ -2355,7 +2415,7 @@ function prepareFight(state, choiceTag, targetId) {
     // Only "easy" (and the unreachable-in-practice absolute edge case)
     // ever falls through to here -- Ranked/Step-Up are both structurally
     // guaranteed non-null by the two-tier fallback above.
-    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier);
+    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -2375,7 +2435,7 @@ function prepareFight(state, choiceTag, targetId) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
@@ -2600,21 +2660,22 @@ function commitFight(state) {
     else s.finishes = { ...s.finishes, dec: s.finishes.dec + 1 };
     s.oppQualitySumWins += opp.overall;
     if (tierBefore === "CLF National") { s.nationalWins += 1; s.nationalOppQualitySum += opp.overall; }
-    // Realism pass, item 16/17/19: how many of the CURRENT streak's wins,
-    // at Regional, were against an actually-ranked opponent -- reset
-    // alongside streak itself (any loss), incremented only on a ranked
-    // win. Distinguishes "beat 4 unranked prospects" from "beat 4 real
-    // Regional contenders" for the fast-track gate below, without
-    // punishing a fighter simply for not having been drawn a ranked
-    // opponent yet (an absolute rankPoints bar tried first did exactly
-    // that, and cost ELITE/GOAT-tier Premier-reach and championship rate
-    // along with it -- see the realism-pass sim notes). Scoped to Regional
+    // Realism-v1 follow-up: has this Regional stint ever beaten an
+    // actually-ranked opponent -- a permanent resume fact, NOT reset by a
+    // later loss (streak itself still resets on any loss, unchanged right
+    // below; this is deliberately a separate, non-resetting signal). A
+    // streak-scoped version of this was tried first and rejected: it
+    // distinguished "beat 4 unranked prospects" from "beat 4 real Regional
+    // contenders" for the fast-track gate, but wiped out a genuine ranked
+    // win the moment an otherwise-strong run took one unrelated loss
+    // anywhere else, which measurably cost ELITE/GOAT-tier fighters extra
+    // Regional time (median Regional fights roughly doubled) waiting for
+    // an unbroken streak to also contain a ranked win. Scoped to Regional
     // only, same as nationalWins/nationalLosses are scoped to National.
-    if (tierBefore === "CLF Regional" && oppRank != null) s.regionalRankedStreakWins = (s.regionalRankedStreakWins || 0) + 1;
+    if (tierBefore === "CLF Regional" && oppRank != null) s.regionalEverBeatRanked = true;
   } else {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
-    s.regionalRankedStreakWins = 0;
     if (tierBefore === "CLF National") s.nationalLosses += 1;
   }
 
@@ -2720,6 +2781,14 @@ function commitFight(state) {
   // rules as nationalWins above (National-fights-only, survives a
   // Contender Series bounce-back): you must be winning more than you're
   // losing at National, on top of the existing quality-of-wins bar.
+  // Realism-v1 follow-up: raising this to 3 was tried first and reverted --
+  // it did shift more National promotions to the title route, but cost
+  // ELITE/GOAT-tier Premier-reach and championship rate along the way (the
+  // same kind of runway cost the Regional ceiling caused, just smaller).
+  // Loosening the title path's OWN rank bar instead (see
+  // NATIONAL_TITLE_RANK_THRESHOLD above, now 7) gets the same "the gate
+  // shouldn't win the race by default" result without slowing the gate
+  // down for everyone, elites included.
   const nationalGatePass = s.nationalWins >= 2
     && s.nationalWins > s.nationalLosses
     && (s.nationalOppQualitySum / Math.max(1, s.nationalWins)) >= 65;
@@ -2755,21 +2824,22 @@ function commitFight(state) {
   // the exception a dominant prospect earns, not the default -- but a flat
   // streak>=4 rewards 4 wins over anyone, including the unranked prospects
   // who fill most early Regional bookings, exactly as easily as 4 wins over
-  // real ranked competition. Requiring at least one of those wins to have
-  // been over an actually-ranked Regional opponent (regionalRankedStreakWins,
-  // reset alongside streak on any loss) distinguishes the two without an
-  // absolute rankPoints bar -- that was tried first and, because early
-  // matchmaking mostly draws from the unranked pool regardless of player
-  // quality, ended up gating strong AND weak fighters alike, measurably
-  // costing ELITE/GOAT-tier Premier-reach and championship rate along with
-  // the intended scrub-farming case.
+  // real ranked competition. Requiring that this Regional stint has at
+  // some point beaten an actually-ranked opponent (regionalEverBeatRanked
+  // -- a permanent resume fact for the stint, not reset by an unrelated
+  // loss elsewhere; see its own comment in initCareer) distinguishes the
+  // two without an absolute rankPoints bar -- that was tried first and,
+  // because early matchmaking mostly draws from the unranked pool
+  // regardless of player quality, ended up gating strong AND weak fighters
+  // alike, measurably costing ELITE/GOAT-tier Premier-reach and
+  // championship rate along with the intended scrub-farming case.
   // An escape valve at a longer, still-clean streak (>=7) covers the
   // "exceptional undefeated run" case even when the ranked-opponent draw
   // never came up by chance -- Path B should stay reachable by dominance
   // alone (per the realism-pass brief's own "fast-track should still be
   // earnable by an exceptional run" direction), just require more of it
   // when that dominance was never actually tested against real competition.
-  const regionalFastTrackReady = s.streak >= 4 && (s.regionalRankedStreakWins || 0) >= 1;
+  const regionalFastTrackReady = s.streak >= 4 && s.regionalEverBeatRanked;
   const regionalDominanceOverride = s.streak >= 7;
   if (s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride)) {
     s.circuitTier = "CLF National";
