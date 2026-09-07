@@ -2325,6 +2325,13 @@ function buildGameplanInsight(pf) {
   const yourGroundEdge = !!(m && GROUND_KEYS.includes(m.yourStrength.key));
   const yourStandEdge = !!(m && STAND_KEYS.includes(m.yourStrength.key));
   const favorable = m && (m.label === "Favorable Matchup" || m.label === "Slight Advantage");
+  // Gameplan Truth Fix: the opponent-favored mirror of `favorable` above --
+  // a Dangerous/Nightmare Matchup is exactly the case where buildMatchup()
+  // found the opponent's own peak stat meaningfully ahead of yours, so a
+  // note naming THEIR strongest attribute (when it falls outside the
+  // archetype/trait coverage above) is truthful precisely when this is
+  // true, never invented for an otherwise even or favorable matchup.
+  const oppFavorable = m && (m.label === "Dangerous Matchup" || m.label === "Nightmare Matchup");
 
   if (oppGroundLean) {
     return yourGroundEdge
@@ -2336,12 +2343,69 @@ function buildGameplanInsight(pf) {
       ? { title: "Opponent is a live striking threat.", body: "You hold real pop of your own -- Stand-Up preparation lets you meet it.", suggestedStance: "standup" }
       : { title: "Opponent is a live striking threat.", body: "Ground-focused preparation is recommended to take the fight out of the pocket.", suggestedStance: "ground" };
   }
+  // Gameplan Truth Fix, item 6: the two opponent-lean checks above only
+  // ever recognized Wrestling/Grappling/Striking/Power, via archetype and
+  // the KO_THREAT/SUB_THREAT/WRESTLER traits -- when neither fires but the
+  // opponent's own peak stat (m.oppStrength, the exact same buildMatchup()
+  // truth the Scouting Report's own Attribute Edge row reads) is what's
+  // actually making this matchup Dangerous/Nightmare, name it truthfully
+  // instead of silently saying nothing about their real threat. Copy only
+  // -- no mechanical penalty/bonus implied or added, suggestedStance stays
+  // balanced since none of these four map to a specific phase the way
+  // Wrestling/Grappling or Striking/Power do.
+  if (oppFavorable && m.oppStrength.key === "SPEED") {
+    return { title: "OPPONENT SPEED EDGE", body: "Don't let them dictate the tempo.", suggestedStance: "balanced" };
+  }
+  if (oppFavorable && m.oppStrength.key === "CARDIO") {
+    return { title: "OPPONENT CARDIO EDGE", body: "Don't give them a comfortable high-output fight.", suggestedStance: "balanced" };
+  }
+  if (oppFavorable && m.oppStrength.key === "IQ") {
+    return { title: "OPPONENT IQ EDGE", body: "Stay disciplined -- they make good reads.", suggestedStance: "balanced" };
+  }
+  if (oppFavorable && m.oppStrength.key === "CHIN") {
+    return { title: "OPPONENT DURABILITY EDGE", body: "Don't rely on attritional damage alone.", suggestedStance: "balanced" };
+  }
   if (favorable && yourStandEdge) {
     return { title: `You hold a clear ${ATTR_BY_KEY[m.yourStrength.key].label.toLowerCase()} edge.`, body: "Stand-Up preparation keeps this fight standing.", suggestedStance: "standup" };
   }
   if (favorable && yourGroundEdge) {
     return { title: `You hold a clear ${ATTR_BY_KEY[m.yourStrength.key].label.toLowerCase()} edge.`, body: "Ground-focused preparation lets you impose it.", suggestedStance: "ground" };
   }
+  // Gameplan Truth Fix, items 3-5: the four skill keys buildMatchup() can
+  // also name as YOUR top attribute but the stand/ground edge checks above
+  // never recognized -- this is exactly the "SCOUTING says Favorable,
+  // GAMEPLAN says even" contradiction the audit found. Same truthful-
+  // interpretation treatment as the opponent-side branches above, copy
+  // only, wording locked as specified. Chin intentionally never implies
+  // reckless trading is strategically correct -- "don't rely on
+  // durability alone" is part of the locked body text, not just flavor.
+  if (favorable && m.yourStrength.key === "SPEED") {
+    return { title: "SPEED EDGE", body: "You should be able to dictate the pace on the feet.", suggestedStance: "standup" };
+  }
+  if (favorable && m.yourStrength.key === "CARDIO") {
+    return { title: "CARDIO EDGE", body: "Extend the fight and make them work.", suggestedStance: "balanced" };
+  }
+  if (favorable && m.yourStrength.key === "IQ") {
+    return { title: "FIGHT IQ EDGE", body: "You hold the strategic advantage. Stay adaptable.", suggestedStance: "balanced" };
+  }
+  if (favorable && m.yourStrength.key === "CHIN") {
+    return { title: "DURABILITY EDGE", body: "You can survive exchanges better, but don't rely on durability alone.", suggestedStance: "balanced" };
+  }
+  // Defensive fallback only (item 5): every real Favorable/Slight
+  // Advantage case is now covered by one of the eight yourStrength.key
+  // branches above (buildMatchup can only ever name one of the 8
+  // SKILL_KEYS), so this should never actually fire in practice -- kept
+  // truthful rather than silently reusing the "even matchup" copy below
+  // for a matchup that Scouting Report is calling Favorable.
+  if (favorable) {
+    return { title: "YOU HOLD THE EDGE", body: "The numbers favor you. Stay disciplined and fight to your strengths.", suggestedStance: "balanced" };
+  }
+  // Genuinely even (or the opponent's own edge didn't clear oppFavorable) --
+  // the only path that reaches here with m present is Even Matchup itself,
+  // or a Dangerous/Nightmare Matchup whose oppStrength.key isn't one of
+  // the four handled above (already covered by oppGroundLean/oppStandLean
+  // for Wrestling/Grappling/Striking/Power, so this is the true "nothing
+  // decisive either way" case).
   return { title: "An even matchup on paper.", body: "Balanced preparation keeps every option open.", suggestedStance: "balanced" };
 }
 
