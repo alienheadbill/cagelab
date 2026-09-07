@@ -1444,6 +1444,52 @@ function generateMicTimeTargets(division, playerRank, rivals, avoid, fightEntry)
   }));
 }
 
+// Career Matchmaking + Promotion Milestone pass, item 10: "Call Out a
+// Contender" used to expose the entire ranked roster once hasCalloutAccess
+// unlocked it -- truthful about WHO could be called out, but not about
+// what a believable callout actually is. Same contextual-window principle
+// generateMicTimeTargets above already established: a ranked player's
+// pool is the believable line-jump zone directly above them (the same
+// window shape as pickRankedCandidate/rankedCandidateWindow), plus a hot
+// nearby contender if that window comes up short; an unranked player's
+// pool is the bottom-of-the-ladder window only -- an unranked prospect
+// calling out #1 isn't a real callout, it's a fantasy the game shouldn't
+// offer as a real button. An active rival is appended last if one exists
+// and isn't already in the pool. Capped at 6 -- enough to feel like a
+// real, ownable choice (wider than Mic Time's post-fight 3, since this is
+// a browsed list, not a forced prompt) without ever exposing the whole
+// division. hasCalloutAccess itself (who gets to open this list at all)
+// is untouched -- this only narrows what's inside it.
+function generateCalloutTargets(division, playerRank, rivals, avoid) {
+  const skip = avoid || [];
+  const pool = [];
+  const push = (f) => { if (f && !f.isChampion && !skip.includes(f.id) && !pool.some((p) => p.id === f.id)) pool.push(f); };
+
+  if (playerRank != null) {
+    const windowHi = clamp(playerRank - 1, 1, DIVISION_SIZE);
+    const windowLo = clamp(playerRank - 4, 1, DIVISION_SIZE);
+    if (windowHi >= windowLo) {
+      eligibleRankedInWindow(division, windowLo, windowHi, skip)
+        .sort((a, b) => currentWinStreak(b) - currentWinStreak(a) || recentWins(b) - recentWins(a))
+        .forEach(push);
+    }
+    if (pool.length < 3) {
+      const hotNearby = eligibleRankedInWindow(division, clamp(windowLo - 3, 1, DIVISION_SIZE), clamp(windowHi + 3, 1, DIVISION_SIZE), skip).find(isHotContender);
+      push(hotNearby);
+    }
+  } else {
+    eligibleRankedInWindow(division, DIVISION_SIZE - 4, DIVISION_SIZE, skip).forEach(push);
+  }
+
+  const activeRivals = (rivals || []).filter((r) => r.active && r.isRival);
+  activeRivals.forEach((r) => push(division.find((f) => f.id === r.id)));
+
+  return pool.slice(0, 6).map((f) => ({
+    fighterId: f.id, name: f.name, rank: displayRankFor(division, division.indexOf(f)),
+    overall: f.overall, record: f.record, archetype: f.archetype,
+  }));
+}
+
 // Which fight results earn a Mic Time moment -- read straight off fields
 // commitFight already computes for every fight, never re-derived. A plain
 // finish and a win over any ranked opponent used to qualify on their own
@@ -3336,6 +3382,7 @@ export {
   estimatePhaseControl,
   fastForwardCareer,
   focusForWeakestTrainable,
+  generateCalloutTargets,
   generateMatchmakerOptions,
   generateMicTimeTargets,
   generateOpponentProfile,

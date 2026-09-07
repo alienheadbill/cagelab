@@ -30,7 +30,7 @@ import {
   strengthsWeaknesses, buildScorecardText, matchupProfileFor,
 } from "./lib/scoring.js";
 import {
-  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, rankBadge, clfTier, hasCalloutAccess, applyAging, resolveFight, initCareer,
+  DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, rankBadge, clfTier, hasCalloutAccess, generateCalloutTargets, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
   resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
@@ -1785,31 +1785,44 @@ export default function CageLab() {
                   Premier unconditionally, Regional/Contender Series never.
                   Before that, Mic Time (post-fight, a believable scoped
                   pool) is the only callout route. */}
-              {careerState.divisionRoster && hasCalloutAccess(careerState.circuitTier, careerState.playerRank) && (
-                <>
-                  <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
-                    <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
-                  </button>
-                  {/* Grid of compact cards in a self-contained scroll box
-                      (unchanged max-height from before this pass) -- own
-                      dedicated classes rather than the shared rank-num/
-                      rank-name/rank-rec spans, which the Rankings tab's
-                      horizontal rows still rely on unmodified. Single tap
-                      still books immediately, same as before. */}
-                  {calloutOpen && (
-                    <div className="callout-list">
-                      {careerState.divisionRoster.filter((f) => !f.isChampion).slice(0, DIVISION_SIZE).map((f, i) => (
-                        <button className="callout-row" key={f.id} onClick={() => handleFightChoice("callout", f.id)}>
-                          <span className="callout-card-rank mono">{circuitShort} &middot; #{i + 1}</span>
-                          <span className="callout-card-name">{f.name}</span>
-                          <span className="callout-card-meta mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
-                          {f.archetype && <span className="callout-card-archetype">{f.archetype}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+              {careerState.divisionRoster && hasCalloutAccess(careerState.circuitTier, careerState.playerRank) && (() => {
+                // Career Matchmaking + Promotion Milestone pass, item 10:
+                // a small, contextual pool -- the believable line-jump zone
+                // above the player (or the bottom-of-ladder window while
+                // unranked in Premier), plus a hot nearby contender and any
+                // active rival -- never the entire division. hasCalloutAccess
+                // above (unchanged) still owns WHO gets to open this list at
+                // all; this only narrows what's inside it.
+                const calloutTargets = generateCalloutTargets(careerState.divisionRoster, careerState.playerRank, careerState.rivals, careerState.recentOpponentIds);
+                return (
+                  <>
+                    <button className="btn btn-ghost callout-toggle" onClick={() => setCalloutOpen((v) => !v)}>
+                      <Megaphone size={14} /> {calloutOpen ? "Hide the Roster" : "Call Out a Contender"}
+                    </button>
+                    {/* Grid of compact cards in a self-contained scroll box
+                        (unchanged max-height from before this pass) -- own
+                        dedicated classes rather than the shared rank-num/
+                        rank-name/rank-rec spans, which the Rankings tab's
+                        horizontal rows still rely on unmodified. Single tap
+                        still books immediately, same as before. */}
+                    {calloutOpen && (
+                      <div className="callout-list">
+                        {calloutTargets.map((f) => (
+                          <button className="callout-row" key={f.fighterId} onClick={() => handleFightChoice("callout", f.fighterId)}>
+                            <span className="callout-card-rank mono">{circuitShort} &middot; {f.rank === 0 ? "CHAMPION" : f.rank ? `#${f.rank}` : "UNRANKED"}</span>
+                            <span className="callout-card-name">{f.name}</span>
+                            <span className="callout-card-meta mono">{f.record.w}-{f.record.l} &middot; {f.overall} OVR</span>
+                            {f.archetype && <span className="callout-card-archetype">{f.archetype}</span>}
+                          </button>
+                        ))}
+                        {calloutTargets.length === 0 && (
+                          <div className="note-txt">No believable callout target right now.</div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             );
           })()}
