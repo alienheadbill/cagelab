@@ -593,6 +593,13 @@
 
         .sim-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .sim-rank { font-size: 11px; color: var(--brass); font-weight: 600; margin-top: 2px; }
+        /* Career Presentation recovery pass, item 4: restrained champion-
+           specific header, reusing the brass/championship accent language
+           already established for milestone cards -- not a new palette. */
+        .champion-header { margin-top: 3px; display: flex; flex-direction: column; gap: 1px; }
+        .champion-header-label { display: flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: 0.08em; font-weight: 700; color: var(--brass); }
+        .champion-header-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+        .champion-header-defenses { font-size: 10px; color: var(--slate); }
         .sim-progress { font-size: 10px; color: var(--slate); margin-top: 2px; }
         .legacy-box { text-align: right; }
         .legacy-num { font-family: 'Anton', sans-serif; font-size: 26px; color: var(--brass); animation: pulseScale 0.4s ease; }
@@ -1198,6 +1205,11 @@
         .circuit-next { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; padding-top: 10px;
           border-top: 1px dashed rgba(154,143,125,0.18); font-size: 12px; color: var(--ink); }
         .circuit-next-label { flex-shrink: 0; font-size: 9px; letter-spacing: 0.1em; color: var(--brass); font-weight: 700; }
+        /* Career hub's own copy of the same "NEXT"/circuit-next line
+           (Career Presentation recovery pass, item 3) -- identical
+           language, just a touch tighter since it sits right under the
+           tier/style chips instead of under a whole ladder diagram. */
+        .hub-next-goal { margin-top: 8px; padding-top: 8px; font-size: 11.5px; }
         .circuit-note { font-size: 10.5px; color: var(--slate); margin-top: 10px; line-height: 1.45; }
 
         .rankings-list.rankings-list-tab { max-height: none; margin-top: 0; }
