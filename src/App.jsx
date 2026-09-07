@@ -1733,13 +1733,23 @@ export default function CageLab() {
                   }
                   const wins = opt.recentForm.filter((r) => r === "W").length;
                   const losses = opt.recentForm.length - wins;
+                  // Realism pass, item 4/28: career.js now attaches a
+                  // contextual label/reason to every generated option (why
+                  // THIS fight, not just "Easy/Ranked/Step-Up") -- shown in
+                  // place of the old static per-tag copy when present,
+                  // falling back to it for safety (defensive, shouldn't
+                  // normally trigger). The tag itself (and its CSS hook,
+                  // tag-${opt.tag}) is unchanged -- only the words on the
+                  // card change with context.
+                  const label = opt.label || meta.label;
+                  const reason = opt.reason || meta.sub;
                   return (
                     <button
                       key={opt.fighterId}
                       className={`matchmaker-card tag-${opt.tag}`}
                       onClick={() => handleFightChoice(opt.tag, opt.fighterId)}
                     >
-                      <div className="matchmaker-tag mono">{meta.label}</div>
+                      <div className="matchmaker-tag mono">{label}</div>
                       <div className="matchmaker-name">{opt.name}</div>
                       <div className="matchmaker-archetype mono">{opt.archetype}</div>
                       <div className="matchmaker-form-row">
@@ -1756,7 +1766,7 @@ export default function CageLab() {
                       <div className="matchmaker-meta mono">
                         {circuitShort} &middot; {opt.rank === 0 ? "CHAMPION" : opt.rank ? `#${opt.rank}` : "UNRANKED"} &middot; {opt.record.w}-{opt.record.l} &middot; {opt.overall} OVR
                       </div>
-                      <div className="matchmaker-sub">{meta.sub}</div>
+                      <div className="matchmaker-sub">{reason}</div>
                     </button>
                   );
                 })}

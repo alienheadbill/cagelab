@@ -610,7 +610,23 @@ function previewRankClimb(playerRank, oppRank, win, method) {
     }
     return playerRank;
   }
-  if (!win && playerRank != null) return Math.min(DIVISION_SIZE, playerRank + 1);
+  if (!win && playerRank != null) {
+    // Realism pass, item 8: losing UP should not cost the same as losing
+    // DOWN. 0 is the champion's own reserved value, not a real ladder
+    // position -- a title loss already has its own belt-transfer handling
+    // a few lines later in commitFight, so this stays the exact
+    // pre-existing flat +1 for that one case rather than reinterpreting 0
+    // as "gap from the challenger."
+    if (playerRank === 0) return 1;
+    // A real upset (no ranked opponent at all, e.g. a callout gone wrong
+    // against an unranked name) costs the most -- there's no "they were
+    // just better" excuse available.
+    if (oppRank == null) return Math.min(DIVISION_SIZE, playerRank + 3);
+    const gapAbove = playerRank - oppRank; // positive: opponent ranked BETTER (lower number) by this many spots
+    if (gapAbove >= 6) return playerRank; // a competitive loss to someone significantly above you -- standing holds
+    if (gapAbove >= 1) return Math.min(DIVISION_SIZE, playerRank + 1); // lost to someone modestly better -- normal cost
+    return Math.min(DIVISION_SIZE, playerRank + 2); // lost to a peer or someone ranked below you -- a real upset
+  }
   return playerRank;
 }
 
@@ -695,9 +711,22 @@ function freshTitleTierCounts() {
 // (tried first) overshot that range. Regional and Premier are explicitly
 // untouched, still <=5.
 const NATIONAL_TITLE_RANK_THRESHOLD = 6;
+// Matchmaking Realism V1: the audit found the Regional title route even
+// more starved than National's pre-Option-D state was (0 wins in 65,036
+// Regional fights) -- the flat streak>=4 fast-track (see
+// regionalFastTrackReady in commitFight) almost always fired before a
+// Regional climb, mostly against the 24 unranked prospects who fill early
+// matchmaking, could ever reach rank<=5. Loosened the same way National's
+// was (Option D above), plus the fast-track itself now requires the streak
+// to include a real ranked win (see regionalRankedStreakWins in
+// commitFight) so the two changes work together rather than one alone
+// trying to fix it.
+const REGIONAL_TITLE_RANK_THRESHOLD = 7;
 const DEFAULT_TITLE_RANK_THRESHOLD = 5;
 function naturalTitleRankThreshold(circuitTier) {
-  return circuitTier === "CLF National" ? NATIONAL_TITLE_RANK_THRESHOLD : DEFAULT_TITLE_RANK_THRESHOLD;
+  if (circuitTier === "CLF National") return NATIONAL_TITLE_RANK_THRESHOLD;
+  if (circuitTier === "CLF Regional") return REGIONAL_TITLE_RANK_THRESHOLD;
+  return DEFAULT_TITLE_RANK_THRESHOLD;
 }
 
 // Premier progression curve pass, Part B: at Premier only, the natural
@@ -1142,6 +1171,20 @@ function demoteInDivision(division, fromIdx, dropBy) {
 // this), so the underlying rankPoints stays truthful -- this only sets a
 // tier-driven floor on the matchmaking curve, not a fake ranking.
 const NATIONAL_MATCHMAKING_CEILING = 10;
+// Matchmaking Realism V1: Regional had no ceiling of its own at all -- at
+// rankPoints=0 (every fresh Regional run, and any run that hasn't yet beaten
+// a high-enough-rated opponent to move the needle) centre sits at 39, deep
+// in the 24-fighter unranked tail, with no way for the +-3 jitter window to
+// ever reach the ranked pool (indices 1-15). The audit's "0 Regional title
+// wins in 65,036 fights" traces to exactly this: playerRank (which only
+// moves on a ranked win) and the Regional title gate that reads it both
+// depend on a ranked opponent ever being drawn at all, and under the old
+// uncapped formula that basically never happened before streak>=4 already
+// promoted the fighter out. Deliberately a much looser ceiling than
+// National's (10) or Premier's (11) -- Regional is meant to still mostly
+// read as small-hall, prospect-level fights, with a real (not majority)
+// chance of an early ranked test, not a guaranteed one.
+const REGIONAL_MATCHMAKING_CEILING = 17;
 // Premier progression curve pass: Premier entry seeds rankPoints at 40
 // (see resetForFreshTier), not 0 -- without a floor of its own, that
 // seeds a natural centre deep in the unranked pool (~index 24),
@@ -1173,7 +1216,8 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   // the unranked tier; as you climb, opponents come from higher up the ranks.
   const span = division.length - 1;
   let centre = Math.round(span - (playerRankPoints / 100) * (span - 1));
-  if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
+  if (circuitTier === "CLF Regional") centre = Math.min(centre, REGIONAL_MATCHMAKING_CEILING);
+  else if (circuitTier === "CLF National") centre = Math.min(centre, NATIONAL_MATCHMAKING_CEILING);
   else if (circuitTier === "CLF PREMIER") centre = Math.min(centre, PREMIER_MATCHMAKING_CEILING);
   // The matchmaking-menu's "Easy Fight" / "Step-Up Fight" choices bias who
   // actually gets drawn -- lower array index is a stronger fighter (index 0
@@ -1314,8 +1358,20 @@ function passesStepUpHardCriteria(fighter, division, easyFighter) {
 // tiebreaks), which lands an unranked player's window on #11-15 -- the
 // bottom of the Top 15, not the top of it.
 const STEP_UP_MAX_JUMP = 5;
+// Realism pass, item 5/6: Step-Up used to be gated purely on the OPPONENT's
+// form (isHotContender), which the audit found available ~97-98% of the
+// time almost everywhere below Top 5 -- a "special, dangerous" opportunity
+// that was actually on offer at nearly every booking isn't special. A real
+// promotion doesn't hand a fighter a signature step-up fight for no reason
+// -- it's offered BECAUSE that fighter has real momentum right now. Gating
+// on the player's own current win streak (already-tracked state, no new
+// field) ties the offer to the player's own context, not just whether some
+// opponent happens to be in form -- simulated down to a healthy 20-45%-ish
+// range per tier (see the realism-pass strategy/availability sim).
+const STEP_UP_MOMENTUM_STREAK = 2;
 
-function pickStepUpCandidate(division, playerRank, easyFighter, avoid) {
+function pickStepUpCandidate(division, playerRank, easyFighter, avoid, playerStreak) {
+  if ((playerStreak || 0) < STEP_UP_MOMENTUM_STREAK) return null;
   const referencePos = playerRank != null ? playerRank : DIVISION_SIZE + 1;
   const windowLo = Math.max(1, referencePos - STEP_UP_MAX_JUMP);
   const windowHi = referencePos - 1;
@@ -1355,12 +1411,57 @@ function pickStepUpCandidate(division, playerRank, easyFighter, avoid) {
   return candidates[0];
 }
 
-function matchmakerOptionFrom(tag, picked) {
+// Realism pass, item 4/28/29: a small, explainable "why this fight" layer
+// on top of the existing three tags -- the architecture (Easy/Ranked/
+// Step-Up, plus their existing eligibility rules) stays exactly as-is; this
+// only decides what the card SAYS about the candidate it already picked, so
+// a real ranked opponent below the player reads as "Defend Your Rank" and
+// one above reads as "Climb the Ladder," instead of every non-Easy fight
+// wearing the same static label regardless of what it actually represents.
+function describeMatchmakerOpportunity(tag, picked, playerRank) {
+  const oppRank = picked.rank;
+  const name = picked.fighter.name;
+  if (tag === "easy") {
+    if (oppRank != null && playerRank != null && oppRank > playerRank) {
+      return { label: "Defend Your Rank", reason: `#${oppRank} wants your spot in the rankings.` };
+    }
+    if (isOnLosingSkid(picked.fighter, 2)) {
+      return { label: "Stay Busy", reason: `${name} is cold right now -- a low-risk booking to stay active.` };
+    }
+    return { label: "Stay Busy", reason: "A straightforward booking to stay active." };
+  }
+  if (tag === "ranked") {
+    if (oppRank != null && playerRank != null && oppRank < playerRank) {
+      return { label: "Climb the Ladder", reason: `Beat #${oppRank} and move up the rankings.` };
+    }
+    if (oppRank != null && playerRank != null && oppRank > playerRank) {
+      return { label: "Defend Your Rank", reason: `#${oppRank} is hunting your position.` };
+    }
+    if (playerRank == null && oppRank != null) {
+      return { label: "Earn Your Ranking", reason: `Beat #${oppRank} and crack the Top 15.` };
+    }
+    return { label: "Ranked Climb", reason: "A real ranked opponent -- a genuine step up from Easy." };
+  }
+  // stepUp -- only ever offered at all once the player has real momentum
+  // (see STEP_UP_MOMENTUM_STREAK), so every remaining label below is some
+  // flavor of "cash in that momentum," not a routine menu option.
+  if (playerRank != null && playerRank <= 5) {
+    return { label: "Title Eliminator", reason: oppRank != null ? `Beat #${oppRank} and you're squarely in title contention.` : "A statement win to force the promotion's hand." };
+  }
+  if (playerRank == null) {
+    return { label: "Prospect Test", reason: `${name} is unranked but red-hot -- a real early test of your run.` };
+  }
+  return { label: "Main Event Opportunity", reason: `${name} is on a run -- a rare shot to skip the line.` };
+}
+
+function matchmakerOptionFrom(tag, picked, playerRank) {
+  const { label, reason } = describeMatchmakerOpportunity(tag, picked, playerRank);
   return {
     tag, available: true, fighterId: picked.fighter.id, rank: picked.rank,
     name: picked.fighter.name, archetype: picked.fighter.archetype,
     overall: picked.fighter.overall, record: picked.fighter.record,
     recentForm: picked.fighter.recentForm || [],
+    label, reason,
   };
 }
 
@@ -1371,7 +1472,9 @@ function matchmakerOptionFrom(tag, picked) {
 // labels are never dishonest about who's actually being offered. A tag
 // with no eligible candidate returns `available: false` instead of a
 // substituted opponent -- the UI renders a truthful empty state for it.
-function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier) {
+// playerStreak (realism pass, item 5/6) gates Step-Up on the PLAYER's own
+// current momentum, not just the opponent's -- see pickStepUpCandidate.
+function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier, playerStreak) {
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
 
@@ -1388,13 +1491,13 @@ function generateMatchmakerOptions(division, playerRankPoints, playerRank, recen
   const rankedPicked = pickRankedCandidate(division, playerRank, avoid);
   if (rankedPicked) avoid.push(rankedPicked.fighter.id);
 
-  const stepUpPicked = pickStepUpCandidate(division, playerRank, easyPicked.fighter, avoid);
+  const stepUpPicked = pickStepUpCandidate(division, playerRank, easyPicked.fighter, avoid, playerStreak);
   if (stepUpPicked) avoid.push(stepUpPicked.fighter.id);
 
   return [
-    matchmakerOptionFrom("easy", easyPicked),
-    rankedPicked ? matchmakerOptionFrom("ranked", rankedPicked) : { tag: "ranked", available: false },
-    stepUpPicked ? matchmakerOptionFrom("stepUp", stepUpPicked) : { tag: "stepUp", available: false },
+    matchmakerOptionFrom("easy", easyPicked, playerRank),
+    rankedPicked ? matchmakerOptionFrom("ranked", rankedPicked, playerRank) : { tag: "ranked", available: false },
+    stepUpPicked ? matchmakerOptionFrom("stepUp", stepUpPicked, playerRank) : { tag: "stepUp", available: false },
   ];
 }
 
@@ -1718,6 +1821,12 @@ function initCareer(picks, options) {
     // winning shouldn't earn the same invite as one who isn't, no matter
     // how good the wins they do have were.
     nationalWins: 0, nationalLosses: 0, nationalOppQualitySum: 0,
+    // Realism pass, item 16/17: Regional-scoped "did this win streak
+    // include a real ranked opponent" counter -- see its use in
+    // commitFight's Regional fast-track gate. Missing entirely on an old
+    // save behaves like 0 (read with `|| 0` everywhere it's used), same
+    // convention as every other compatibility-sensitive field here.
+    regionalRankedStreakWins: 0,
     wear: { chin: 0, speed: 0 }, weightPenaltyFightsLeft: 0,
     runningLegacy: 0, oppQualitySumWins: 0, statementWins: 0, rivalryWins: 0,
     rivals: [], recentOpponentIds: [], definingLoss: null,
@@ -2060,7 +2169,7 @@ function maybeFightChoice(state) {
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier);
+    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier, rolled.streak);
     return { ...rolled, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -2232,8 +2341,8 @@ function prepareFight(state, choiceTag, targetId) {
       // one the same way generateMatchmakerOptions does, purely as the
       // "harder than Easy" reference point Step-Up eligibility needs.
       const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier);
-      picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds)
-        || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [])
+      picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds, s.streak)
+        || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [], s.streak)
         // Genuinely nobody clears the Step-Up bar even with nothing
         // avoided (the panel's own "No Step-Up Available" case, just hit
         // mid-flow instead of at generation time) -- degrade to Ranked's
@@ -2491,9 +2600,21 @@ function commitFight(state) {
     else s.finishes = { ...s.finishes, dec: s.finishes.dec + 1 };
     s.oppQualitySumWins += opp.overall;
     if (tierBefore === "CLF National") { s.nationalWins += 1; s.nationalOppQualitySum += opp.overall; }
+    // Realism pass, item 16/17/19: how many of the CURRENT streak's wins,
+    // at Regional, were against an actually-ranked opponent -- reset
+    // alongside streak itself (any loss), incremented only on a ranked
+    // win. Distinguishes "beat 4 unranked prospects" from "beat 4 real
+    // Regional contenders" for the fast-track gate below, without
+    // punishing a fighter simply for not having been drawn a ranked
+    // opponent yet (an absolute rankPoints bar tried first did exactly
+    // that, and cost ELITE/GOAT-tier Premier-reach and championship rate
+    // along with it -- see the realism-pass sim notes). Scoped to Regional
+    // only, same as nationalWins/nationalLosses are scoped to National.
+    if (tierBefore === "CLF Regional" && oppRank != null) s.regionalRankedStreakWins = (s.regionalRankedStreakWins || 0) + 1;
   } else {
     s.record = { ...s.record, l: s.record.l + 1 };
     s.streak = 0;
+    s.regionalRankedStreakWins = 0;
     if (tierBefore === "CLF National") s.nationalLosses += 1;
   }
 
@@ -2630,7 +2751,27 @@ function commitFight(state) {
   // is kept, not rebuilt), so the belt-taking block further down needs its
   // own guard against re-crowning the player right after this clears them.
   let leftBeltBehindForContenderSeries = false;
-  if (s.circuitTier === "CLF Regional" && (justWonTierTitle || s.streak >= 4)) {
+  // Realism pass, item 16/17: the fast-track route (Path B) is meant to be
+  // the exception a dominant prospect earns, not the default -- but a flat
+  // streak>=4 rewards 4 wins over anyone, including the unranked prospects
+  // who fill most early Regional bookings, exactly as easily as 4 wins over
+  // real ranked competition. Requiring at least one of those wins to have
+  // been over an actually-ranked Regional opponent (regionalRankedStreakWins,
+  // reset alongside streak on any loss) distinguishes the two without an
+  // absolute rankPoints bar -- that was tried first and, because early
+  // matchmaking mostly draws from the unranked pool regardless of player
+  // quality, ended up gating strong AND weak fighters alike, measurably
+  // costing ELITE/GOAT-tier Premier-reach and championship rate along with
+  // the intended scrub-farming case.
+  // An escape valve at a longer, still-clean streak (>=7) covers the
+  // "exceptional undefeated run" case even when the ranked-opponent draw
+  // never came up by chance -- Path B should stay reachable by dominance
+  // alone (per the realism-pass brief's own "fast-track should still be
+  // earnable by an exceptional run" direction), just require more of it
+  // when that dominance was never actually tested against real competition.
+  const regionalFastTrackReady = s.streak >= 4 && (s.regionalRankedStreakWins || 0) >= 1;
+  const regionalDominanceOverride = s.streak >= 7;
+  if (s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride)) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
   } else if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
@@ -2850,7 +2991,14 @@ function commitFight(state) {
     isRivalry = !!(rivalRecord && rivalRecord.isRival && rivalRecord.active);
   }
   s.recentOpponentIds = [oppEntry.id, ...(s.recentOpponentIds || [])].slice(0, 2);
-  const isStatement = result.win && opp.overall >= 88;
+  // Realism pass, item 7: a won Step-Up now always counts as a statement
+  // win too, on top of the existing raw-overall bar -- reuses the existing
+  // statementWins Legacy term (statementWins*5, see calculateLegacy) and
+  // Mic Time trigger (qualifiesForMicTime reads e.statement) rather than
+  // inventing a separate reward path. Deliberately the smallest possible
+  // hook into "a genuinely dangerous fight, won, should feel like it
+  // mattered" -- the global Legacy formula itself is untouched.
+  const isStatement = result.win && (opp.overall >= 88 || choiceTag === "stepUp");
   if (isStatement) s.statementWins += 1;
   if (isRivalry && result.win) s.rivalryWins += 1;
   // Fame builds off-cycle (media days, charity work) but also off the
@@ -3396,6 +3544,7 @@ export {
   playSfxForTransition,
   prepareFight,
   previewCampFocus,
+  previewRankClimb,
   rankBadge,
   rankLabel,
   rankToTierCls,
