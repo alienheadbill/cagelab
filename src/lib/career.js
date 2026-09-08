@@ -1365,7 +1365,14 @@ function buildFreshUniverse(activeCircuitTier, seed, startingFighterSeq = 0) {
     divisions[key] = idResult.division;
     fighterSeq = idResult.nextFighterSeq;
   });
-  return { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions };
+  // worldTickSeq/boutSeq/bouts (NPC World Movement + Bout Ledger V1): a
+  // brand-new universe starts with no world history yet -- explicit here
+  // (not left to the `|| 0`/`|| []` fallbacks every read site also
+  // tolerates, for an old-shape/pre-ledger universe) for the same reason
+  // fighterSeq is explicit above: this is the one place a universe is
+  // truly starting from nothing, so it should say so plainly rather than
+  // relying on undefined-reads-as-default everywhere else.
+  return { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions, worldTickSeq: 0, boutSeq: 0, bouts: [] };
 }
 
 // ---- Single source of truth ---------------------------------------------
@@ -1541,8 +1548,476 @@ function migrateStateToUniverse(state, seed) {
     divisions[key] = idResult.division;
     fighterSeq = idResult.nextFighterSeq;
   });
-  s.universe = { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions };
+  // worldTickSeq/boutSeq/bouts: a migrated old-shape save never had a bout
+  // ledger, so it starts one fresh here -- same reasoning as
+  // buildFreshUniverse's own explicit 0/0/[]. No history is fabricated for
+  // fights that happened before this feature existed; the ledger is
+  // truthful from the moment World Movement actually starts running, not
+  // reconstructed retroactively.
+  s.universe = { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions, worldTickSeq: 0, boutSeq: 0, bouts: [] };
   return s;
+}
+
+// =========================================================================
+//  NPC WORLD MOVEMENT + BOUT LEDGER V1
+// =========================================================================
+// Persistent Universe Foundation V1 gave Regional/National/Premier a
+// persistent roster each, but only the player's own active tier ever
+// moved -- via commitFight's old simulateDivisionRound (removed by this
+// pass), one flat "round" of movement per player fight, applied ONLY to
+// whichever division happened to be s.divisionRoster at that exact moment,
+// scoped to the champion + 15 ranked pool alone (the unranked tier below
+// was never touched by it at all). The other two persistent tiers sat
+// completely frozen the entire time the player fought elsewhere.
+//
+// This pass replaces that model, not merely extends it, with one that
+// runs identically for all three persistent tiers every world tick and
+// makes every meaningful resulting mutation traceable to an actual
+// persisted bout (universe.bouts) rather than an unrecorded record.w += 1.
+// Concretely:
+//   - universe.worldTickSeq increments exactly once per COMMITTED PLAYER
+//     FIGHT (any tier, Contender Series included) -- the player's own
+//     fight is the universe's passage-of-time anchor.
+//   - Regional, National, AND Premier each get one round of background
+//     bouts per tick, regardless of which tier the player's fight was in
+//     (a promotion fight must not let National activity replace Regional
+//     activity, or vice versa -- see runWorldTick/commitFight below).
+//   - Every background bout (and, starting with this pass, the player's
+//     own committed fight too) is appended to universe.bouts under a
+//     monotonic bout-N id (universe.boutSeq), with enough historical
+//     context (rank/record BEFORE the fight, not derivable from current
+//     state later) that a future Event Archive / Title Lineage / Fighter
+//     History pass can render an old card truthfully instead of guessing
+//     from whatever the fighters' CURRENT standing happens to be.
+//   - The unranked tier now actually matters: a Hot Prospect or Ranking-
+//     Bubble fighter can break into the Top 15 by beating a real
+//     bottom-of-the-ladder ranked fighter in the background, and a
+//     struggling ranked veteran can fall the other way -- without ever
+//     fighting the player.
+// Contender Series remains exactly what it already was -- a temporary,
+// non-persistent showcase pipeline (see circuitToUniverseKey) -- it never
+// gets its own background bouts; the three PERSISTENT circuits still
+// advance every tick regardless of a CS fight happening that tick.
+//
+// RNG isolation: every background bout, for every tier, on every tick,
+// runs through the SAME isolated, serializable universe RNG
+// (nextUniverseRandom/universe.rngState) that Foundation V1's own
+// generation already used -- via the identical scoped Math.random swap
+// adapter that buildDivisionWithUniverseRng established (see
+// runWorldTickForDivision below), never the player's own Math.random
+// stream. This is a direct extension of that same adapter to ongoing
+// background simulation, exactly the "future NPC world simulation should
+// call the serialized universe RNG directly" note Foundation V1's own
+// report already flagged -- not a new exception to the isolation
+// principle it established.
+
+// Reserved career-local participant id for the player's own bouts in the
+// universe ledger. Can never collide with an NPC id: every NPC id is
+// either `fighter-<n>` (current universe-wide scheme) or, for an
+// old-save-migrated active roster, `div-<n>-<slug>` -- neither shape can
+// ever equal the bare string "player".
+const PLAYER_BOUT_ID = "player";
+
+// Assigns monotonic bout-<n> ids to a batch of freshly-resolved bouts in
+// one pass, threading the sequence value explicitly through the call --
+// same pattern as assignUniverseFighterIds, for the same reason: never a
+// shared mutable counter, so it stays serialization-safe and reproducible.
+function assignBoutIds(newBouts, boutSeq) {
+  let seq = boutSeq || 0;
+  const withIds = newBouts.map((b) => {
+    seq += 1;
+    return { id: `bout-${seq}`, ...b };
+  });
+  return { bouts: withIds, nextBoutSeq: seq };
+}
+
+// Appends one already-resolved bout (the player's own committed fight) to
+// the ledger under the next bout id. Kept separate from the background-tick
+// batch append (assignBoutIds is reused by both) so the player's own fight
+// always gets appended -- and therefore always gets the lowest bout id --
+// for the tick it belongs to, before that tick's background bouts are
+// generated: a stable, predictable "the player's own result leads this
+// tick's ledger entries" ordering, not load-bearing for correctness but a
+// sensible, deterministic convention for any future reader.
+function appendPlayerBout(universe, boutFields) {
+  const { bouts: idBouts, nextBoutSeq } = assignBoutIds([boutFields], universe.boutSeq);
+  return { ...universe, boutSeq: nextBoutSeq, bouts: [...(universe.bouts || []), ...idBouts] };
+}
+
+// Lightweight universe bout resolver -- deliberately NOT the player's full
+// round-by-round combat simulator (resolveFight/simulateRounds, both
+// completely untouched by this pass). Reuses computeWinProbability and
+// computeFinishOdds UNCHANGED -- the exact same formulas the player's own
+// pre-fight preview and simulation read -- so background results stay
+// recognizably the same kind of MMA this engine already produces, without
+// paying for round-by-round fatigue/damage state, scorecards, or narrative
+// nobody will ever read for a fight that isn't the player's own. Phase
+// assumption is neutral (stanceBias 0 -- neither NPC has a player-only
+// gameplan concept) and reachScore is the same 75 baseline
+// computeWinProbability itself already treats as "no reach edge either
+// way" -- acceptable simplifications for a lightweight resolver, not a
+// second combat model competing with the real one.
+//
+// Swaps Math.random to rngFn for its own duration (the identical adapter
+// pattern buildDivisionWithUniverseRng already established) so it's safe
+// to call standalone with a controlled rngFn (tests do exactly this) as
+// well as from inside an already-swapped caller like
+// runWorldTickForDivision below -- nesting the same swap twice is a no-op,
+// not a bug.
+function resolveLightweightBout(attrsA, attrsB, isTitleFight, rngFn) {
+  const original = Math.random;
+  Math.random = rngFn;
+  try {
+    const phase = estimatePhaseControl(attrsA, attrsB, 0);
+    const REACH_NEUTRAL = 75;
+    const probA = computeWinProbability(attrsA, attrsB, phase, REACH_NEUTRAL);
+    const aWins = Math.random() < probA;
+    const winnerAttrs = aWins ? attrsA : attrsB;
+    const loserAttrs = aWins ? attrsB : attrsA;
+    const odds = computeFinishOdds(winnerAttrs, loserAttrs, phase);
+    const totalRounds = isTitleFight ? 5 : 3;
+    // Single-roll stand-in for simulateRounds' round-by-round damage
+    // accumulation -- calibrated by direct measurement against the player
+    // engine's own method/finish-rate output (see this branch's own
+    // report), not an exact statistical clone of it, which a lightweight
+    // resolver is explicitly not required to be.
+    const finishChance = clamp((odds.koPotential + odds.subPotential) / WORLD_BOUT_FINISH_DIVISOR, 0.05, 0.55);
+    const isFinish = Math.random() < finishChance;
+    let method = "Decision", round = totalRounds;
+    if (isFinish) {
+      method = rollMethod(odds);
+      round = pickWeightedFinishRound(totalRounds);
+    }
+    return { aWins, method, round };
+  } finally {
+    Math.random = original;
+  }
+}
+// Tuned so the lightweight resolver's Decision/KO-TKO/Submission split and
+// favorite-win-rate-by-probability-bucket broadly track the player engine's
+// own (see this branch's own report for the measured comparison) --
+// touched only if that measurement calls for it, never to chase an exact
+// statistical match (out of scope for a lightweight resolver).
+const WORLD_BOUT_FINISH_DIVISOR = 145;
+
+// Front-loaded but not extreme -- broadly matches real MMA's tendency for
+// finishes to cluster early-to-middle rather than being spread uniformly
+// across rounds or purely round-1-or-bust. Called only from inside
+// resolveLightweightBout, after Math.random is already swapped to the
+// active rngFn there.
+function pickWeightedFinishRound(totalRounds) {
+  const weights = totalRounds >= 5 ? [0.28, 0.24, 0.20, 0.16, 0.12] : [0.42, 0.34, 0.24];
+  const r = Math.random();
+  let acc = 0;
+  for (let i = 0; i < weights.length; i++) {
+    acc += weights[i];
+    if (r < acc) return i + 1;
+  }
+  return totalRounds;
+}
+
+// Roster Ecology V1's tag is generation-origin metadata, not a permanent
+// caste (see its own comment on createEcologyFighter) -- ranked/champion
+// fighters carry no ecology tag at all, and a fighter who drops OUT of the
+// ranked pool via a background boundary-bout loss needs a believable one
+// so they're not invisible to ecology-aware candidate pools
+// (eligibleEcologyPool/pickEcologyCandidate) they just became eligible
+// for again. A small, defensible heuristic off their OWN real record --
+// never a coin flip, never their old ranked-pool identity carried over
+// unearned.
+function ecologyForDemotedFighter(fighter) {
+  const wins = fighter.record.w, losses = fighter.record.l;
+  const experience = wins + losses;
+  if (experience >= 20) return "VETERAN_GATEKEEPER";
+  if (wins - losses >= 4 && experience <= 12) return "HOT_PROSPECT";
+  if (wins >= losses) return "SOLID_UNRANKED";
+  return "DEVELOPMENTAL";
+}
+
+// Cadence chosen after measuring LIGHT/MODERATE/ACTIVE candidates across
+// 60 simulated careers apiece (avg ~9.6 years, ~18 world ticks/career --
+// see this branch's own report for the full comparison):
+//   LIGHT   (1/1/2 bouts, 10%/55% chance): 6.8% of the roster NEVER fights
+//           across its whole career-length window; ~0.30 fights/fighter/yr.
+//   MODERATE (shipped, below):              1.6% never fights;
+//           ~0.50 fights/fighter/yr; ~1.2-1.8 title changes/10yrs/tier.
+//   ACTIVE  (3/3/6-7 bouts, 18%/90% chance): 0.0% never fights, but roughly
+//           DOUBLES total ledger volume for only a modest further drop in
+//           inactivity and title-change cadence over MODERATE.
+// MODERATE is the smallest of the three that clearly avoids both
+// Section 25 anti-patterns ("half the roster never fights for years" --
+// LIGHT's 6.8% inactive rate is a real, if smaller, version of that same
+// problem; "every fighter racks up 30 fights in three years" -- ACTIVE's
+// extra ledger volume buys very little additional believability over this).
+// titleChance is the odds a tier with an NPC champion gets a title fight
+// THIS tick; vacancyChance is the (deliberately higher) odds a genuinely
+// vacant belt gets contested this tick, so a title the player left behind
+// doesn't sit vacant indefinitely. rankedBouts/boundaryBouts/unrankedBouts
+// are bout COUNTS per tick, not chances.
+const WORLD_TICK_CADENCE = {
+  "CLF Regional": { titleChance: 0.14, vacancyChance: 0.80, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 4 },
+  "CLF National": { titleChance: 0.15, vacancyChance: 0.80, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 3 },
+  "CLF PREMIER": { titleChance: 0.16, vacancyChance: 0.85, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 3 },
+};
+
+// Runs ONE tier's background activity for ONE world tick. Pure: returns a
+// new division array + the bouts it produced + the advanced rngState,
+// never mutates its inputs. excludeIds keeps the player's own just-fought
+// opponent out of an ADDITIONAL background booking this same tick (no
+// same-night double fights -- see this branch's own report); harmless/
+// inert for a tier the player isn't in, and for Contender Series opponents
+// (never part of any persistent roster, so their id never matches anyone
+// here anyway).
+function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds, year, worldTick, rngState) {
+  const cadence = WORLD_TICK_CADENCE[tierName] || WORLD_TICK_CADENCE["CLF Regional"];
+  let state = rngState;
+  const rngFn = () => {
+    const { value, nextState } = nextUniverseRandom(state);
+    state = nextState;
+    return value;
+  };
+  const original = Math.random;
+  Math.random = rngFn;
+  try {
+    const d = division.map((f) => ({ ...f, record: { ...f.record } }));
+    const used = new Set(excludeIds || []);
+    const bouts = [];
+
+    function rankOf(fighter) {
+      const idx = d.indexOf(fighter);
+      return idx === -1 ? null : displayRankFor(d, idx);
+    }
+    function pushBout(aFighter, bFighter, aWins, method, round, titleFight, championBeforeId) {
+      bouts.push({
+        circuit: tierName, year, worldTick,
+        fighterAId: aFighter.id, fighterBId: bFighter.id,
+        winnerId: aWins ? aFighter.id : bFighter.id,
+        method, round, titleFight: !!titleFight,
+        championBeforeId: championBeforeId ?? null,
+        rankABefore: rankOf(aFighter), rankBBefore: rankOf(bFighter),
+        recordABefore: { ...aFighter.record }, recordBBefore: { ...bFighter.record },
+      });
+    }
+    // Mutates the winner/loser fighter objects IN PLACE (they're already
+    // the exact objects sitting in `d`, so this is how a position swap
+    // elsewhere in this function picks up the updated record for free) --
+    // never suppressed by a win-rate floor the way the old
+    // applyRoundLoss/simulateDivisionRound model protected ranked records
+    // from repeated-coin-flip erosion. That protection doesn't carry over
+    // here on purpose: every result in this pass is ledger-backed, real
+    // history now, and a floor that silently declined to record a loss
+    // that DID happen would break the record-reconciliation invariant
+    // (baseline + ledger wins/losses = current record) this branch's own
+    // report explicitly validates. A ranked fighter's record can now
+    // genuinely drift through a rough patch, same as it would for a real
+    // fighter -- see this branch's own report for the measured effect.
+    function applyResult(aFighter, bFighter, aWins) {
+      const winner = aWins ? aFighter : bFighter, loser = aWins ? bFighter : aFighter;
+      winner.record = { w: winner.record.w + 1, l: winner.record.l };
+      pushForm(winner, true);
+      loser.record = { w: loser.record.w, l: loser.record.l + 1 };
+      pushForm(loser, false);
+    }
+
+    // ---- title / vacancy slot -------------------------------------------
+    const champIdx = d.findIndex((f) => f.isChampion);
+    if (champIdx !== -1) {
+      const champ = d[champIdx];
+      if (!used.has(champ.id) && Math.random() < cadence.titleChance) {
+        let challengerIdx = -1;
+        for (let i = 1; i <= Math.min(DIVISION_SIZE, d.length - 1); i++) {
+          if (!used.has(d[i].id)) { challengerIdx = i; break; }
+        }
+        if (challengerIdx !== -1) {
+          const challenger = d[challengerIdx];
+          const { aWins, method, round } = resolveLightweightBout(champ.attrs, challenger.attrs, true, Math.random);
+          pushBout(champ, challenger, aWins, method, round, true, champ.id);
+          used.add(champ.id); used.add(challenger.id);
+          applyResult(champ, challenger, aWins);
+          if (!aWins) {
+            champ.isChampion = false;
+            challenger.isChampion = true;
+            d[champIdx] = challenger; d[challengerIdx] = champ;
+          }
+        }
+      }
+    } else if (!playerHoldsBelt && Math.random() < cadence.vacancyChance) {
+      // Section 18/19: the player left this tier's belt behind (or it was
+      // never earned since), and nobody in the roster holds it either --
+      // a genuine vacancy. Contested between the top two eligible ranked
+      // fighters, same as any other title fight, just with no defending
+      // champion and no championBeforeId (truthfully null -- a future
+      // Title Lineage pass needs to be able to tell "successful defense"
+      // apart from "vacant-title win" apart from "title change," which is
+      // exactly why this field exists).
+      const candidates = [];
+      for (let i = 0; i <= Math.min(DIVISION_SIZE, d.length - 1) && candidates.length < 2; i++) {
+        if (!used.has(d[i].id)) candidates.push(i);
+      }
+      if (candidates.length === 2) {
+        const [aIdx, bIdx] = candidates;
+        const a = d[aIdx], b = d[bIdx];
+        const { aWins, method, round } = resolveLightweightBout(a.attrs, b.attrs, true, Math.random);
+        pushBout(a, b, aWins, method, round, true, null);
+        used.add(a.id); used.add(b.id);
+        applyResult(a, b, aWins);
+        const winnerIdx = aWins ? aIdx : bIdx;
+        d[winnerIdx] = { ...d[winnerIdx], isChampion: true };
+      }
+    }
+
+    // ---- ranked-ladder movement ------------------------------------------
+    const rankedStartNow = d.findIndex((f) => f.isChampion) === -1 ? 0 : 1;
+    const rankedEnd = Math.min(DIVISION_SIZE, d.length - 1);
+    for (let n = 0; n < cadence.rankedBouts; n++) {
+      let picked = null;
+      for (let attempt = 0; attempt < 6 && !picked; attempt++) {
+        const i = rankedStartNow + Math.floor(Math.random() * Math.max(1, rankedEnd - rankedStartNow));
+        const j = i + 1;
+        if (j > rankedEnd) continue;
+        if (used.has(d[i].id) || used.has(d[j].id)) continue;
+        picked = [i, j];
+      }
+      if (!picked) continue;
+      const [i, j] = picked;
+      const a = d[i], b = d[j];
+      const { aWins, method, round } = resolveLightweightBout(a.attrs, b.attrs, false, Math.random);
+      pushBout(a, b, aWins, method, round, false, null);
+      used.add(a.id); used.add(b.id);
+      applyResult(a, b, aWins);
+      if (!aWins) { d[i] = b; d[j] = a; } // upset moves them up the ladder
+    }
+
+    // ---- unranked <-> ranked boundary movement ---------------------------
+    // A real path into the Top 15 without ever fighting the player --
+    // section 21/22 of the underlying task. Only RANKING_BUBBLE-tagged
+    // unranked fighters get this shot (a believable "knocking on the
+    // door" candidate, not a random developmental fighter) against the
+    // bottom of the ranked ladder. A win swaps them in; the loser drops to
+    // the front of the unranked pool with a freshly-assigned ecology tag
+    // (see ecologyForDemotedFighter) -- their stable id/record/form all
+    // survive the move untouched, only their ladder position and ecology
+    // label change.
+    for (let n = 0; n < cadence.boundaryBouts; n++) {
+      let bottomIdx = -1;
+      for (let i = rankedEnd; i >= Math.max(rankedStartNow, rankedEnd - 3); i--) {
+        if (!used.has(d[i].id)) { bottomIdx = i; break; }
+      }
+      if (bottomIdx === -1) continue;
+      const bubblePool = d.slice(rankedEnd + 1).filter((f) => f.ecology === "RANKING_BUBBLE" && !used.has(f.id));
+      if (!bubblePool.length) continue;
+      const challenger = bubblePool[Math.floor(Math.random() * bubblePool.length)];
+      const challengerIdx = d.indexOf(challenger);
+      const incumbent = d[bottomIdx];
+      const { aWins, method, round } = resolveLightweightBout(incumbent.attrs, challenger.attrs, false, Math.random);
+      pushBout(incumbent, challenger, aWins, method, round, false, null);
+      used.add(incumbent.id); used.add(challenger.id);
+      applyResult(incumbent, challenger, aWins);
+      if (!aWins) {
+        d[bottomIdx] = { ...challenger, ecology: undefined };
+        d[challengerIdx] = { ...incumbent, ecology: ecologyForDemotedFighter(incumbent) };
+      }
+    }
+
+    // ---- unranked-pool activity -------------------------------------------
+    // Quality-adjacent pairing (sorted by overall, adjacent picks) rather
+    // than pure random pairing across the whole unranked tier -- a
+    // HOT_PROSPECT vs a DEVELOPMENTAL fighter is not a believable booking.
+    // Keeps records/form moving for the population that never touches the
+    // ranked ladder directly, so the roster reads as active rather than
+    // half of it sitting untouched for years.
+    for (let n = 0; n < cadence.unrankedBouts; n++) {
+      const pool = d.slice(rankedEnd + 1).filter((f) => !used.has(f.id));
+      if (pool.length < 2) continue;
+      const sorted = [...pool].sort((a, b) => a.overall - b.overall);
+      const startIdx = Math.floor(Math.random() * Math.max(1, sorted.length - 1));
+      const a = sorted[startIdx], b = sorted[Math.min(startIdx + 1, sorted.length - 1)];
+      if (a.id === b.id) continue;
+      const { aWins, method, round } = resolveLightweightBout(a.attrs, b.attrs, false, Math.random);
+      pushBout(a, b, aWins, method, round, false, null);
+      used.add(a.id); used.add(b.id);
+      applyResult(a, b, aWins);
+    }
+
+    return { division: d, bouts, nextRngState: state };
+  } finally {
+    Math.random = original;
+  }
+}
+
+// Applies the player's own opponent's record/form update, plus (if this
+// fight was a title change/defense) the belt-swap/demotion, directly to
+// state.universe.divisions[tierBeforeKey] -- replacing the old
+// `nextDivision = s.divisionRoster.map(...)` approach, which read/wrote
+// through the ACTIVE-division alias and could silently target the WRONG
+// tier on a same-fight promotion (see this branch's own report, and
+// circuitToUniverseKey's own hardening history for the same class of
+// bug). tierBeforeKey is resolved from tierBefore -- the tier the fight
+// ACTUALLY happened in, captured before any promotion logic in commitFight
+// changes s.circuitTier -- never from the possibly-already-switched
+// s.divisionRoster/s.circuitTier. skipRankUpdate mirrors commitFight's own
+// existing resetForFreshTier/leftBeltBehindForContenderSeries guard
+// exactly (same reasoning, same bug this guard originally fixed -- see
+// commitFight's own comment on it).
+function applyPlayerOpponentUpdateToUniverse(universe, tierBeforeKey, oppEntry, result, isTitleShot, isTitleDefense, skipRankUpdate) {
+  const division = universe.divisions[tierBeforeKey];
+  if (!division) return universe;
+  let nextDivision = division.map((f) => (
+    f.id === oppEntry.id
+      ? {
+          ...f,
+          record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) },
+          recentForm: [result.win ? "L" : "W", ...(f.recentForm || [])].slice(0, 5),
+        }
+      : f
+  ));
+  if (!skipRankUpdate) {
+    if (isTitleShot && result.win) {
+      const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
+      nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
+      if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
+    } else if (isTitleDefense && !result.win) {
+      nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
+    } else if (isTitleDefense && result.win) {
+      const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
+      if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
+    }
+  }
+  return { ...universe, divisions: { ...universe.divisions, [tierBeforeKey]: nextDivision } };
+}
+
+// Runs exactly one world tick: all three persistent circuits advance once,
+// unconditionally -- regardless of which tier (or Contender Series) the
+// player's own fight happened in (section 4/5/32 of the underlying task).
+// playerCircuitTier is tierBefore (the tier the fight ACTUALLY occurred
+// in); playerHoldsBelt is whether the player held THAT tier's title
+// immediately after this fight's own title logic resolved (so a same-fight
+// title win correctly protects the tier the player just became champion
+// of, and a same-fight promotion correctly leaves the tier just LEFT
+// behind eligible for its own vacancy handling next tick).
+function runWorldTick(universe, worldTick, playerCircuitTier, playerHoldsBelt, excludeOppId, year) {
+  const divisions = { ...universe.divisions };
+  let rngState = universe.rngState;
+  const allNewBouts = [];
+  ["CLF Regional", "CLF National", "CLF PREMIER"].forEach((tierName) => {
+    const key = circuitToUniverseKey(tierName);
+    const division = divisions[key];
+    if (!division) return; // defensive -- always exists post-Foundation-V1
+    const excludeIds = (tierName === persistentTierForActiveRoster(playerCircuitTier) && excludeOppId) ? [excludeOppId] : [];
+    const holdsBelt = tierName === playerCircuitTier && playerHoldsBelt;
+    const result = runWorldTickForDivision(division, tierName, holdsBelt, excludeIds, year, worldTick, rngState);
+    divisions[key] = result.division;
+    rngState = result.nextRngState;
+    allNewBouts.push(...result.bouts);
+  });
+  const { bouts: idBouts, nextBoutSeq } = assignBoutIds(allNewBouts, universe.boutSeq);
+  return {
+    ...universe,
+    divisions, rngState,
+    worldTickSeq: worldTick,
+    boutSeq: nextBoutSeq,
+    bouts: [...(universe.bouts || []), ...idBouts],
+  };
 }
 
 // ---- Contender Series ------------------------------------------------------
@@ -1564,79 +2039,6 @@ function generateContenderSeriesOpponent() {
     record: generateOpponentRecord(profile.overall, 14, "ranked"),
     isChampion: false,
   };
-}
-
-// Records a round loss for a division fighter, but never lets it push a
-// ranked-pool member (or the champion) below the win-rate floor their tier
-// was seeded with. Every fighter simulateDivisionRound touches is already
-// in the champion/ranked pool -- the unranked tier below never fights here
-// -- so a plain loss would otherwise let a career's worth of coin-flip
-// background rounds erode a legitimately-ranked record into something that
-// reads as mediocre (a "12-10" for a Top 15 fighter). Below the floor, nights
-// like that just don't stick to the official record.
-function applyRoundLoss(fighter) {
-  const floor = fighter.isChampion ? CHAMPION_WIN_FLOOR : RANKED_WIN_FLOOR;
-  const total = fighter.record.w + fighter.record.l + 1;
-  if (fighter.record.w / total < floor) return;
-  fighter.record.l += 1;
-  pushForm(fighter, false);
-}
-
-// Simulates the fights you weren't part of. Adjacent ranks meet, the winner
-// can swap places with the loser, and the champion defends against the top
-// contender -- so the standings genuinely move while your career runs.
-function simulateDivisionRound(division) {
-  const d = division.map((f) => ({ ...f, record: { ...f.record } }));
-
-  // A title fight happens roughly every other round -- but only when the
-  // belt actually lives inside this division. When the player holds it,
-  // nobody in the roster is flagged isChampion, and the background sim must
-  // not invent a new NPC champion behind the player's back; the ranked pool
-  // just keeps fighting for position underneath them instead.
-  const champIdx = d.findIndex((f) => f.isChampion);
-  if (champIdx !== -1 && Math.random() < 0.5 && d.length > 1) {
-    const challengerIdx = champIdx === 0 ? 1 : 0;
-    const champ = d[champIdx], challenger = d[challengerIdx];
-    const champWins = Math.random() < 0.5 + (champ.overall - challenger.overall) / 60;
-    if (champWins) {
-      champ.record.w += 1;
-      pushForm(champ, true);
-      applyRoundLoss(challenger);
-    } else {
-      challenger.record.w += 1;
-      pushForm(challenger, true);
-      applyRoundLoss(champ);
-      champ.isChampion = false;
-      challenger.isChampion = true;
-      d[champIdx] = challenger;
-      d[challengerIdx] = champ;
-    }
-  }
-
-  // Two contender bouts between neighbouring RANKED fighters. The unranked
-  // tier below doesn't affect the standings. Normally index 0 is reserved
-  // for the champion and sits out of this pool; while the belt is vacant
-  // from this division's point of view (the player holds it), index 0 is
-  // just the #1 contender and needs to keep fighting like everyone else.
-  const rankedStart = champIdx === -1 ? 0 : 1;
-  const rankedEnd = Math.min(DIVISION_SIZE, d.length - 1);
-  for (let n = 0; n < 2; n++) {
-    const i = rankedStart + Math.floor(Math.random() * Math.max(1, rankedEnd - rankedStart));
-    const j = i + 1;
-    if (j > rankedEnd) continue;
-    const aWins = Math.random() < 0.5 + (d[i].overall - d[j].overall) / 60;
-    if (aWins) {
-      d[i].record.w += 1;
-      pushForm(d[i], true);
-      applyRoundLoss(d[j]);
-    } else {
-      d[j].record.w += 1;
-      pushForm(d[j], true);
-      applyRoundLoss(d[i]);
-      const tmp = d[i]; d[i] = d[j]; d[j] = tmp; // upset moves them up the ladder
-    }
-  }
-  return d;
 }
 
 // Moves the fighter at `fromIdx` out of the front of the ranked ladder and
@@ -3709,22 +4111,18 @@ function commitFight(state) {
     s.streak = 0;
   }
 
-  // --- update the persistent division -----------------------------------
-  // Your opponent's record changes from fighting you, then the rest of the
-  // division fights among itself so the standings move while you're away.
-  // Skipped for a Contender Series fight -- that opponent isn't part of
-  // any persistent roster, and the division above (National, in this
-  // case) shouldn't move on a fight it wasn't actually part of.
-  if (!isContenderSeriesFight) {
-    let nextDivision = s.divisionRoster.map((f) => (
-      f.id === oppEntry.id
-        ? {
-            ...f,
-            record: { w: f.record.w + (result.win ? 0 : 1), l: f.record.l + (result.win ? 1 : 0) },
-            recentForm: [result.win ? "L" : "W", ...(f.recentForm || [])].slice(0, 5),
-          }
-        : f
-    ));
+  // --- update the persistent division + one world tick -------------------
+  // NPC World Movement + Bout Ledger V1: your opponent's record changes
+  // from fighting you (still true), but the rest of the universe no
+  // longer just "fights among itself" invisibly for whichever division
+  // happens to be active -- it advances through one recorded world tick
+  // covering all three persistent circuits at once (see runWorldTick's own
+  // comment for why). tierBefore, not s.circuitTier, decides which tier
+  // the opponent-update below targets -- the tier the fight ACTUALLY
+  // happened in, captured before any promotion logic above could have
+  // already changed s.circuitTier/s.divisionRoster.
+  {
+    const tierBeforeKey = circuitToUniverseKey(persistentTierForActiveRoster(tierBefore));
     // Beating someone ranked above you moves you toward their spot -- but
     // capped, so one callout upset over the #1 contender doesn't teleport a
     // total unknown straight to #1. Even a shocking win only climbs so far
@@ -3740,67 +4138,79 @@ function commitFight(state) {
     // run completely unguarded, including on the exact fight that triggers
     // resetForFreshTier -- so a 4-0 Regional prospect whose fast-track win
     // was over, say, Regional #12 got `previewRankClimb(null, 12, true,
-    // ...)` applied AFTER s.playerRank had already been reset to null and
-    // s.divisionRoster rebuilt into the brand-new National roster a few
-    // lines up, landing them at National #12 before ever fighting there.
-    // Confirmed by direct reproduction (see this branch's own report).
-    // oppRank/oppEntry here still refer to the OLD tier's opponent -- they
-    // don't even resolve against the new roster -- so this climb was never
-    // meaningful for the tier just entered; it's exactly the same "old
-    // tier's result leaking onto the fresh tier" class of bug the
-    // pre-existing guard below already existed to stop for the
-    // champion-swap case. New circuit = new division ranking: the player's
-    // résumé earns them the promotion and the opportunities that come with
-    // it (Matchmaking Realism's ranked-test/eliminator logic, untouched),
-    // never a transferred official rank.
-    //
+    // ...)` applied AFTER s.playerRank had already been reset to null.
+    // Confirmed by direct reproduction (see that branch's own report).
     // Guarded against resetForFreshTier: winning the Regional (or Contender
-    // Series) title just rebuilt s.divisionRoster into the NEXT tier's own
-    // fresh roster a few lines up, and reset s.champion/s.playerRank back to
-    // a clean slate on purpose -- a nobody again, same as stepping up a
-    // weight class. Without this guard, this block re-applied the OLD
-    // tier's title win on TOP of that reset (nextDivision was already the
-    // new roster by this point): it stripped the new tier's own champion
-    // and crowned the player over them, unearned, before they'd fought a
-    // single fight there. oppEntry also belongs to the tier just left
-    // behind, so none of these lookups even resolve against the new roster.
-    // Also guarded against leftBeltBehindForContenderSeries: that branch
-    // above already cleared s.champion and set the correct playerRank for
-    // a National title won on the way into Contender Series -- letting
-    // this block re-run on top of it would set playerRank back to 0 right
-    // after champion was cleared to false, the exact desync this whole
-    // guard exists to prevent.
-    if (!resetForFreshTier && !leftBeltBehindForContenderSeries) {
+    // Series) title just reset s.champion/s.playerRank back to a clean
+    // slate on purpose -- a nobody again, same as stepping up a weight
+    // class. Without this guard, this block re-applied the OLD tier's
+    // title win on TOP of that reset. Also guarded against
+    // leftBeltBehindForContenderSeries: that branch above already cleared
+    // s.champion and set the correct playerRank for a National title won
+    // on the way into Contender Series -- letting this re-run on top of it
+    // would set playerRank back to 0 right after champion was cleared to
+    // false, the exact desync this whole guard exists to prevent.
+    const skipRankUpdate = resetForFreshTier || leftBeltBehindForContenderSeries;
+    if (!skipRankUpdate) {
       s.playerRank = previewRankClimb(s.playerRank, oppRank, result.win, result.method);
-      if (isTitleShot && result.win) {
-        // You took the belt -- clear isChampion off the old champ (found by
-        // flag, not position) so they fall back into the ranked pool as a
-        // normal contender with their real record intact. The player's own
-        // champion status lives on career state (s.champion), never as a
-        // divisionRoster entry, so rankings render must check that flag first.
-        // They also get moved out of the reserved index-0 slot -- left there,
-        // index 0 becomes a frozen "vacant champion" seat nothing else ever
-        // draws into, and the very next title defense would end up rebooked
-        // against the exact fighter the player just dethroned. A beaten
-        // former champion is still elite, so the drop is modest.
-        const exChampIdx = nextDivision.findIndex((f) => f.isChampion);
-        nextDivision = nextDivision.map((f) => (f.isChampion ? { ...f, isChampion: false } : f));
-        if (exChampIdx !== -1) nextDivision = demoteInDivision(nextDivision, exChampIdx, 3);
-        s.playerRank = 0;
-      } else if (isTitleDefense && !result.win) {
-        // You lost the belt -- the opponent who just beat you becomes champion.
-        // (s.playerRank already moved to 1 above, same as any other title loss.)
-        nextDivision = nextDivision.map((f) => (f.id === oppEntry.id ? { ...f, isChampion: true } : f));
-      } else if (isTitleDefense && result.win) {
-        // You defended -- the challenger who just lost needs to rebuild
-        // before getting another crack at the title, same as real UFC
-        // booking. A bigger drop than the ex-champion case above: this
-        // fighter didn't hold the belt, they just lost a title fight.
-        const challengerIdx = nextDivision.findIndex((f) => f.id === oppEntry.id);
-        if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
-      }
+      if (isTitleShot && result.win) s.playerRank = 0;
     }
-    syncActiveDivision(s, simulateDivisionRound(nextDivision));
+    // Player bout ledger entry -- one per committed player fight, EVERY
+    // tier, Contender Series included (its circuit reads truthfully as
+    // "CLF Contender Series" even though there's no persistent CS
+    // division backing it -- see this branch's own report). Appended
+    // before the opponent/world-tick updates below so its bout id is the
+    // lowest -- and therefore first -- of this tick's ledger entries, a
+    // stable convention (see appendPlayerBout's own comment), not a
+    // correctness requirement.
+    const worldTick = (s.universe.worldTickSeq || 0) + 1;
+    s.universe = appendPlayerBout(s.universe, {
+      circuit: tierBefore, year: s.year, worldTick,
+      fighterAId: PLAYER_BOUT_ID, fighterBId: oppEntry.id,
+      winnerId: result.win ? PLAYER_BOUT_ID : oppEntry.id,
+      method: result.method, round: stats.finishRound || totalRounds,
+      titleFight: isTitleFight,
+      championBeforeId: isTitleDefense ? PLAYER_BOUT_ID : (isTitleShot ? oppEntry.id : null),
+      rankABefore: playerRankBefore, rankBBefore: oppRank,
+      recordABefore: { ...state.record }, recordBBefore: { ...oppEntry.record },
+      // A Contender Series opponent is never added to any persistent
+      // roster (generateContenderSeriesOpponent, untouched) -- their id
+      // (cs-<timestamp>-<random>) can never be resolved back to a name via
+      // universe.divisions the way every other bout's participants can.
+      // Captured directly on the bout itself, ONLY for this one case,
+      // rather than inventing a fake persistent-roster entry for a fighter
+      // who was never part of one -- a future Event Archive would
+      // otherwise have no way to render a CS card's opponent identity at
+      // all (see this branch's own report).
+      opponentName: isContenderSeriesFight ? oppEntry.name : undefined,
+      opponentArchetype: isContenderSeriesFight ? oppEntry.archetype : undefined,
+    });
+    // Opponent's own record/form update, plus any title swap/demotion --
+    // skipped entirely for a Contender Series fight (that opponent isn't
+    // part of any persistent roster -- generateContenderSeriesOpponent,
+    // untouched -- and the division above shouldn't move on a fight it
+    // wasn't actually part of), and internally no-ops the rank-sensitive
+    // half via the exact same skipRankUpdate guard as the player-state
+    // update just above.
+    if (!isContenderSeriesFight) {
+      s.universe = applyPlayerOpponentUpdateToUniverse(
+        s.universe, tierBeforeKey, oppEntry, result, isTitleShot, isTitleDefense, skipRankUpdate
+      );
+    }
+    // One world tick, unconditionally -- Regional/National/Premier all
+    // advance once regardless of tier or Contender Series (section 4/32 of
+    // the underlying task). playerHoldsBelt reads championAfterFight
+    // (captured earlier, before any tier-promotion reset) so a same-fight
+    // title win correctly protects the tier just won, and a same-fight
+    // promotion correctly leaves the tier just left behind eligible for
+    // its own vacancy handling starting next tick.
+    s.universe = runWorldTick(s.universe, worldTick, tierBefore, championAfterFight, oppEntry.id, s.year);
+    // Re-bind the alias to whichever tier is ACTIVE now (post-promotion-
+    // aware) -- this is the ONE place divisionRoster is written for the
+    // rest of this function; both the promotion switch above and every
+    // universe mutation just made are already reflected in
+    // s.universe.divisions by this point.
+    s.divisionRoster = s.universe.divisions[circuitToUniverseKey(persistentTierForActiveRoster(s.circuitTier))];
   }
 
   // playerRank is fully settled for this fight now (climb/drop above, the
@@ -4391,11 +4801,16 @@ export {
   STYLE_DESCRIPTIONS,
   TRAINABLE_KEYS,
   TRAIT_DEFS,
+  PLAYER_BOUT_ID,
   advanceCareer,
   applyAging,
+  applyPlayerOpponentUpdateToUniverse,
   bestFitArchetypeFlat,
   buildDivision,
   buildFreshUniverse,
+  resolveLightweightBout,
+  runWorldTick,
+  runWorldTickForDivision,
   buildGameplanInsight,
   circuitToUniverseKey,
   persistentTierForActiveRoster,

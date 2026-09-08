@@ -178,6 +178,51 @@ function loadPersistedActiveCareer() {
   }
 }
 
+// NPC World Movement + Bout Ledger V1: Active Career Save clears
+// LS_ACTIVE_CAREER the instant a Career finishes (see the autosave effect
+// below) -- correct for the ACTIVE slot, but the universe bout ledger that
+// Career just spent years accumulating must not simply vanish with it.
+// This builds the compact archive that rides along inside the completed
+// Career's own LS_CAREER_HISTORY entry instead (see saveCareerToHistory) --
+// deliberately NOT a second full active-save copy: only the bouts
+// themselves (the actual historical record -- never truncated, a future
+// Event Archive/Title Lineage pass needs every one of them) plus enough
+// per-fighter IDENTITY to resolve a bout's fighterAId/fighterBId into a
+// name later (name/archetype/final record/final overall -- not their full
+// live attrs/traits/ecology, and only for fighters the ledger actually
+// references, not the whole roster). Measured at ~90KB for a full 10-year
+// career in this branch's own report -- comfortable for a handful of
+// completed careers, worth revisiting if LS_CAREER_HISTORY's existing
+// 50-entry cap is ever reached routinely with long careers.
+function buildUniverseArchive(careerState) {
+  if (!careerState.universe) return null;
+  const referencedIds = new Set();
+  careerState.universe.bouts.forEach((b) => {
+    if (b.fighterAId !== "player") referencedIds.add(b.fighterAId);
+    if (b.fighterBId !== "player") referencedIds.add(b.fighterBId);
+  });
+  const fighters = {};
+  Object.values(careerState.universe.divisions).forEach((division) => {
+    division.forEach((f) => {
+      if (referencedIds.has(f.id)) fighters[f.id] = { name: f.name, archetype: f.archetype, finalRecord: f.record, finalOverall: f.overall };
+    });
+  });
+  // A Contender Series opponent never belongs to any persistent roster, so
+  // the lookup above can never resolve their id -- their name/archetype
+  // was captured directly on the bout itself for exactly this reason (see
+  // commitFight's own player-bout-ledger comment). No finalRecord/
+  // finalOverall for them -- they never had a persistent one to report.
+  careerState.universe.bouts.forEach((b) => {
+    if (b.opponentName && !fighters[b.fighterBId]) fighters[b.fighterBId] = { name: b.opponentName, archetype: b.opponentArchetype || null, finalRecord: null, finalOverall: null };
+  });
+  return {
+    bouts: careerState.universe.bouts,
+    fighters,
+    finalFighterSeq: careerState.universe.fighterSeq,
+    finalBoutSeq: careerState.universe.boutSeq,
+  };
+}
+
 // Framing for the 3 real candidates the matchmaking panel offers -- same
 // risk/reward promise the old abstract Easy/Ranked/Step-Up buttons made,
 // just attached to an actual named fighter now instead of a hidden draw.
@@ -880,6 +925,13 @@ export default function CageLab() {
       division: result.division, careerStyle: result.careerStyle, champion: result.champion,
       goatScore, buildValue: buildValueInfo ? buildValueInfo.buildValue : null,
       picks: picksSnapshotArray(picks),
+      // NPC World Movement + Bout Ledger V1: the completed Career's own
+      // universe bout ledger, archived here so it survives Active Career
+      // Save clearing LS_ACTIVE_CAREER on completion (see
+      // buildUniverseArchive's own comment). null for a career finished
+      // before this pass shipped (no bout ledger existed yet) -- absence
+      // means "no history recorded," never fabricated after the fact.
+      universeArchive: buildUniverseArchive(result),
     };
     saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, CAREER_HISTORY_CAP));
   }
