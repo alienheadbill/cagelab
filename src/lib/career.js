@@ -1195,6 +1195,356 @@ function buildDivision(circuitTier = "CLF Regional") {
   return roster;
 }
 
+// =========================================================================
+//  PERSISTENT UNIVERSE FOUNDATION V1
+//  Phase 1 of the persistent-world roadmap (see this branch's own
+//  architecture audit report for the full model comparison). Before this,
+//  exactly one division ever existed in state at a time -- Regional
+//  disappeared the instant the player was promoted to National, National
+//  disappeared the instant they reached Premier. From here on, all three
+//  persistent circuits are generated at career start and coexist for the
+//  life of the career; only the ACTIVE one (state.circuitTier) is what the
+//  player is currently fighting in. Non-active divisions are deliberately
+//  STATIC in this pass -- Phase 2 (NPC World Movement + Bout Ledger) is
+//  what will actually simulate them, through a real persisted result from
+//  day one, not invisible record mutation.
+// =========================================================================
+const UNIVERSE_SCHEMA_VERSION = 1;
+
+// Canonical circuit-tier -> persistent-universe-division-key mapping --
+// the ONE place this string translation happens, so it can never drift
+// between call sites. Only the three genuinely persistent tiers resolve to
+// a key; Contender Series deliberately has none -- it stays exactly what
+// it already was, a temporary showcase pipeline between National and
+// Premier (generateContenderSeriesOpponent, untouched), never a persistent
+// division -- and any unrecognized/typo'd circuit string ALSO returns null
+// rather than silently falling back to Regional. Pre-hardening this used
+// to default everything unrecognized (CS included) to "regional" -- a safe
+// enough choice while nothing actually branched on CS through this
+// function, but not safe for a foundation other code will build on: a
+// future caller that mistakenly passed CS here would have silently read
+// or written the REGIONAL division instead of getting a clear signal that
+// CS has no persistent division at all. Callers must handle a null key
+// explicitly (see syncActiveDivision/getDivisionForTier/getActiveDivision
+// below) -- never assume it's always one of the three strings.
+function circuitToUniverseKey(circuitTier) {
+  if (circuitTier === "CLF Regional") return "regional";
+  if (circuitTier === "CLF National") return "national";
+  if (circuitTier === "CLF PREMIER") return "premier";
+  return null;
+}
+
+// A Contender Series stint has no persistent division of its own -- see
+// circuitToUniverseKey above -- but it is also never a dead end: the only
+// transition into CS anywhere in this file is National -> CS (see
+// commitFight's leftBeltBehindForContenderSeries branch), and that branch
+// deliberately does NOT resync state.divisionRoster, so a career currently
+// mid-CS still has its actual, current National roster sitting in
+// state.divisionRoster (and state.universe.divisions.national) the whole
+// time -- CS fights themselves are resolved against a temporary showcase
+// opponent (generateContenderSeriesOpponent), never against a roster at
+// all. Anywhere this file needs "which persistent tier does the CURRENTLY
+// ACTIVE roster actually belong to" (as opposed to "what division did the
+// caller literally ask for", which is what circuitToUniverseKey alone
+// answers), route circuitTier through this translation first. Passing CS
+// straight into circuitToUniverseKey is correct and intentional everywhere
+// else -- it means exactly "no persistent division" -- but here it would
+// wrongly resolve to null (or, pre-hardening, silently alias to Regional).
+function persistentTierForActiveRoster(circuitTier) {
+  return circuitTier === "CLF Contender Series" ? "CLF National" : circuitTier;
+}
+
+// ---- Serializable universe RNG -----------------------------------------
+// Background/universe-only generation must never consume the player's own
+// Math.random() stream -- doing so would silently reshuffle the player's
+// own subsequent matchmaking/fight outcomes purely because unrelated
+// background generation happened to run first (see this branch's own
+// audit, RNG risk section). mulberry32-style PRNG: `rngState` is a single
+// plain 32-bit integer, safe to store/restore through JSON exactly like
+// every other Career field -- never a function object. nextUniverseRandom
+// is a pure function (same state always produces the same {value,
+// nextState} pair), so universe generation stays fully reproducible.
+function nextUniverseRandom(rngState) {
+  let a = ((rngState | 0) + 0x6D2B79F5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  const value = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  return { value, nextState: a };
+}
+
+// buildDivision and its nested generation helpers (createDivisionFighter,
+// createEcologyFighter, buildUnrankedEcology, generateOpponentProfile,
+// generateRecentForm, ...) all call the bare global Math.random() directly,
+// several layers deep. Rewiring every one of them to accept and thread an
+// explicit rng parameter would be a much larger, riskier change for a
+// same-file-only concern -- so instead this swaps the ONE shared entry
+// point they all already call through, for the exact duration of a single
+// buildDivision() call, then restores it -- guaranteed, even if generation
+// throws. Single-threaded JS has no reentrancy risk here, and this can
+// never leak into any other code: nothing outside this function ever sees
+// the swapped Math.random. Default player-facing generation (any call to
+// plain buildDivision(tier), with no rng override) is completely untouched.
+function buildDivisionWithUniverseRng(tier, rngState) {
+  let state = rngState;
+  const rngFn = () => {
+    const { value, nextState } = nextUniverseRandom(state);
+    state = nextState;
+    return value;
+  };
+  const original = Math.random;
+  Math.random = rngFn;
+  try {
+    return { division: buildDivision(tier), nextRngState: state };
+  } finally {
+    Math.random = original;
+  }
+}
+
+// Reassigns every fighter's id in a freshly-built division to the
+// universe-wide sequence (fighter-1, fighter-2, ...), threading the
+// sequence value explicitly through the call -- never a shared mutable
+// counter -- so it stays serialization-safe and fully reproducible. A
+// pure post-process pass, not a rewrite of buildDivision's own id
+// assignment: those nested helpers still stamp their own generation-local
+// `div-<index>-<slug>` id exactly as before (harmless -- it's simply
+// overwritten here), which was the smallest way to solve id allocation
+// independently of random-number generation rather than threading a
+// second parameter through the same several nested helpers item 10 above
+// already found not worth rewiring for the RNG itself.
+function assignUniverseFighterIds(division, fighterSeq) {
+  let seq = fighterSeq;
+  const withIds = division.map((f) => {
+    seq += 1;
+    return { ...f, id: `fighter-${seq}` };
+  });
+  return { division: withIds, nextFighterSeq: seq };
+}
+
+// Builds a brand-new 3-tier universe. `activeCircuitTier`'s own division is
+// generated with the DEFAULT (unseeded, global Math.random) path --
+// byte-for-byte the same call a pre-Foundation-V1 initCareer already made
+// -- so a fresh career's own active-tier randomness consumption is
+// completely unaffected by National/Premier now also being generated
+// alongside it. The other two tiers are generated purely from the isolated
+// universe RNG stream, seeded once from `seed` (never itself read from
+// Math.random -- see buildFreshUniverse's own callers for why). Fighter
+// ids are assigned from one continuous sequence across all three tiers
+// afterward, so every NPC in the universe has a globally unique identity
+// from the moment it's created.
+function buildFreshUniverse(activeCircuitTier, seed, startingFighterSeq = 0) {
+  // Falls back to "regional" rather than letting a null key reach the
+  // `divisions[key] = ...` write below -- activeCircuitTier is always one
+  // of the three persistent tiers at every real call site (initCareer
+  // always passes "CLF Regional"; resolveWeightMoveOffer translates
+  // through persistentTierForActiveRoster before calling this), so this
+  // fallback is pure defense against a future/unexpected caller, never
+  // exercised on any path exercised today.
+  const activeKey = circuitToUniverseKey(activeCircuitTier) || "regional";
+  // startingFighterSeq lets a caller continue the SAME global fighter-id
+  // sequence into a brand-new universe instead of restarting it at 0 --
+  // required for weight-class moves (see resolveWeightMoveOffer): the old
+  // universe is discarded, but its ids must never be handed out again to a
+  // different fighter, since a future pass (fighter histories, event
+  // archives, title lineage) will want every id that was ever issued in
+  // this career to stay uniquely attributable. initCareer's own call
+  // (career start, nothing to continue from) relies on the default of 0.
+  let fighterSeq = startingFighterSeq;
+  let rngState = seed;
+  const divisions = {};
+  ["CLF Regional", "CLF National", "CLF PREMIER"].forEach((tier) => {
+    const key = circuitToUniverseKey(tier);
+    let roster;
+    if (key === activeKey) {
+      roster = buildDivision(tier);
+    } else {
+      const result = buildDivisionWithUniverseRng(tier, rngState);
+      roster = result.division;
+      rngState = result.nextRngState;
+    }
+    const idResult = assignUniverseFighterIds(roster, fighterSeq);
+    divisions[key] = idResult.division;
+    fighterSeq = idResult.nextFighterSeq;
+  });
+  return { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions };
+}
+
+// ---- Single source of truth ---------------------------------------------
+// state.universe.divisions[key] is the authoritative store.
+// state.divisionRoster remains a synchronized convenience alias for
+// whichever division is currently ACTIVE (state.circuitTier) -- kept
+// because ~40 existing call sites across career.js and App.jsx already
+// read it directly, and rewriting every one of them carries real risk for
+// no behavioral benefit (see this branch's own report). It is NEVER
+// independently assigned anywhere else in this file; every write to the
+// active division goes through this one helper, so the two can never
+// drift apart into two independently-mutable copies.
+function syncActiveDivision(s, newRoster) {
+  s.divisionRoster = newRoster;
+  if (s.universe) {
+    // Routed through persistentTierForActiveRoster -- NOT a no-op guard.
+    // commitFight's own post-fight "update the persistent division" step
+    // (the National opponent's record/form update + simulateDivisionRound)
+    // calls this AFTER s.circuitTier has already been flipped to "CLF
+    // Contender Series" on the exact fight that wins the National -> CS
+    // invite (see leftBeltBehindForContenderSeries there: that fight is a
+    // National fight, isContenderSeriesFight is false for it, so this DOES
+    // run, with the NEW tier already in state.circuitTier). Without this
+    // translation, circuitToUniverseKey(s.circuitTier) would be null there
+    // (pre-hardening it silently defaulted to "regional") and this exact
+    // post-fight update -- the newly-fought opponent's record, the
+    // simulated division round, a title change of hands -- would either be
+    // silently DROPPED (with a bare null-key guard) or written into the
+    // WRONG division entirely (the old "regional" default). Translating
+    // through persistentTierForActiveRoster lands it correctly on
+    // "national", which is what the roster being passed in actually is.
+    const key = circuitToUniverseKey(persistentTierForActiveRoster(s.circuitTier));
+    if (key) {
+      s.universe = { ...s.universe, divisions: { ...s.universe.divisions, [key]: newRoster } };
+    }
+  }
+}
+// The accessor future code should prefer over reading state.divisionRoster
+// directly. Unlike a plain pass-through, this resolves state.universe's
+// own copy FIRST whenever one exists -- the authoritative source -- and
+// only falls back to the divisionRoster alias when no universe exists yet
+// (a pre-Foundation-V1 save) or the active tier has no persistent division
+// (Contender Series, via persistentTierForActiveRoster's National
+// redirect, still lands on the authoritative universe copy in that case).
+//
+// This is NOT a cosmetic distinction. In live memory, divisionRoster and
+// universe.divisions[key] are always the SAME object reference (see
+// syncActiveDivision above, the only place either is ever written), so
+// reading either one is equivalent today. But JSON.stringify/JSON.parse --
+// the mechanism behind any future save/reload -- preserves DATA, not JS
+// reference identity: `JSON.parse(JSON.stringify(state))` produces a state
+// where divisionRoster and universe.divisions[key] are two DIFFERENT
+// objects that merely happen to contain equal data at that instant, not
+// two names for the same object anymore. If a rehydrated state were then
+// mutated through only ONE of those two references (plausible for a
+// future Save/Resume pass that doesn't happen to call syncActiveDivision
+// again immediately), the other would silently go stale. Resolving through
+// universe.divisions[key] here means that risk can never surface through
+// this accessor, regardless of whether the alias has been explicitly
+// rebound after a reload (see normalizeUniverseState below, which rebinds
+// the alias itself for the ~40 existing call sites that still read
+// divisionRoster directly instead of through this function).
+function getActiveDivision(state) {
+  const key = circuitToUniverseKey(persistentTierForActiveRoster(state.circuitTier));
+  if (key && state.universe && state.universe.divisions && state.universe.divisions[key]) {
+    return state.universe.divisions[key];
+  }
+  return state.divisionRoster;
+}
+// Looks up a division by tier WITHOUT switching the player into it --
+// this is what lets tier promotion (see commitFight's resetForFreshTier
+// block) hand the player the world that's already been sitting there
+// since career start, instead of generating a fresh one. Old-save-safe:
+// a state with no `universe` yet (pre-Foundation-V1) falls back to the
+// single existing divisionRoster if it happens to already match the
+// requested tier, or null otherwise -- exactly as calling code already
+// had to handle "this division doesn't exist yet" before this pass.
+//
+// Contender Series has no persistent division (circuitToUniverseKey
+// returns null for it) and this function must say so plainly -- an
+// explicit `key === null` guard returns null immediately, BEFORE the
+// old-save fallback line below ever runs. Without this guard, the fallback
+// (`circuitToUniverseKey(state.circuitTier) === key`) would compare
+// `null === null` and evaluate true whenever the CALLER also happens to be
+// mid-CS, wrongly handing back whatever divisionRoster currently holds --
+// exactly the "CS silently resolves as if it were Regional" failure this
+// hardening pass exists to rule out.
+function getDivisionForTier(state, circuitTier) {
+  const key = circuitToUniverseKey(circuitTier);
+  if (key === null) return null;
+  if (state.universe && state.universe.divisions && state.universe.divisions[key]) {
+    return state.universe.divisions[key];
+  }
+  if (circuitToUniverseKey(state.circuitTier) === key && state.divisionRoster) return state.divisionRoster;
+  return null;
+}
+
+// ---- Explicit rehydration --------------------------------------------------
+// What happens after JSON reload? getActiveDivision (above) already
+// answers that question correctly by itself -- it re-derives the active
+// roster from state.universe every time, so it can never return stale data
+// even if divisionRoster and universe.divisions[key] are, after a
+// JSON.parse, two separate objects that merely contain equal data rather
+// than the same object. But ~40 existing call sites across this file and
+// App.jsx still read state.divisionRoster DIRECTLY, not through
+// getActiveDivision, and this pass deliberately does not rewrite all of
+// them (see this branch's own report on why that's unnecessary risk for
+// no behavioral benefit). This function is the other half of the answer:
+// call it once, immediately after any external rehydration of a Career
+// state (JSON.parse of a saved/transmitted state today; a future
+// Save/Resume load is the concrete case this exists for), and it
+// explicitly REBINDS state.divisionRoster to literally be
+// state.universe.divisions[key] again -- restoring true reference
+// equality, not just equal values, so every one of those ~40 direct-read
+// call sites is safe again too, with zero of them needing to change.
+// Idempotent and safe to call on a state that's already correctly bound
+// (rebinding to the same reference twice is a no-op), on an old
+// pre-Foundation-V1 state (no state.universe -- returns unchanged), or on
+// a state that's mid-Contender-Series (routes through
+// persistentTierForActiveRoster so it rebinds to the real National roster,
+// not a null/missing key). Never mutates state.universe.divisions itself
+// -- only ever repoints the divisionRoster alias to what's already there.
+function normalizeUniverseState(state) {
+  if (!state.universe || !state.universe.divisions) return state;
+  const key = circuitToUniverseKey(persistentTierForActiveRoster(state.circuitTier));
+  if (!key || !state.universe.divisions[key]) return state;
+  return { ...state, divisionRoster: state.universe.divisions[key] };
+}
+
+// ---- Active-save migration ------------------------------------------------
+// Old Career state (pre-Foundation-V1) contains only state.divisionRoster
+// for whichever tier is currently active, and no state.universe at all.
+// This upgrades such a state in place: the existing active roster is
+// preserved EXACTLY (never regenerated, never re-ided), placed into its
+// matching universe slot, and the two MISSING tiers are generated fresh
+// using ONLY the isolated universe RNG (never Math.random) so a save
+// migrated mid-session can't have its next player fight perturbed by
+// catch-up generation. No history is fabricated for the missing tiers --
+// they simply start as fresh current-snapshot rosters, with no bout/event
+// ledger pretending years of past activity already happened (there is no
+// ledger at all yet in this phase -- see this branch's own report on why
+// Phase 2 introduces one instead of unrecorded background mutation).
+// Idempotent: a state that already has a current-schema universe is
+// returned completely unchanged, so this is always safe to call.
+function migrateStateToUniverse(state, seed) {
+  if (state.universe && state.universe.schemaVersion === UNIVERSE_SCHEMA_VERSION) return state;
+  const s = { ...state };
+  // Routed through persistentTierForActiveRoster so a save migrated
+  // mid-Contender-Series lands its real, current roster in the "national"
+  // slot it actually belongs to. Without this translation,
+  // circuitToUniverseKey(s.circuitTier) on a CS-in-progress save would
+  // return null (or, pre-hardening, silently "regional") -- either way
+  // placing the player's actual National roster under the WRONG key and
+  // then having the loop below freshly regenerate a brand-new National
+  // division to fill the real slot, discarding the genuine one. The
+  // trailing `|| "regional"` is the same last-resort defensive fallback as
+  // buildFreshUniverse's, never expected to trigger on any real save.
+  const activeKey = circuitToUniverseKey(persistentTierForActiveRoster(s.circuitTier)) || "regional";
+  // The existing active roster's fighters keep their current `div-<i>-...`
+  // ids completely untouched -- no rewrite of historical/current NPC
+  // identity. Only the freshly-generated missing tiers below get the new
+  // `fighter-<seq>` scheme; the two id shapes can never collide (different
+  // string prefixes), so starting the sequence at 0 here is safe.
+  let fighterSeq = 0;
+  let rngState = seed;
+  const divisions = { [activeKey]: s.divisionRoster };
+  ["CLF Regional", "CLF National", "CLF PREMIER"].forEach((tier) => {
+    const key = circuitToUniverseKey(tier);
+    if (key === activeKey) return; // preserved above, untouched
+    const result = buildDivisionWithUniverseRng(tier, rngState);
+    rngState = result.nextRngState;
+    const idResult = assignUniverseFighterIds(result.division, fighterSeq);
+    divisions[key] = idResult.division;
+    fighterSeq = idResult.nextFighterSeq;
+  });
+  s.universe = { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions };
+  return s;
+}
+
 // ---- Contender Series ------------------------------------------------------
 // Not a ladder like the other three tiers -- no rankings, no belt of its
 // own. Just one (occasionally two, if the first showcase doesn't go your
@@ -2037,6 +2387,17 @@ function initCareer(picks, options) {
   const base = {};
   SKILL_KEYS.forEach((k) => { base[k] = picks[k].scoreValue; });
   const totalYears = 8 + Math.floor(Math.random() * 4);
+  // Universe Foundation V1: Regional/National/Premier all exist from the
+  // moment a career starts. Regional (the active tier for a fresh career)
+  // is generated via buildFreshUniverse's own default path -- the exact
+  // same Math.random consumption a pre-Foundation-V1 initCareer already
+  // had -- so National/Premier now also existing changes nothing about
+  // this career's own subsequent randomness. The universe seed itself is
+  // deliberately NOT read from Math.random (that would still be one extra
+  // player-stream call) -- `options.universeSeed` lets tests/tools supply
+  // a specific seed; production falls back to Date.now(), consuming zero
+  // player-facing random calls either way.
+  const universe = buildFreshUniverse("CLF Regional", (options && options.universeSeed) ?? Date.now());
   return {
     base,
     // Immutable Career-start snapshot (Training Camp Rework V1) -- the
@@ -2061,8 +2422,12 @@ function initCareer(picks, options) {
     actualHeight: (options && options.actualHeight) || null,
     actualReach: (options && options.actualReach) || null,
     // The persistent world: 15 ranked contenders + a champion who exist and
-    // fight each other between your bouts.
-    divisionRoster: buildDivision("CLF Regional"),
+    // fight each other between your bouts. divisionRoster is a synchronized
+    // alias for whichever universe division is currently ACTIVE (see
+    // syncActiveDivision/getActiveDivision) -- universe.divisions is the
+    // authoritative store.
+    divisionRoster: universe.divisions.regional,
+    universe,
     // playerRank is the real ladder position (0 = champion, 1-15 = ranked,
     // null = unranked) -- the single source of truth for anything the
     // player sees as "my ranking." peakPlayerRank is its high-water mark
@@ -2351,7 +2716,7 @@ function resolveCampPlanning(state, { focus, campQuality }) {
         let interimName = null;
         if (s.divisionRoster && s.divisionRoster.length) {
           interimName = s.divisionRoster[0].name;
-          s.divisionRoster = s.divisionRoster.map((f, i) => (i === 0 ? { ...f, isChampion: true } : f));
+          syncActiveDivision(s, s.divisionRoster.map((f, i) => (i === 0 ? { ...f, isChampion: true } : f)));
         }
         timeline.push({ type: "interim", id: `int-${s.year}`, interimName });
       }
@@ -2421,7 +2786,41 @@ function resolveWeightMoveOffer(state, accept) {
   if (accept) {
     const { direction, targetDivision } = state.pendingDecision;
     s.division = targetDivision;
-    s.divisionRoster = buildDivision(s.circuitTier);
+    // Universe Foundation V1: a weight-class move is the one case that
+    // genuinely needs a FRESH universe, not a lookup -- there is no
+    // existing National/Premier for a weight class the player has never
+    // been in. Matches current product behavior at larger scope (the old
+    // single-division rebuild already discarded everything on a weight
+    // move; this discards the whole 3-tier universe the same way). Seeded
+    // from the outgoing universe's own rngState rather than Math.random --
+    // that's still an unpredictable-looking 32-bit value, and reusing it
+    // costs zero extra player-facing random calls. Falls back to
+    // Date.now() only if no universe exists yet (an old, unmigrated save).
+    //
+    // The outgoing universe's fighterSeq is threaded through as the new
+    // universe's STARTING sequence (never restarted at 0) -- ids are a
+    // career/universe-wide contract (fighter-1, fighter-2, ... never
+    // reused), so even though this whole old universe is discarded in V1,
+    // its ids must never be handed out again to a different fighter: a
+    // future pass (fighter histories, event archives, title lineage) will
+    // want every id ever issued in this career to stay uniquely
+    // attributable. Falls back to 0 only alongside the Date.now() case
+    // above (no prior universe to continue from at all).
+    //
+    // s.circuitTier is routed through persistentTierForActiveRoster before
+    // both calls below: a weight-move offer can in principle be rolled
+    // while mid-Contender-Series (the 5% roll in resolveCampPlanning does
+    // not check circuitTier), and CS itself has no persistent division to
+    // hand back into buildFreshUniverse or index into divisions with --
+    // National is the real tier this roster belongs to in that case (see
+    // persistentTierForActiveRoster's own comment).
+    const activeTier = persistentTierForActiveRoster(s.circuitTier);
+    s.universe = buildFreshUniverse(
+      activeTier,
+      s.universe ? s.universe.rngState : Date.now(),
+      s.universe ? s.universe.fighterSeq : 0
+    );
+    s.divisionRoster = s.universe.divisions[circuitToUniverseKey(activeTier) || "regional"];
     s.playerRank = null;
     s.rankPoints = 0;
     s.champion = false;
@@ -3276,9 +3675,21 @@ function commitFight(state) {
     // stepping up a weight class in real life. A Contender Series loss
     // bouncing back to National is deliberately NOT here: that keeps the
     // National standing already earned instead of erasing it. s.circuitTier
-    // is already the NEW tier at this point (set above), so this builds the
-    // division the fighter is actually entering, not the one just left.
-    s.divisionRoster = buildDivision(s.circuitTier);
+    // is already the NEW tier at this point (set above).
+    //
+    // Universe Foundation V1: the destination division has already existed
+    // since career start (or migration) -- this now SWITCHES the player
+    // into that pre-existing world instead of generating a fresh one every
+    // time. getDivisionForTier's own old-save fallback isn't safe to use
+    // directly here (s.divisionRoster still holds the tier just LEFT at
+    // this exact point, and its generic "does circuitTier match" check
+    // would incorrectly match the tier we just switched s.circuitTier to),
+    // so an unmigrated save falls back to the pre-Foundation-V1 behavior
+    // explicitly instead.
+    const destinationDivision = s.universe
+      ? getDivisionForTier(s, s.circuitTier)
+      : buildDivision(s.circuitTier);
+    syncActiveDivision(s, destinationDivision || buildDivision(s.circuitTier));
     s.playerRank = null;
     s.champion = false;
     // Premier entry alone seeds rankPoints instead of the usual 0 -- a
@@ -3324,7 +3735,25 @@ function commitFight(state) {
     // primary driver, performance a small modifier, never the reverse.
     // Always floored at oppRank: a single win can never rank you better
     // than the person you just beat.
-    s.playerRank = previewRankClimb(s.playerRank, oppRank, result.win, result.method);
+    //
+    // Universe Foundation V1, fresh-tier ranking bug fix: this line used to
+    // run completely unguarded, including on the exact fight that triggers
+    // resetForFreshTier -- so a 4-0 Regional prospect whose fast-track win
+    // was over, say, Regional #12 got `previewRankClimb(null, 12, true,
+    // ...)` applied AFTER s.playerRank had already been reset to null and
+    // s.divisionRoster rebuilt into the brand-new National roster a few
+    // lines up, landing them at National #12 before ever fighting there.
+    // Confirmed by direct reproduction (see this branch's own report).
+    // oppRank/oppEntry here still refer to the OLD tier's opponent -- they
+    // don't even resolve against the new roster -- so this climb was never
+    // meaningful for the tier just entered; it's exactly the same "old
+    // tier's result leaking onto the fresh tier" class of bug the
+    // pre-existing guard below already existed to stop for the
+    // champion-swap case. New circuit = new division ranking: the player's
+    // résumé earns them the promotion and the opportunities that come with
+    // it (Matchmaking Realism's ranked-test/eliminator logic, untouched),
+    // never a transferred official rank.
+    //
     // Guarded against resetForFreshTier: winning the Regional (or Contender
     // Series) title just rebuilt s.divisionRoster into the NEXT tier's own
     // fresh roster a few lines up, and reset s.champion/s.playerRank back to
@@ -3342,6 +3771,7 @@ function commitFight(state) {
     // after champion was cleared to false, the exact desync this whole
     // guard exists to prevent.
     if (!resetForFreshTier && !leftBeltBehindForContenderSeries) {
+      s.playerRank = previewRankClimb(s.playerRank, oppRank, result.win, result.method);
       if (isTitleShot && result.win) {
         // You took the belt -- clear isChampion off the old champ (found by
         // flag, not position) so they fall back into the ranked pool as a
@@ -3370,7 +3800,7 @@ function commitFight(state) {
         if (challengerIdx !== -1) nextDivision = demoteInDivision(nextDivision, challengerIdx, 6);
       }
     }
-    s.divisionRoster = simulateDivisionRound(nextDivision);
+    syncActiveDivision(s, simulateDivisionRound(nextDivision));
   }
 
   // playerRank is fully settled for this fight now (climb/drop above, the
@@ -3965,7 +4395,14 @@ export {
   applyAging,
   bestFitArchetypeFlat,
   buildDivision,
+  buildFreshUniverse,
   buildGameplanInsight,
+  circuitToUniverseKey,
+  persistentTierForActiveRoster,
+  normalizeUniverseState,
+  getActiveDivision,
+  getDivisionForTier,
+  migrateStateToUniverse,
   calculateLegacy,
   campDrMultiplier,
   campStageMultiplier,
