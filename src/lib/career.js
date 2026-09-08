@@ -2184,6 +2184,80 @@ function resolveWeightMoveOffer(state, accept) {
   return s;
 }
 
+// Matchmaking Realism V1 finalization: deliberately decide WHAT LEVEL of
+// fight a Regional/National fighter has EARNED, from demonstrated results
+// already tracked in state (streak, regionalEverBeatRanked, nationalWins/
+// nationalLosses, playerRank) -- never from the fighter's underlying
+// attributes, archetype, or anything else this code has no business
+// reading. The existing pickers (pickRankedCandidate, completely
+// unchanged) still supply WHICH fighter fills the booking -- randomness
+// stays inside the eligible pool, it just stops deciding WHETHER an
+// obviously-earned test happens at all. Before this, a hot streak's actual
+// ranked test depended on the 22%-roll fightChoice menu firing AND then
+// either the player or the simulated policy happening to pick Ranked --
+// realistic in principle, but it meant a genuinely dominant prospect could
+// just as easily keep drawing ordinary fights for several bookings in a
+// row, which is exactly the "advancing slower not because they're losing,
+// but because the promotion never got around to testing them" problem
+// this pass targets. Scoped as tightly as possible: only fires for a
+// fighter who has NOT yet earned a natural title shot (checked first, in
+// maybeFightChoice, same precedent as the existing champion/title bypass)
+// and who clears one of the gates below (tested head-to-head against a
+// simpler flat-streak-only gate during this pass; this one -- streak OR
+// streak+win% -- produced a real, if still modest, lift in Regional title
+// wins and GOAT-tier championship recovery for no measurable cost
+// elsewhere, so it's the one that stayed).
+const REGIONAL_RANKED_TEST_STREAK = 4;
+const REGIONAL_RANKED_TEST_HOT_STREAK = 2;
+const REGIONAL_RANKED_TEST_HOT_WINPCT = 0.7;
+const REGIONAL_RANKED_TEST_HOT_MIN_FIGHTS = 3;
+const REGIONAL_ELIMINATOR_STREAK = 2;
+// Model B: not just "3 in a row" -- a clean, quality record can earn the
+// test a fight sooner (streak 2 at 70%+ over at least 3 fights), while a
+// scrappier one that only just got to a plain streak needs one more win
+// (4) before the promotion decides it's worth the deliberate test. Same
+// evidence bar the fast-track gate itself already uses (regionalEverBeatRanked),
+// just read a fight earlier via win% instead of waiting on streak alone.
+function regionalRankedTestDue(state) {
+  if (state.regionalEverBeatRanked) return false;
+  const streak = state.streak || 0;
+  const record = state.record || { w: 0, l: 0 };
+  const totalFights = record.w + record.l;
+  const winPct = totalFights > 0 ? record.w / totalFights : 0;
+  if (streak >= REGIONAL_RANKED_TEST_HOT_STREAK && totalFights >= REGIONAL_RANKED_TEST_HOT_MIN_FIGHTS
+    && winPct >= REGIONAL_RANKED_TEST_HOT_WINPCT) return true;
+  return streak >= REGIONAL_RANKED_TEST_STREAK;
+}
+function regionalOpportunityFor(state) {
+  if (state.circuitTier !== "CLF Regional") return null;
+  // A real win streak with no ranked scalp yet -- "let's see if this
+  // prospect belongs." Mirrors the exact evidence the Regional fast-track
+  // gate itself already requires (see regionalEverBeatRanked's own
+  // comment in initCareer/commitFight) -- this just stops waiting for
+  // random chance to supply the opponent that evidence needs.
+  if (regionalRankedTestDue(state)) return "rankedTest";
+  // Already proven against real competition, still winning, but not yet
+  // ranked high enough for the natural title-shot gate to fire on its
+  // own -- push them toward it deliberately instead of leaving the climb
+  // to whatever the next random draw happens to be.
+  if (state.regionalEverBeatRanked && (state.streak || 0) >= REGIONAL_ELIMINATOR_STREAK
+    && state.playerRank != null && state.playerRank > REGIONAL_TITLE_RANK_THRESHOLD) return "eliminator";
+  return null;
+}
+// National's own matchmaking ceiling (10) already keeps its DEFAULT draw
+// close to the ranked pool, unlike Regional's pre-fix problem -- so this is
+// deliberately the "lighter touch" the brief asks for: one threshold, not
+// two, and it only nudges a fighter who has already cleared National's own
+// existing fast-track quality bar (nationalWins/nationalLosses/quality)
+// toward a deliberate ranked fight instead of the next random draw, rather
+// than inventing a second, parallel National progression ladder.
+const NATIONAL_CONTENDER_STREAK = 2;
+function nationalOpportunityFor(state) {
+  if (state.circuitTier !== "CLF National") return null;
+  if ((state.streak || 0) >= NATIONAL_CONTENDER_STREAK && state.nationalWins >= 2 && state.nationalWins > state.nationalLosses) return "contenderTest";
+  return null;
+}
+
 // Rare, non-fight decision points. Capped chances so they feel special
 // rather than constant, and title fights always skip straight to the fight.
 function maybeFightChoice(state) {
@@ -2199,6 +2273,21 @@ function maybeFightChoice(state) {
   // plus the Premier-only provenAtTop5 gate).
   const wouldBeTitle = state.champion || naturalTitleShotReady(state.circuitTier, state.champion, state.streak, state.playerRank, state.provenAtTop5);
   if (wouldBeTitle) return prepareFight(state, "default");
+  // Deliberate opportunity escalation (see regionalOpportunityFor/
+  // nationalOpportunityFor above) -- checked before the ordinary roll, same
+  // precedent as the title bypass just above: a fighter who has already
+  // earned a specific test doesn't wait on the same dice roll an ordinary
+  // fight does. pickRankedCandidate (unchanged) still owns which eligible
+  // fighter fills it; the two-tier fallback mirrors every other caller of
+  // this picker elsewhere in the file. On the (extremely rare) chance the
+  // ranked pool is fully avoid-list-exhausted, fall through to the normal
+  // roll below rather than stall the career waiting for a candidate.
+  const deliberateOpportunity = regionalOpportunityFor(state) || nationalOpportunityFor(state);
+  if (deliberateOpportunity) {
+    const picked = pickRankedCandidate(state.divisionRoster, state.playerRank, state.recentOpponentIds)
+      || pickRankedCandidate(state.divisionRoster, state.playerRank, []);
+    if (picked) return prepareFight(state, "ranked", picked.fighter.id);
+  }
   const roll = Math.random();
   // Career Presentation recovery pass, item 6: post-fight event
   // hierarchy. A major milestone (title win, a promotion, Premier
