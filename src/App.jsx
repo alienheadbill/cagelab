@@ -15,8 +15,8 @@ import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffl
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
-  LS_HAS_VISITED, LS_SEEN_DRAFT_HINT,
-  loadJSON, saveJSON, defaultDailyStats,
+  LS_HAS_VISITED, LS_SEEN_DRAFT_HINT, LS_ACTIVE_CAREER, ACTIVE_CAREER_SAVE_VERSION,
+  loadJSON, saveJSON, defaultDailyStats, clearActiveCareer,
 } from "./lib/storage.js";
 import {
   SUPABASE_ENABLED, submitDailyScore, fetchDailyLeaderboard,
@@ -36,6 +36,7 @@ import {
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
   CAMP_FOCUSES, setFightStance, buildGameplanInsight, TRAIT_DEFS,
+  migrateStateToUniverse, normalizeUniverseState,
 } from "./lib/career.js";
 
 import TierIcon from "./components/TierIcon.jsx";
@@ -78,6 +79,103 @@ function groupTimelineNewestYearFirst(timeline) {
     current.push(e);
   }
   return groups.reverse().flat();
+}
+
+// =========================================================================
+//  ACTIVE CAREER SAVE + RESUME V1
+// =========================================================================
+// A very small set of App-level presentation state sits ALONGSIDE
+// careerState and isn't safe to just drop on refresh -- losing it wouldn't
+// corrupt the Career, but it WOULD change what the player sees: skip the
+// Fight Result they hadn't dismissed yet, skip a Mic Time opportunity
+// they'd already advanced into, or silently re-hide a Camp Complete result
+// they hadn't acknowledged. Everything else the player sees is either
+// already ON careerState (the authoritative Career data) or is a purely
+// uncommitted, safe-to-lose UI selection (selectedTarget, calloutOpen) /
+// navigation preference (careerTab, which the existing auto-switch effect
+// below already re-derives correctly from careerState on its own). The
+// resume-critical four -- fighterName, spotlightFightId, micTimeStep,
+// campResultAck -- are exactly the fields the `ui` envelope below carries;
+// see this branch's own report for the full state audit that arrived at
+// this list.
+
+// Persistent Universe Foundation V1 established: state.universe.divisions
+// is the authoritative roster store; state.divisionRoster is a live-memory
+// convenience alias, kept in sync by career.js's own syncActiveDivision,
+// and JSON does not preserve that alias's reference identity across a
+// round-trip anyway (see normalizeUniverseState's own comment in
+// career.js). Serializing divisionRoster INTO the active save alongside
+// universe.divisions[activeKey] would write the same roster twice for no
+// reason -- this strips it before writing, for any state that actually has
+// a universe to reconstruct it from on load (normalizeUniverseState always
+// rebinds it fresh, whether or not it was present going in -- see there).
+// An old-shape state with no universe at all (shouldn't occur in practice
+// -- initCareer has produced a universe since Foundation V1 -- but handled
+// defensively) is left untouched: divisionRoster is its ONLY copy of that
+// data, so it must be kept.
+function canonicalizeCareerForSave(state) {
+  if (!state.universe) return state;
+  const { divisionRoster: _divisionRoster, ...rest } = state;
+  return rest;
+}
+
+// A deliberately cheap, shallow sanity check -- just enough structure to
+// trust that this is really a Career state and not malformed JSON, a
+// wrapper from an unrelated key, or a shape from some future version this
+// build doesn't understand. NOT a full schema validation (career.js itself
+// is the source of truth for what a valid Career looks like) -- if this
+// passes but something deeper is still off, migrateStateToUniverse/
+// normalizeUniverseState below are already old-save-safe by construction,
+// and worst case a downstream read fails and gets caught by
+// loadPersistedActiveCareer's own try/catch, never a crash.
+function looksLikeCareerState(obj) {
+  return !!obj && typeof obj === "object"
+    && obj.base && typeof obj.base === "object"
+    && obj.record && typeof obj.record.w === "number" && typeof obj.record.l === "number"
+    && typeof obj.circuitTier === "string"
+    && typeof obj.year === "number"
+    && Array.isArray(obj.timeline)
+    && typeof obj.finished === "boolean"
+    && !!(obj.universe || obj.divisionRoster);
+}
+
+// The one place LS_ACTIVE_CAREER is ever read and turned back into a real
+// Career state -- reused identically for the app's own mount-time restore
+// AND for anything imported via "Import All Data" (see storage.js's
+// importAllData, which just writes the raw envelope through to the same
+// key rather than running a second, possibly-diverging loader). Pure and
+// side-effect-free: never writes to storage, never throws -- an invalid or
+// corrupt envelope (malformed JSON already becomes `null` inside loadJSON
+// itself; a wrong wrapper shape, an unrecognized version, or a Career
+// state missing required fields all fail looksLikeCareerState/the version
+// check here) simply returns null, exactly like "no active save exists" --
+// never a partially-hydrated state, never a crash, and never a silently
+// manufactured new Career in its place.
+//
+// The migrate/normalize sequence is the real, first live runtime consumer
+// of the Foundation V1 rehydration path: any loaded state missing
+// `universe` (there are no real pre-Foundation active saves in production
+// yet, but the loader stays architecture-safe regardless) is upgraded via
+// migrateStateToUniverse first -- preserving its active roster and ids
+// exactly, never resetting rank -- then EVERY loaded state, migrated or
+// not, is passed through normalizeUniverseState so divisionRoster is
+// rebound to literally be the same object as universe.divisions[activeKey]
+// again (true reference equality, not just equal values -- see
+// canonicalizeCareerForSave above for why that alias was stripped before
+// writing in the first place).
+function loadPersistedActiveCareer() {
+  try {
+    const raw = loadJSON(LS_ACTIVE_CAREER, null);
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.version !== ACTIVE_CAREER_SAVE_VERSION) return null;
+    if (!looksLikeCareerState(raw.careerState)) return null;
+    let state = raw.careerState;
+    if (!state.universe) state = migrateStateToUniverse(state, Date.now());
+    state = normalizeUniverseState(state);
+    return { careerState: state, ui: (raw.ui && typeof raw.ui === "object") ? raw.ui : {} };
+  } catch (e) {
+    return null;
+  }
 }
 
 // Framing for the 3 real candidates the matchmaking panel offers -- same
@@ -163,7 +261,22 @@ function ordinal(n) {
 export default function CageLab() {
   const [phase, setPhase] = useState("home");
   const [mode, setMode] = useState("classic"); // classic | blind | daily | challenge
-  const [fighterName, setFighterName] = useState("");
+  // Active Career Save + Resume V1: resolved ONCE, synchronously, before
+  // this component's very first render -- a plain lazy useState
+  // initializer, not an effect, so there's no "flash of empty Home" and no
+  // separate later commit that could race the reset effect just below
+  // (see its own comment). loadPersistedActiveCareer is pure/side-effect-
+  // free and returns null for "nothing to resume" (no save, corrupt save,
+  // unrecognized version, or -- deliberately -- a save whose Career had
+  // already finished; see the mount-only cleanup effect further down for
+  // that last case). Every dependent piece of state below reads from this
+  // SAME resolved value, so they can never end up hydrated from two
+  // different reads of storage.
+  const [initialActiveCareer] = useState(() => {
+    const loaded = loadPersistedActiveCareer();
+    return loaded && !loaded.careerState.finished ? loaded : null;
+  });
+  const [fighterName, setFighterName] = useState(() => (initialActiveCareer && initialActiveCareer.ui.fighterName) || "");
   const [attributeOrder, setAttributeOrder] = useState(() => shuffle(ATTRS.map((a) => a.key)));
   const [round, setRound] = useState(1);
   const [pair, setPair] = useState(() => pickCompatiblePair());
@@ -171,10 +284,14 @@ export default function CageLab() {
   const [lockedDivision, setLockedDivision] = useState(null);
   const [respinsUsed, setRespinsUsed] = useState({ era: false, stat: false });
   const [picks, setPicks] = useState({});
-  const [careerState, setCareerState] = useState(null);
+  const [careerState, setCareerState] = useState(() => (initialActiveCareer ? initialActiveCareer.careerState : null));
   // Bottom tab nav, career mode only. "career" is the default hub/next-fight
   // view; camp planning specifically lives under "camp" (see the auto-switch
   // effect below), rather than sharing the hub with fight-related decisions.
+  // Deliberately NOT part of the persisted resume envelope -- it's a
+  // navigation preference, not Career data, and the auto-switch effect
+  // below already re-derives the one case that actually matters (a pending
+  // Camp decision) from careerState itself on mount, hydrated or not.
   const [careerTab, setCareerTab] = useState("career");
   const [calloutOpen, setCalloutOpen] = useState(false);
   // Mic Time's target pick -- the one opponent-picking surface with a real
@@ -183,28 +300,36 @@ export default function CageLab() {
   // handleSelectMicTimeTarget/handleAdvance. Matchmaker cards and the
   // callout list book on a single tap, same as everything else in their
   // panel (Demand the Title Shot, etc.) -- no selection state needed there.
-  // { tag, targetId, name } | null.
+  // { tag, targetId, name } | null. Deliberately NOT persisted -- an
+  // uncommitted selection that could go stale relative to authoritative
+  // Career state; always safe to reset (see Active Career Save's own
+  // report for why).
   const [selectedTarget, setSelectedTarget] = useState(null);
   // Two-step spotlight: the fight result shows alone first; only once it's
   // dismissed does Mic Time (if this fight earned one) get its own screen,
   // rather than being stacked underneath the (often long) FightResultCard
   // on the same page -- the two were never meant to share one scroll.
-  // false until handleAdvance's spotlight branch promotes it.
-  const [micTimeStep, setMicTimeStep] = useState(false);
+  // false until handleAdvance's spotlight branch promotes it. Resume-
+  // critical: restored from the active save so refreshing mid-spotlight
+  // can't skip Mic Time or grant it twice.
+  const [micTimeStep, setMicTimeStep] = useState(() => !!(initialActiveCareer && initialActiveCareer.ui.micTimeStep));
   // The fight that was just committed stays "spotlighted" at the top of the
   // Career tab (right where the pre-fight screen was) instead of dropping
   // straight into the bottom of the ever-growing history feed -- otherwise
   // every single fight meant scrolling all the way down to read the result,
   // then all the way back up to keep going. It settles into the normal
   // history list (and stops being spotlighted) the moment the player moves
-  // on, same tap as advancing the career.
-  const [spotlightFightId, setSpotlightFightId] = useState(null);
+  // on, same tap as advancing the career. Resume-critical: restored so a
+  // refresh right after a fight can't accidentally skip the Fight Result.
+  const [spotlightFightId, setSpotlightFightId] = useState(() => (initialActiveCareer ? (initialActiveCareer.ui.spotlightFightId ?? null) : null));
   // Training Camp Rework V1, item 13: true once the player has seen the
   // CAMP COMPLETE result for the most recent camp (or hasn't taken one
   // yet) -- false right after confirming a camp, showing the result state
   // in the same Camp panel instead of silently dropping back to Career
   // with nothing to show. Reset on every fresh career launch below.
-  const [campResultAck, setCampResultAck] = useState(true);
+  // Resume-critical: restored so a refresh mid-Camp-Complete can't
+  // silently re-hide that result.
+  const [campResultAck, setCampResultAck] = useState(() => (initialActiveCareer ? initialActiveCareer.ui.campResultAck !== false : true));
   const [goatScore, setGoatScore] = useState(null);
   const [statOrderOverride, setStatOrderOverride] = useState(null);
   const [buildSaved, setBuildSaved] = useState(false);
@@ -286,10 +411,85 @@ export default function CageLab() {
   // on from the spotlight, or leaving Career entirely all invalidate
   // whatever was selected before them.
   const pendingDecisionType = careerState && careerState.pendingDecision && careerState.pendingDecision.type;
+  // Active Career Save + Resume V1: the FIRST-EVER arrival at phase "sim"
+  // -- a fresh launchCareer, or a resumed Career via Continue Career --
+  // must never reset selectedTarget/micTimeStep, even though `phase`
+  // itself (one of this effect's own dependencies) genuinely, legitimately
+  // changes from "home" to "sim" right at that exact moment. A plain
+  // "skip only the very first invocation" ref is NOT enough: React always
+  // runs every effect once, unconditionally, right after the FIRST commit
+  // (mount, while phase is still "home", nothing to skip there) --
+  // React.StrictMode (see main.jsx) additionally re-invokes it a SECOND
+  // time in dev for the same reason (still phase "home"); a one-shot ref
+  // gets consumed by one of those and is already spent by the time the
+  // REAL Home -> Sim transition happens, so it doesn't protect that one
+  // (confirmed live in a real browser during this pass's own testing --
+  // a resumed Mic Time step was silently reset back to the Fight Result
+  // step the instant Continue Career was clicked).
+  //
+  // What actually needs skipping isn't "the first N invocations" -- it's
+  // specifically "arriving in Sim for the first time," a semantic
+  // condition that stays correct no matter how many times it's checked
+  // with unchanged values (StrictMode included), and correctly resumes
+  // firing for every GENUINE transition once the player has been in Sim
+  // before -- including the pre-existing (unrelated to this pass) case of
+  // leaving to Home mid-session and returning, which already reset these
+  // before this pass and still does.
+  const hasEnteredSimRef = useRef(false);
   useEffect(() => {
+    if (!hasEnteredSimRef.current) {
+      if (phase === "sim") hasEnteredSimRef.current = true;
+      return;
+    }
     setSelectedTarget(null);
     setMicTimeStep(false);
   }, [pendingDecisionType, spotlightFightId, phase]);
+
+  // Active Career Save + Resume V1: defensive cleanup only -- the autosave
+  // effect further down already clears LS_ACTIVE_CAREER the moment
+  // careerState.finished becomes true DURING a session, and
+  // initialActiveCareer above already refuses to resume a save that was
+  // already finished when the app mounted. This just makes sure a stale
+  // finished save can never keep sitting in storage (e.g. a session that
+  // ended before the autosave effect got a chance to run) where a LATER
+  // mount, or an "Export All Data", could still find it. Runs once, reads
+  // storage directly rather than trusting initialActiveCareer (which has
+  // already discarded a finished save's data by this point) so it can
+  // still tell "no save" apart from "a finished save that needs clearing."
+  useEffect(() => {
+    const raw = loadJSON(LS_ACTIVE_CAREER, null);
+    if (raw && raw.careerState && raw.careerState.finished) clearActiveCareer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Active Career Save + Resume V1: the one and only write path. Fires
+  // after every React commit that actually changes authoritative Career
+  // data or resume-critical UI state -- no timer, no beforeunload
+  // dependency, no manual save() call scattered through every handler.
+  // Deliberately keyed on the COMMITTED state itself (not called inline
+  // from inside handlers) so a logical checkpoint that updates careerState
+  // and, say, spotlightFightId together in one handler (handleCommitFight)
+  // can never be persisted half-applied -- React batches those setState
+  // calls into one commit, this effect only ever sees the fully-applied
+  // result of that commit, never an in-between state.
+  //
+  // finished flips this into a clear instead of a write, and does so on
+  // EVERY future run of this same effect, not a one-time special case --
+  // so there is no window where a later run could write a just-archived
+  // Career back into the active slot (saveCareerToHistory itself is called
+  // synchronously in the handler that finishes the Career, strictly before
+  // this effect can run again).
+  useEffect(() => {
+    if (!careerState) return;
+    if (careerState.finished) { clearActiveCareer(); return; }
+    saveJSON(LS_ACTIVE_CAREER, {
+      version: ACTIVE_CAREER_SAVE_VERSION,
+      savedAt: Date.now(),
+      careerState: canonicalizeCareerForSave(careerState),
+      ui: { fighterName, spotlightFightId, micTimeStep, campResultAck },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [careerState, fighterName, spotlightFightId, micTimeStep, campResultAck]);
 
   useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
