@@ -36,7 +36,7 @@ import {
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
   CAMP_FOCUSES, setFightStance, buildGameplanInsight, TRAIT_DEFS,
-  migrateStateToUniverse, normalizeUniverseState,
+  migrateStateToUniverse, normalizeUniverseState, PLAYER_BOUT_ID,
 } from "./lib/career.js";
 
 import TierIcon from "./components/TierIcon.jsx";
@@ -176,6 +176,152 @@ function loadPersistedActiveCareer() {
   } catch (e) {
     return null;
   }
+}
+
+// Pre-PR Realism & Archive Hardening: fixed, versioned lookup tables for
+// the compact archive below. NOT re-serialized inside every archive --
+// they're static for a given archive `version`, so the decoder (this
+// table itself, for now; a future Event Archive/Fighter History reader
+// later) ships the mapping instead of paying to store it in every one of
+// up to 50 history entries. A future archive version that ever needs a
+// 5th circuit or a 5th method gets its OWN table (UNIVERSE_ARCHIVE_V2_*)
+// and its own `version` number -- these two never change shape underneath
+// an already-written version: 1 archive.
+const UNIVERSE_ARCHIVE_V1_CIRCUITS = ["CLF Regional", "CLF National", "CLF PREMIER", "CLF Contender Series"];
+// Verified exhaustive against career.js (both the lightweight NPC
+// resolver's 3 values and the player's own full combat resolver's win/
+// loss variants of all 3) via this branch's own round-trip archive test
+// -- a real gap here (a `grep '"[A-Za-z/ ]* Loss"'` miss) was caught by
+// that test before this shipped. A future new method string in career.js
+// needs a version:2 table, not a silent edit of this one.
+const UNIVERSE_ARCHIVE_V1_METHODS = ["Decision", "Decision Loss", "KO/TKO", "KO/TKO Loss", "Submission", "Submission Loss"];
+// Reserved sentinel values inside a version:1 bout tuple's aIdx/bIdx and
+// championBeforeIdx slots. -1 always means "the player", regardless of
+// which of those three fields it appears in; -2 (championBeforeIdx only)
+// means "no defending champion" (a genuinely vacant-title fight) -- see
+// buildUniverseArchive's own comment for why that's a real, meaningful
+// distinct state from "the player held it" or "an NPC held it."
+const UNIVERSE_ARCHIVE_V1_PLAYER_IDX = -1;
+const UNIVERSE_ARCHIVE_V1_NO_CHAMPION = -2;
+
+// NPC World Movement + Bout Ledger V1 originally stored the completed
+// Career's whole bout ledger uncompressed (full readable objects, every
+// property name repeated per bout) plus a name/archetype/finalRecord/
+// finalOverall object per referenced fighter. Measured at ~111-183KB per
+// completed career depending on activity cadence (this branch's own
+// report has the exact numbers before/after this pass's cadence retune)
+// -- at up to 50 completed careers (LS_CAREER_HISTORY's existing cap),
+// that is several MB before counting the active save, Daily data, or
+// anything else already living in the same ~5MB conservative localStorage
+// budget. This is a real risk, not a theoretical one (see Section 13 of
+// the underlying task), so this pass replaces it with a versioned COMPACT
+// encoding for COMPLETED-Career storage ONLY -- the LIVE
+// state.universe.bouts representation read by the active simulation
+// itself is completely untouched by this change (still the full, readable
+// object form; see Section 2 of the underlying task -- that stays useful
+// for active-simulation debugging/future feature work).
+//
+// Compaction techniques used, in order of how much they save:
+//   1. Tuple arrays instead of repeated JSON property names per bout --
+//      by far the largest win at hundreds of bouts per career.
+//   2. A fighter-id dictionary (fighters[] below) with bouts referencing
+//      fighters by small integer INDEX, not by their `fighter-1234`-style
+//      string id repeated on every one of their bouts.
+//   3. circuit/method enum-index instead of repeating those strings.
+//   4. Compact [w,l] record pairs instead of {w,l} objects.
+//   5. Dropped fields that are NOT in the "must remain recoverable" list
+//      below: no finalRecord/finalOverall per fighter (derivable by
+//      walking that fighter's own bouts if a future feature ever needs
+//      it; NOT needed for Event Archive/Fighter History/Title Lineage,
+//      which all read PER-BOUT before-state, never a fighter's final
+//      snapshot) and no bout id/finalFighterSeq/finalBoutSeq (bout id is
+//      reconstructible: bouts are appended in strictly increasing
+//      boutSeq order with no gaps, so archive.bouts[i] is always
+//      "bout-<i+1>"; finalFighterSeq/finalBoutSeq were never read by
+//      anything -- both were pure post-hoc bookkeeping nobody consumed).
+// Nothing on the "must remain recoverable" list is dropped: bout
+// id/order (reconstructed from array position, above), circuit, year,
+// world tick, fighter identities (via the dictionary), winner (via
+// winnerSide), method, round, titleFight, championBefore (via
+// championBeforeIdx's 3-way sentinel), rank-before, record-before.
+//
+// Player identity: the archive intentionally stores NOTHING about the
+// player (no name field for the -1/player sentinel anywhere). The
+// completed Career's own LS_CAREER_HISTORY entry that this archive lives
+// inside of already carries `fighterName`, `record`, `division`,
+// `careerStyle`, etc. right alongside `universeArchive` -- a future
+// renderer resolving a "player" bout side reads ITS OWN sibling field on
+// the same history entry, not React state, and not a second copy stored
+// here. Verified directly (see this branch's own report) rather than
+// assumed.
+//
+// CS opponent identity: a Contender Series opponent never belongs to any
+// persistent roster (generateContenderSeriesOpponent, untouched), so the
+// normal division-lookup pass below can never resolve their id -- their
+// name/archetype was captured directly on the PLAYER's own bout ledger
+// entry for exactly this reason (opponentName/opponentArchetype, see
+// commitFight's own comment). This builder folds that fallback identity
+// into the SAME fighters[] dictionary as everyone else (so a CS
+// opponent's bout tuple can reference them by ordinary dictionary index,
+// no special-casing needed at decode time) -- verified to still resolve
+// correctly after compaction (see this branch's own report).
+function buildUniverseArchive(careerState) {
+  if (!careerState.universe) return null;
+  const bouts = careerState.universe.bouts || [];
+  const fighterIndex = new Map(); // original string id -> dictionary index
+  const fighters = []; // [id, name, archetype]
+  function indexFor(id, name, archetype) {
+    if (fighterIndex.has(id)) return fighterIndex.get(id);
+    const idx = fighters.length;
+    fighters.push([id, name, archetype ?? null]);
+    fighterIndex.set(id, idx);
+    return idx;
+  }
+  // Pass 1: every fighter reachable through a persistent roster, but only
+  // the ones the ledger actually references -- same "referenced, not the
+  // whole roster" scoping the original archive already used.
+  const referencedIds = new Set();
+  bouts.forEach((b) => {
+    if (b.fighterAId !== PLAYER_BOUT_ID) referencedIds.add(b.fighterAId);
+    if (b.fighterBId !== PLAYER_BOUT_ID) referencedIds.add(b.fighterBId);
+  });
+  Object.values(careerState.universe.divisions).forEach((division) => {
+    division.forEach((f) => {
+      if (referencedIds.has(f.id)) indexFor(f.id, f.name, f.archetype);
+    });
+  });
+  // Pass 2: Contender Series opponents (and any other referenced id that
+  // pass 1 couldn't resolve -- defensive, shouldn't happen) via the
+  // fallback identity captured on the player's own bout entries.
+  bouts.forEach((b) => {
+    if (b.opponentName && !fighterIndex.has(b.fighterBId)) indexFor(b.fighterBId, b.opponentName, b.opponentArchetype || null);
+  });
+
+  function fighterIdxFor(id) {
+    if (id === PLAYER_BOUT_ID) return UNIVERSE_ARCHIVE_V1_PLAYER_IDX;
+    return fighterIndex.has(id) ? fighterIndex.get(id) : indexFor(id, null, null); // defensive: never drop a bout for an unresolvable id
+  }
+  function rankCode(rank) { return rank == null ? -1 : rank; }
+  function championBeforeCode(championBeforeId) {
+    if (championBeforeId == null) return UNIVERSE_ARCHIVE_V1_NO_CHAMPION;
+    return fighterIdxFor(championBeforeId);
+  }
+
+  const compactBouts = bouts.map((b) => {
+    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(b.circuit));
+    const methodCode = Math.max(0, UNIVERSE_ARCHIVE_V1_METHODS.indexOf(b.method));
+    const winnerSide = b.winnerId === b.fighterAId ? 0 : 1;
+    return [
+      b.year, b.worldTick, circuitCode,
+      fighterIdxFor(b.fighterAId), fighterIdxFor(b.fighterBId),
+      winnerSide, methodCode, b.round, b.titleFight ? 1 : 0,
+      championBeforeCode(b.championBeforeId),
+      rankCode(b.rankABefore), rankCode(b.rankBBefore),
+      b.recordABefore.w, b.recordABefore.l, b.recordBBefore.w, b.recordBBefore.l,
+    ];
+  });
+
+  return { version: 1, fighters, bouts: compactBouts };
 }
 
 // Framing for the 3 real candidates the matchmaking panel offers -- same
@@ -436,6 +582,16 @@ export default function CageLab() {
   // leaving to Home mid-session and returning, which already reset these
   // before this pass and still does.
   const hasEnteredSimRef = useRef(false);
+  // Pre-PR Realism & Archive Hardening, Section 20-21: set (never
+  // cleared back to false mid-session -- once true it stays true, since a
+  // finished careerState never becomes unfinished again) the instant a
+  // saveCareerToHistory/persistCareerHistoryEntry call for THIS session's
+  // just-finished Career fails. The autosave effect below reads it before
+  // clearing LS_ACTIVE_CAREER on `finished`, so a failed history write can
+  // never be followed by the active save being wiped anyway -- the one
+  // ordering risk this whole section exists to close (archive write
+  // fails -> active Career clears -> history is lost).
+  const historyArchiveFailedRef = useRef(false);
   useEffect(() => {
     if (!hasEnteredSimRef.current) {
       if (phase === "sim") hasEnteredSimRef.current = true;
@@ -445,20 +601,42 @@ export default function CageLab() {
     setMicTimeStep(false);
   }, [pendingDecisionType, spotlightFightId, phase]);
 
-  // Active Career Save + Resume V1: defensive cleanup only -- the autosave
+  // Active Career Save + Resume V1: defensive cleanup -- the autosave
   // effect further down already clears LS_ACTIVE_CAREER the moment
-  // careerState.finished becomes true DURING a session, and
+  // careerState.finished becomes true DURING a session (as long as its
+  // Career History write succeeded -- see that effect's own comment), and
   // initialActiveCareer above already refuses to resume a save that was
-  // already finished when the app mounted. This just makes sure a stale
-  // finished save can never keep sitting in storage (e.g. a session that
-  // ended before the autosave effect got a chance to run) where a LATER
-  // mount, or an "Export All Data", could still find it. Runs once, reads
-  // storage directly rather than trusting initialActiveCareer (which has
-  // already discarded a finished save's data by this point) so it can
-  // still tell "no save" apart from "a finished save that needs clearing."
+  // already finished when the app mounted. This makes sure a stale
+  // finished save can never keep sitting in storage indefinitely (e.g. a
+  // session that ended before the autosave effect got a chance to run)
+  // where a LATER mount, or an "Export All Data", could still find it.
+  // Runs once, reads storage directly rather than trusting
+  // initialActiveCareer (which has already discarded a finished save's
+  // data by this point) so it can still tell "no save" apart from "a
+  // finished save that needs clearing."
+  //
+  // Pre-PR Realism & Archive Hardening, Section 20-21: a finished save
+  // found here is NOT unconditionally safe to discard -- it can be a
+  // Career whose Career History write genuinely FAILED in a previous
+  // session (see the autosave effect below, which deliberately leaves a
+  // failed-to-archive finished save in place rather than clearing it) and
+  // was never recorded anywhere else. This makes one more archive attempt
+  // before clearing, using ONLY data already sitting in `raw` itself
+  // (never live component state, which reflects THIS fresh mount, not the
+  // abandoned career -- see buildCareerHistoryEntry's own comment on the
+  // same tradeoff a normal cross-session finish already accepts for
+  // goatScore/buildValue/picks). If that retry also fails (still no
+  // storage headroom), the finished save is deliberately left in place
+  // again rather than cleared -- still recoverable via Export, never
+  // silently discarded.
   useEffect(() => {
     const raw = loadJSON(LS_ACTIVE_CAREER, null);
-    if (raw && raw.careerState && raw.careerState.finished) clearActiveCareer();
+    if (!raw || !raw.careerState || !raw.careerState.finished) return;
+    const entry = buildCareerHistoryEntry(raw.careerState, {
+      fighterName: (raw.ui && raw.ui.fighterName) || "",
+      goatScore: null, buildValue: null, picks: [],
+    });
+    if (persistCareerHistoryEntry(entry)) clearActiveCareer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -479,9 +657,27 @@ export default function CageLab() {
   // Career back into the active slot (saveCareerToHistory itself is called
   // synchronously in the handler that finishes the Career, strictly before
   // this effect can run again).
+  //
+  // Pre-PR Realism & Archive Hardening, Section 20-21: that "clear the
+  // instant it's finished" behavior had a real ordering risk -- the
+  // finishing handler always calls setCareerState(next) BEFORE it learns
+  // whether saveCareerToHistory's write actually succeeded, so a failed
+  // history write (storage quota, corrupt existing history, etc.) was
+  // followed by this effect clearing the active save anyway on the very
+  // same commit -- archive write fails, active Career clears, the
+  // completed Career is gone from BOTH places. historyArchiveFailedRef is
+  // set by the finishing handler (see handleCommitFight/handleAdvance/
+  // handleFastForward) strictly before this effect can run, so it is
+  // read fresh here every time: only clear once the write is known to
+  // have succeeded; otherwise this branch falls through to the same
+  // saveJSON call the in-progress path already uses below, so the
+  // finished result itself (not just some earlier in-progress snapshot)
+  // is what a later mount's recovery effect actually finds and retries
+  // archiving -- deliberately leaving the finished Career sitting in the
+  // active slot rather than losing it.
   useEffect(() => {
     if (!careerState) return;
-    if (careerState.finished) { clearActiveCareer(); return; }
+    if (careerState.finished && !historyArchiveFailedRef.current) { clearActiveCareer(); return; }
     saveJSON(LS_ACTIVE_CAREER, {
       version: ACTIVE_CAREER_SAVE_VERSION,
       savedAt: Date.now(),
@@ -860,11 +1056,17 @@ export default function CageLab() {
   // value -- if ranking or scoring formulas change later, this entry does
   // not recompute or drift; it stays exactly what was true when this
   // career ended.
-  function saveCareerToHistory(result) {
-    const history = loadJSON(LS_CAREER_HISTORY, []);
-    const entry = {
+  // Pre-PR Realism & Archive Hardening, Section 20-21: the entry-building
+  // itself is pulled out of saveCareerToHistory so the SAME logic can be
+  // reused by the mount-time recovery effect below (persistUnarchivedFinishedCareer),
+  // which has no access to this component's live picks/goatScore/
+  // buildValueInfo closures (a fresh mount that finds a previous session's
+  // still-unarchived finished Career in storage) -- it passes explicit
+  // meta instead. Returns the entry, does not write it.
+  function buildCareerHistoryEntry(result, meta) {
+    return {
       id: Date.now().toString(36), savedAt: new Date().toISOString(),
-      fighterName: name, record: result.record, verdict: result.verdict,
+      fighterName: meta.fighterName, record: result.record, verdict: result.verdict,
       legacyScore: result.legacyScore, titleReigns: result.titleReigns,
       titleDefenses: result.titleDefenses,
       // Immutable snapshot, same as everything else here -- a future
@@ -878,10 +1080,33 @@ export default function CageLab() {
       totalFightCount: result.totalFightCount, wonTitleAsUnderdog: result.wonTitleAsUnderdog,
       peakPlayerRank: result.peakPlayerRank, peakCircuitTier: result.peakCircuitTier,
       division: result.division, careerStyle: result.careerStyle, champion: result.champion,
-      goatScore, buildValue: buildValueInfo ? buildValueInfo.buildValue : null,
-      picks: picksSnapshotArray(picks),
+      goatScore: meta.goatScore, buildValue: meta.buildValue,
+      picks: meta.picks,
+      // NPC World Movement + Bout Ledger V1: the completed Career's own
+      // universe bout ledger, archived here so it survives Active Career
+      // Save clearing LS_ACTIVE_CAREER on completion (see
+      // buildUniverseArchive's own comment). null for a career finished
+      // before this pass shipped (no bout ledger existed yet) -- absence
+      // means "no history recorded," never fabricated after the fact.
+      universeArchive: buildUniverseArchive(result),
     };
-    saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, CAREER_HISTORY_CAP));
+  }
+  // Returns true/false for whether the write actually succeeded (saveJSON
+  // itself already reports this -- Pre-PR Realism & Archive Hardening is
+  // the first caller to actually check it; see Section 20-21 of this
+  // branch's own report for why that matters: a completed Career's ONLY
+  // record must not be allowed to silently vanish because a quota-full
+  // write failed and nobody noticed).
+  function persistCareerHistoryEntry(entry) {
+    const history = loadJSON(LS_CAREER_HISTORY, []);
+    return saveJSON(LS_CAREER_HISTORY, [entry, ...history].slice(0, CAREER_HISTORY_CAP));
+  }
+  function saveCareerToHistory(result) {
+    const entry = buildCareerHistoryEntry(result, {
+      fighterName: name, goatScore, buildValue: buildValueInfo ? buildValueInfo.buildValue : null,
+      picks: picksSnapshotArray(picks),
+    });
+    return persistCareerHistoryEntry(entry);
   }
 
   // "Start Career" routes through the setup screen rather than launching
@@ -961,7 +1186,7 @@ export default function CageLab() {
     const next = advanceCareer(careerState);
     playSfxForTransition(careerState, next);
     setCareerState(next);
-    if (next.finished && !careerState.finished) saveCareerToHistory(next);
+    if (next.finished && !careerState.finished) historyArchiveFailedRef.current = !saveCareerToHistory(next);
   }
   function handleCampConfirm(choice) {
     sfx("select");
@@ -1026,7 +1251,7 @@ export default function CageLab() {
     // exactly one "fight" timeline entry, so the last entry is it.
     const lastEntry = next.timeline[next.timeline.length - 1];
     if (lastEntry && lastEntry.type === "fight") setSpotlightFightId(lastEntry.id);
-    if (next.finished && !careerState.finished) saveCareerToHistory(next);
+    if (next.finished && !careerState.finished) historyArchiveFailedRef.current = !saveCareerToHistory(next);
   }
   function handleTrainingEvent(addressed) {
     sfx("select");
@@ -1057,7 +1282,7 @@ export default function CageLab() {
     const next = fastForwardCareer(careerState);
     sfx("whoosh");
     setCareerState(next);
-    if (next.finished && !careerState.finished) saveCareerToHistory(next);
+    if (next.finished && !careerState.finished) historyArchiveFailedRef.current = !saveCareerToHistory(next);
   }
   function replayDefiningLoss() {
     const snap = careerState.definingLoss && careerState.definingLoss.fightSnapshot;
