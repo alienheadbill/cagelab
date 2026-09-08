@@ -1372,7 +1372,27 @@ function buildFreshUniverse(activeCircuitTier, seed, startingFighterSeq = 0) {
   // fighterSeq is explicit above: this is the one place a universe is
   // truly starting from nothing, so it should say so plainly rather than
   // relying on undefined-reads-as-default everywhere else.
-  return { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions, worldTickSeq: 0, boutSeq: 0, bouts: [] };
+  //
+  // eventSeq/events/eventNumbers/eventSchemaVersion/titleTransitions/
+  // historicalFighterIdentities (Universe Events V1): same "truly starting
+  // from nothing" reasoning extends to the event layer -- a brand-new
+  // universe has no cards and no title-transition facts yet either.
+  // IMPORTANT: this function is called from TWO places -- initCareer (a
+  // genuine fresh start, nothing to carry forward) and
+  // resolveWeightMoveOffer (a weight-class move, which is NOT a fresh
+  // start for history purposes even though the ROSTERS are brand new).
+  // buildFreshUniverse itself stays simple and always returns a blank
+  // event/bout history -- resolveWeightMoveOffer is responsible for
+  // overwriting these fields with the outgoing universe's carried-forward
+  // history afterward (see its own comment). Never carry history forward
+  // IN here -- this function has no way to tell which caller it's serving.
+  return {
+    schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions,
+    worldTickSeq: 0, boutSeq: 0, bouts: [],
+    eventSeq: 0, events: [], eventNumbers: freshEventNumbers(), eventSchemaVersion: EVENT_SCHEMA_VERSION,
+    titleTransitionSeq: 0, titleTransitions: [],
+    historicalFighterIdentities: {},
+  };
 }
 
 // ---- Single source of truth ---------------------------------------------
@@ -1495,11 +1515,23 @@ function getDivisionForTier(state, circuitTier) {
 // persistentTierForActiveRoster so it rebinds to the real National roster,
 // not a null/missing key). Never mutates state.universe.divisions itself
 // -- only ever repoints the divisionRoster alias to what's already there.
+// Universe Events V1: migrateUniverseEvents is folded into this same
+// always-called-on-rehydration function rather than given its own
+// separate call site -- normalizeUniverseState is already the established
+// "run this once after any external rehydration, safe to call repeatedly"
+// hook (see its own comment above), and migrateUniverseEvents is
+// internally idempotent (guarded by eventSchemaVersion) the exact same
+// way, so piggybacking here needs no new wiring anywhere else in
+// career.js or App.jsx.
 function normalizeUniverseState(state) {
-  if (!state.universe || !state.universe.divisions) return state;
-  const key = circuitToUniverseKey(persistentTierForActiveRoster(state.circuitTier));
-  if (!key || !state.universe.divisions[key]) return state;
-  return { ...state, divisionRoster: state.universe.divisions[key] };
+  if (!state.universe) return state;
+  let s = state;
+  const migratedUniverse = migrateUniverseEvents(s.universe, s.division);
+  if (migratedUniverse !== s.universe) s = { ...s, universe: migratedUniverse };
+  if (!s.universe.divisions) return s;
+  const key = circuitToUniverseKey(persistentTierForActiveRoster(s.circuitTier));
+  if (!key || !s.universe.divisions[key]) return s;
+  return { ...s, divisionRoster: s.universe.divisions[key] };
 }
 
 // ---- Active-save migration ------------------------------------------------
@@ -1554,7 +1586,19 @@ function migrateStateToUniverse(state, seed) {
   // fights that happened before this feature existed; the ledger is
   // truthful from the moment World Movement actually starts running, not
   // reconstructed retroactively.
-  s.universe = { schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions, worldTickSeq: 0, boutSeq: 0, bouts: [] };
+  // Same reasoning as buildFreshUniverse's own event-field defaults: a
+  // migrated ancient (pre-Foundation-V1) save never had a bout ledger at
+  // all, so there is nothing for the event layer to backfill either --
+  // it starts truthfully empty, at the current eventSchemaVersion (so
+  // normalizeUniverseState's migrateUniverseEvents call below correctly
+  // treats it as already-migrated, not as a #38-era save needing backfill).
+  s.universe = {
+    schemaVersion: UNIVERSE_SCHEMA_VERSION, fighterSeq, rngState, divisions,
+    worldTickSeq: 0, boutSeq: 0, bouts: [],
+    eventSeq: 0, events: [], eventNumbers: freshEventNumbers(), eventSchemaVersion: EVENT_SCHEMA_VERSION,
+    titleTransitionSeq: 0, titleTransitions: [],
+    historicalFighterIdentities: {},
+  };
   return s;
 }
 
@@ -1838,7 +1882,7 @@ function isRecentPairing(recentPairings, idA, idB) {
 // inert for a tier the player isn't in, and for Contender Series opponents
 // (never part of any persistent roster, so their id never matches anyone
 // here anyway).
-function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds, year, worldTick, rngState, recentPairings) {
+function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds, year, worldTick, rngState, recentPairings, weightClass) {
   const recent = recentPairings || new Set();
   const cadence = WORLD_TICK_CADENCE[tierName] || WORLD_TICK_CADENCE["CLF Regional"];
   let state = rngState;
@@ -1861,6 +1905,14 @@ function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds
     function pushBout(aFighter, bFighter, aWins, method, round, titleFight, championBeforeId) {
       bouts.push({
         circuit: tierName, year, worldTick,
+        // Universe Events V1, Section 28: the weight class this bout
+        // actually happened in -- immutable historical identity, needed
+        // so a future card label can distinguish "CLF Premier 14" fought
+        // at Welterweight from a same-numbered-tier card years later at
+        // Middleweight after a weight-class move. Never re-derived from
+        // current state.division, which can have moved on by the time
+        // anything reads this bout back.
+        division: weightClass,
         fighterAId: aFighter.id, fighterBId: bFighter.id,
         winnerId: aWins ? aFighter.id : bFighter.id,
         method, round, titleFight: !!titleFight,
@@ -2103,7 +2155,7 @@ function applyPlayerOpponentUpdateToUniverse(universe, tierBeforeKey, oppEntry, 
 // title win correctly protects the tier the player just became champion
 // of, and a same-fight promotion correctly leaves the tier just LEFT
 // behind eligible for its own vacancy handling next tick).
-function runWorldTick(universe, worldTick, playerCircuitTier, playerHoldsBelt, excludeOppId, year) {
+function runWorldTick(universe, worldTick, playerCircuitTier, playerHoldsBelt, excludeOppId, year, weightClass) {
   const divisions = { ...universe.divisions };
   let rngState = universe.rngState;
   const allNewBouts = [];
@@ -2114,18 +2166,243 @@ function runWorldTick(universe, worldTick, playerCircuitTier, playerHoldsBelt, e
     const excludeIds = (tierName === persistentTierForActiveRoster(playerCircuitTier) && excludeOppId) ? [excludeOppId] : [];
     const holdsBelt = tierName === playerCircuitTier && playerHoldsBelt;
     const recentPairings = recentPairingsForTier(universe.bouts, tierName, worldTick);
-    const result = runWorldTickForDivision(division, tierName, holdsBelt, excludeIds, year, worldTick, rngState, recentPairings);
+    const result = runWorldTickForDivision(division, tierName, holdsBelt, excludeIds, year, worldTick, rngState, recentPairings, weightClass);
     divisions[key] = result.division;
     rngState = result.nextRngState;
     allNewBouts.push(...result.bouts);
   });
   const { bouts: idBouts, nextBoutSeq } = assignBoutIds(allNewBouts, universe.boutSeq);
-  return {
+  const withBouts = {
     ...universe,
     divisions, rngState,
     worldTickSeq: worldTick,
     boutSeq: nextBoutSeq,
     bouts: [...(universe.bouts || []), ...idBouts],
+  };
+  // Universe Events V1: finalize this tick's card(s) only now that every
+  // bout the tick will ever produce already exists in withBouts.bouts --
+  // the player's own bout (appended by the caller BEFORE runWorldTick is
+  // called; see commitFight) plus whichever of Regional/National/Premier
+  // just generated background bouts above. See finalizeEventsForTick's
+  // own comment for why this exact point, not any of the individual
+  // per-tier steps above, is the only safe place to do this.
+  return finalizeEventsForTick(withBouts, worldTick, year, weightClass);
+}
+
+// =========================================================================
+//  UNIVERSE EVENTS V1
+//  Turns the bout ledger World Movement + Bout Ledger V1 already produces
+//  into actual persistent CLF event cards. CORE PRINCIPLE (see this
+//  branch's own report): events ORGANIZE history, they do not resimulate
+//  it. One bout still has exactly one result -- nothing in this section
+//  resolves a fight, changes a record, or moves a ranking. It only reads
+//  bouts that already exist and groups them.
+// =========================================================================
+
+// Bumped only if a future pass changes the event/title-transition SHAPE
+// in a way old persisted data can't just fall back-default through (the
+// same convention UNIVERSE_SCHEMA_VERSION already established). Doubles
+// as migrateUniverseEvents' idempotency guard: a universe already at this
+// version is treated as "already migrated," never re-backfilled.
+const EVENT_SCHEMA_VERSION = 1;
+
+function freshEventNumbers() {
+  return { regional: 0, national: 0, premier: 0, contenderSeries: 0 };
+}
+
+// Per-circuit event-number COUNTER key -- deliberately its own small
+// mapping, not a reuse of circuitToUniverseKey (which returns null for
+// Contender Series, correct for ROSTER lookups but wrong here: CS has no
+// persistent division, but it very much has its own event-number lineage
+// once the player actually fights there -- see Section 6 of the
+// underlying task).
+function eventNumberKeyFor(circuit) {
+  if (circuit === "CLF Regional") return "regional";
+  if (circuit === "CLF National") return "national";
+  if (circuit === "CLF PREMIER") return "premier";
+  if (circuit === "CLF Contender Series") return "contenderSeries";
+  return "regional"; // defensive, never expected on any real bout
+}
+
+// Deterministic card-order priority for one bout -- LOWER sorts first
+// (headlines). No RNG. Title fight always headlines (Section 32); the
+// player's own fight (if not itself the title fight) is naturally high on
+// the card next; then ranked fights ordered by how good the best-ranked
+// participant was going into it (a Champion-adjacent #2-vs-#4 outranks a
+// #14-vs-#15 scrap); then fights with exactly one ranked side (boundary/
+// prospect tests); everything else (unranked-pool bouts) fills the rest.
+// Reads only rankABefore/rankBBefore -- already on every bout, no new
+// per-bout tagging needed to reconstruct this later.
+function cardPriorityScore(bout) {
+  if (bout.titleFight) return 0;
+  if (bout.fighterAId === PLAYER_BOUT_ID || bout.fighterBId === PLAYER_BOUT_ID) return 1;
+  const rA = bout.rankABefore, rB = bout.rankBBefore;
+  const bothRanked = rA != null && rB != null;
+  const oneRanked = (rA != null) !== (rB != null);
+  if (bothRanked) return 2 + Math.min(rA, rB) / 1000;
+  if (oneRanked) return 3 + (rA ?? rB) / 1000;
+  return 4;
+}
+// Stable sort (Array.prototype.sort is spec-guaranteed stable) by
+// priority score; ties (rare -- would need identical rank inputs) resolve
+// by original array position, which is itself already deterministic
+// (bouts arrive here in the fixed title/vacancy -> ranked-ladder ->
+// boundary -> unranked-pool generation order runWorldTickForDivision
+// produces, or -- for the player's own bout -- always first in the tick
+// per appendPlayerBout's ordering convention). Once computed for a given
+// event, this order is persisted in boutIds and never recomputed later --
+// see finalizeEventsForTick's own comment: card order is itself
+// historical data, immune to any future ranking-logic change.
+function orderBoutsForCard(bouts) {
+  return [...bouts].sort((a, b) => cardPriorityScore(a) - cardPriorityScore(b));
+}
+
+// Groups ONE world tick's newly-appended bouts into one event per circuit
+// that produced at least one bout this tick (Section 8: no empty cards).
+// Called exactly once, from runWorldTick, AFTER every bout the tick will
+// ever produce (the player's own bout, already appended by commitFight
+// before calling runWorldTick, plus whatever Regional/National/Premier
+// background activity just ran) already exists in universe.bouts -- see
+// Section 3/7 of the underlying task: one event per circuit per world
+// tick is the natural unit World Movement already produces, so this
+// deliberately does NOT invent a second, independent event-scheduling
+// system. A Contender Series event is created here too, but only when
+// the player actually fought CS this tick (CS has no background
+// division, so its "tick bouts" are always exactly the player's one
+// showcase fight -- Section 6/11).
+function finalizeEventsForTick(universe, worldTick, year, weightClass) {
+  const tickBouts = (universe.bouts || []).filter((b) => b.worldTick === worldTick);
+  if (!tickBouts.length) return universe;
+  const byCircuit = new Map();
+  tickBouts.forEach((b) => {
+    if (!byCircuit.has(b.circuit)) byCircuit.set(b.circuit, []);
+    byCircuit.get(b.circuit).push(b);
+  });
+  let eventSeq = universe.eventSeq || 0;
+  const eventNumbers = { ...(universe.eventNumbers || freshEventNumbers()) };
+  const newEvents = [];
+  // Map iteration follows insertion order, which follows tickBouts' own
+  // order (player bout's circuit first, since appendPlayerBout always
+  // gives the player's bout the lowest id of the tick -- then Regional/
+  // National/Premier in runWorldTick's own fixed iteration order) --
+  // deterministic given the same input, every time.
+  byCircuit.forEach((group, circuit) => {
+    const key = eventNumberKeyFor(circuit);
+    eventSeq += 1;
+    eventNumbers[key] = (eventNumbers[key] || 0) + 1;
+    newEvents.push({
+      id: `event-${eventSeq}`, circuit,
+      division: group[0].division ?? weightClass,
+      year, worldTick,
+      eventNumber: eventNumbers[key],
+      boutIds: orderBoutsForCard(group).map((b) => b.id),
+    });
+  });
+  return { ...universe, eventSeq, eventNumbers, events: [...(universe.events || []), ...newEvents] };
+}
+
+// Append-only historical fact for a title left behind WITHOUT a resolving
+// fight (Section 33-38 of the underlying task) -- promotion, a Contender
+// Series invite, a weight-class move, or retirement, all while the
+// player was reigning champion of the tier being left. This is NOT a
+// second source of championship truth: every title WIN/DEFENSE/LOSS
+// still comes exclusively from a real ledger bout (championBeforeId on
+// that bout), exactly as before. This only fills the one gap bouts alone
+// cannot: proving a belt became vacant through the player's own choice
+// to leave, rather than through a fight the ledger would otherwise show.
+// Without this, a future Title Lineage reconstruction walking the bout
+// ledger for a tier the player vacated this way can only ever say "the
+// player held it as of the last bout, and by the next title/vacancy bout
+// someone else does" -- never WHEN it actually became vacant or WHY.
+function appendTitleTransition(universe, transition) {
+  const titleTransitionSeq = (universe.titleTransitionSeq || 0) + 1;
+  const entry = { id: `tt-${titleTransitionSeq}`, type: "vacated", championId: PLAYER_BOUT_ID, ...transition };
+  return {
+    ...universe,
+    titleTransitionSeq,
+    titleTransitions: [...(universe.titleTransitions || []), entry],
+  };
+}
+
+// Captures the minimal, immutable identity (name/archetype) of every
+// fighter in the given divisions -- called ONLY when a weight-class move
+// is about to discard those divisions outright (see resolveWeightMoveOffer),
+// so every fighter who only ever existed in the discarded old weight
+// class stays resolvable forever afterward. Same shape/purpose as the
+// opponentName/opponentArchetype fallback World Movement + Bout Ledger V1
+// already uses for Contender Series opponents -- this is that same fix,
+// applied at the scale of a whole discarded roster instead of one CS
+// opponent.
+function captureFighterIdentities(divisions) {
+  const out = {};
+  Object.values(divisions || {}).forEach((division) => {
+    (division || []).forEach((f) => { out[f.id] = [f.name, f.archetype]; });
+  });
+  return out;
+}
+
+// One-time backfill for a #38-era active save: it has universe.bouts but
+// no events/eventSeq/eventNumbers/titleTransitions/historicalFighterIdentities
+// at all, and its existing bout records have no `division` (weight class)
+// field. Idempotency guard is eventSchemaVersion itself -- a universe
+// already at EVENT_SCHEMA_VERSION returns the SAME object reference
+// unchanged (see normalizeUniverseState's own comment: callers rely on
+// reference equality to detect "nothing to do"), so this is always safe
+// to call on every load, never rebuilding events it already built.
+//
+// division backfill: safe to assign the Career's CURRENT weight class to
+// every pre-existing bout, because a weight-class move in the #38 era
+// discarded the ENTIRE prior universe outright (the exact bug this same
+// branch's own report fixes in resolveWeightMoveOffer) -- any bout that
+// survived to be migrated here is therefore guaranteed to have happened
+// in this same weight class. Not a guess; a direct consequence of the
+// bug being fixed in the same pass that adds the field being backfilled.
+//
+// Event grouping uses the IDENTICAL worldTick+circuit grouping and
+// orderBoutsForCard priority function native event creation uses
+// (Section 22) -- a migrated card and a natively-created card obey
+// exactly the same rules, no separate migration-only logic to drift.
+function migrateUniverseEvents(universe, currentDivision) {
+  if (!universe) return universe;
+  if ((universe.eventSchemaVersion || 0) >= EVENT_SCHEMA_VERSION) return universe;
+  const bouts = (universe.bouts || []).map((b) => (b.division ? b : { ...b, division: currentDivision ?? null }));
+  const byTickCircuit = new Map();
+  bouts.forEach((b) => {
+    const key = `${b.worldTick}::${b.circuit}`;
+    if (!byTickCircuit.has(key)) byTickCircuit.set(key, []);
+    byTickCircuit.get(key).push(b);
+  });
+  let eventSeq = 0;
+  const eventNumbers = freshEventNumbers();
+  const events = [];
+  // Map iteration order follows insertion order, which follows `bouts`'
+  // own array order -- already strictly non-decreasing by worldTick (the
+  // ledger only ever appends), so ticks are visited chronologically
+  // without needing an explicit sort here.
+  byTickCircuit.forEach((group) => {
+    const { circuit, worldTick, year, division } = group[0];
+    const key = eventNumberKeyFor(circuit);
+    eventSeq += 1;
+    eventNumbers[key] = (eventNumbers[key] || 0) + 1;
+    events.push({
+      id: `event-${eventSeq}`, circuit, division, year, worldTick,
+      eventNumber: eventNumbers[key],
+      boutIds: orderBoutsForCard(group).map((b) => b.id),
+    });
+  });
+  return {
+    ...universe,
+    bouts, eventSeq, events, eventNumbers,
+    eventSchemaVersion: EVENT_SCHEMA_VERSION,
+    // A #38-era save has no title-transition history to backfill (the
+    // concept didn't exist yet) -- starts empty, same "truthful, not
+    // fabricated" principle buildFreshUniverse's own bout ledger already
+    // established. Preserves an already-migrated-partially value rather
+    // than overwriting, though in practice this function only ever runs
+    // once per universe (see the idempotency guard above).
+    titleTransitionSeq: universe.titleTransitionSeq || 0,
+    titleTransitions: universe.titleTransitions || [],
+    historicalFighterIdentities: universe.historicalFighterIdentities || {},
   };
 }
 
@@ -3326,11 +3603,62 @@ function resolveWeightMoveOffer(state, accept) {
     // National is the real tier this roster belongs to in that case (see
     // persistentTierForActiveRoster's own comment).
     const activeTier = persistentTierForActiveRoster(s.circuitTier);
+    const outgoingUniverse = s.universe;
     s.universe = buildFreshUniverse(
       activeTier,
-      s.universe ? s.universe.rngState : Date.now(),
-      s.universe ? s.universe.fighterSeq : 0
+      outgoingUniverse ? outgoingUniverse.rngState : Date.now(),
+      outgoingUniverse ? outgoingUniverse.fighterSeq : 0
     );
+    // Universe Events V1, Section 25-27: a weight-class move genuinely
+    // needs fresh LIVE divisions (buildFreshUniverse above, unchanged) --
+    // there is no existing National/Premier roster for a weight class the
+    // player has never been in. But the outgoing universe's HISTORY is a
+    // different thing entirely from its rosters, and discarding it here
+    // (as this pass originally did, before this fix -- confirmed by
+    // direct reproduction, see this branch's own report) would silently
+    // erase every bout/event/title-transition fact from a Career the
+    // player already lived, the exact "Career changes weight class and
+    // its own fight history disappears" bug this pass exists to close.
+    // The old divisions themselves do NOT need to keep simulating after
+    // the move (matches existing product behavior -- the old weight
+    // class's world simply stops advancing once the player leaves it,
+    // same as before this fix); only their HISTORY and every fighter
+    // identity needed to keep that history resolvable survive.
+    if (outgoingUniverse) {
+      s.universe = {
+        ...s.universe,
+        bouts: outgoingUniverse.bouts || [],
+        boutSeq: outgoingUniverse.boutSeq || 0,
+        worldTickSeq: outgoingUniverse.worldTickSeq || 0,
+        eventSeq: outgoingUniverse.eventSeq || 0,
+        events: outgoingUniverse.events || [],
+        eventNumbers: outgoingUniverse.eventNumbers || freshEventNumbers(),
+        eventSchemaVersion: outgoingUniverse.eventSchemaVersion || EVENT_SCHEMA_VERSION,
+        titleTransitionSeq: outgoingUniverse.titleTransitionSeq || 0,
+        titleTransitions: outgoingUniverse.titleTransitions || [],
+        // Every fighter who only ever existed in the now-discarded old
+        // divisions gets a permanent identity snapshot here, merged with
+        // any already captured by an EARLIER weight move in this same
+        // Career -- so a bout/event from weight class #1 stays resolvable
+        // even after a Career has since moved through weight classes #2
+        // and #3. Global fighter ids never collide across this (fighterSeq
+        // above is threaded through, never restarted), so a plain merge
+        // is safe.
+        historicalFighterIdentities: {
+          ...(outgoingUniverse.historicalFighterIdentities || {}),
+          ...captureFighterIdentities(outgoingUniverse.divisions),
+        },
+      };
+      // The player's OWN belt, if they were holding one going into this
+      // move, is left behind without a resolving fight -- record it
+      // (Section 33-38) before champion/playerRank are cleared below.
+      if (state.champion) {
+        s.universe = appendTitleTransition(s.universe, {
+          circuit: state.circuitTier, division: state.division,
+          worldTick: s.universe.worldTickSeq, year: s.year, reason: "weightMove",
+        });
+      }
+    }
     s.divisionRoster = s.universe.divisions[circuitToUniverseKey(activeTier) || "regional"];
     s.playerRank = null;
     s.rankPoints = 0;
@@ -4108,6 +4436,14 @@ function commitFight(state) {
   // is kept, not rebuilt), so the belt-taking block further down needs its
   // own guard against re-crowning the player right after this clears them.
   let leftBeltBehindForContenderSeries = false;
+  // Universe Events V1: set below, in whichever promotion branch actually
+  // clears a belt the player was reigning champion of WITHOUT a resolving
+  // fight (championAfterFight, not championBefore -- covers both "already
+  // champion, promoted via streak" and "just won the title THIS fight,
+  // immediately promoted same fight"). Applied later, alongside
+  // appendPlayerBout, once `worldTick`/`s.universe` are available -- see
+  // this branch's own report, Section 33-38.
+  let titleTransitionPending = null;
   // Realism pass, item 16/17: the fast-track route (Path B) is meant to be
   // the exception a dominant prospect earns, not the default -- but a flat
   // streak>=4 rewards 4 wins over anyone, including the unranked prospects
@@ -4132,6 +4468,7 @@ function commitFight(state) {
   if (s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride)) {
     s.circuitTier = "CLF National";
     resetForFreshTier = true;
+    if (championAfterFight) titleTransitionPending = { circuit: "CLF Regional", division: s.division, reason: "promotion" };
   } else if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
@@ -4143,6 +4480,7 @@ function commitFight(state) {
     // whether or not the showcase itself goes your way.
     s.champion = false;
     leftBeltBehindForContenderSeries = true;
+    if (championAfterFight) titleTransitionPending = { circuit: "CLF National", division: s.division, reason: "contenderSeries" };
     // playerRank comes down with it -- best-in-division but not literally
     // holding a belt you walked away from, same standing as any other
     // former champion (see demoteInDivision's "modest drop" elsewhere).
@@ -4275,6 +4613,7 @@ function commitFight(state) {
     const worldTick = (s.universe.worldTickSeq || 0) + 1;
     s.universe = appendPlayerBout(s.universe, {
       circuit: tierBefore, year: s.year, worldTick,
+      division: state.division,
       fighterAId: PLAYER_BOUT_ID, fighterBId: oppEntry.id,
       winnerId: result.win ? PLAYER_BOUT_ID : oppEntry.id,
       method: result.method, round: stats.finishRound || totalRounds,
@@ -4313,7 +4652,19 @@ function commitFight(state) {
     // title win correctly protects the tier just won, and a same-fight
     // promotion correctly leaves the tier just left behind eligible for
     // its own vacancy handling starting next tick.
-    s.universe = runWorldTick(s.universe, worldTick, tierBefore, championAfterFight, oppEntry.id, s.year);
+    s.universe = runWorldTick(s.universe, worldTick, tierBefore, championAfterFight, oppEntry.id, s.year, state.division);
+    // Universe Events V1: apply the deferred title-transition fact (set
+    // above, in the promotion branch that actually cleared a belt without
+    // a resolving fight) now that worldTick/s.universe are available. Must
+    // run AFTER runWorldTick, not before -- Section 33-38's whole point is
+    // that this is a fact about the OLD tier becoming vacant at this
+    // exact tick, and runWorldTick above is what may go on to actually
+    // fill that vacancy this same or a later tick; recording the
+    // vacancy-cause first keeps a future lineage reconstruction's
+    // "vacated, then (maybe same tick) won" ordering honest.
+    if (titleTransitionPending) {
+      s.universe = appendTitleTransition(s.universe, { ...titleTransitionPending, worldTick, year: s.year });
+    }
     // Re-bind the alias to whichever tier is ACTIVE now (post-promotion-
     // aware) -- this is the ONE place divisionRoster is written for the
     // rest of this function; both the promotion switch above and every
@@ -4676,7 +5027,17 @@ function topCareerWins(timeline) {
     .map((e) => ({ opp: e.opp, oppRating: e.oppRating, method: e.method, titleShot: e.titleShot, titleDefense: e.titleDefense }));
 }
 
-function finishCareerState(state) {
+function finishCareerState(rawState) {
+  // Universe Events V1, Section 33-38: retirement while holding a belt is
+  // the third (and last) non-fight way a title can be left behind --
+  // record it the same way promotion/Contender-Series/weight-move already
+  // do, before anything else below reads state.universe.
+  const state = (rawState.universe && rawState.champion)
+    ? { ...rawState, universe: appendTitleTransition(rawState.universe, {
+        circuit: rawState.circuitTier, division: rawState.division,
+        worldTick: rawState.universe.worldTickSeq || 0, year: rawState.year, reason: "retirement",
+      }) }
+    : rawState;
   const { legacyScore, bonus, finishRate, strengthOfSchedule } = calculateLegacy(state);
   const totalFightCount = state.timeline.filter((e) => e.type === "fight").length;
   const verdict = verdictFor(legacyScore, state.peakCircuitTier);
@@ -4920,6 +5281,14 @@ export {
   resolveLightweightBout,
   runWorldTick,
   runWorldTickForDivision,
+  EVENT_SCHEMA_VERSION,
+  freshEventNumbers,
+  eventNumberKeyFor,
+  orderBoutsForCard,
+  finalizeEventsForTick,
+  appendTitleTransition,
+  captureFighterIdentities,
+  migrateUniverseEvents,
   buildGameplanInsight,
   circuitToUniverseKey,
   persistentTierForActiveRoster,
