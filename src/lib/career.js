@@ -1734,31 +1734,101 @@ function ecologyForDemotedFighter(fighter) {
   return "DEVELOPMENTAL";
 }
 
-// Cadence chosen after measuring LIGHT/MODERATE/ACTIVE candidates across
-// 60 simulated careers apiece (avg ~9.6 years, ~18 world ticks/career --
-// see this branch's own report for the full comparison):
-//   LIGHT   (1/1/2 bouts, 10%/55% chance): 6.8% of the roster NEVER fights
-//           across its whole career-length window; ~0.30 fights/fighter/yr.
-//   MODERATE (shipped, below):              1.6% never fights;
-//           ~0.50 fights/fighter/yr; ~1.2-1.8 title changes/10yrs/tier.
-//   ACTIVE  (3/3/6-7 bouts, 18%/90% chance): 0.0% never fights, but roughly
-//           DOUBLES total ledger volume for only a modest further drop in
-//           inactivity and title-change cadence over MODERATE.
-// MODERATE is the smallest of the three that clearly avoids both
-// Section 25 anti-patterns ("half the roster never fights for years" --
-// LIGHT's 6.8% inactive rate is a real, if smaller, version of that same
-// problem; "every fighter racks up 30 fights in three years" -- ACTIVE's
-// extra ledger volume buys very little additional believability over this).
+// Cadence chosen after the pre-PR realism hardening pass re-measured the
+// originally-shipped MODERATE model (below) at ~0.4-0.6 fights/fighter/yr
+// and ~2.4-3.1 title fights/10y/tier -- structurally correct but too
+// static for a "living" universe -- and prototyped three stronger
+// candidates across 80 simulated careers apiece (avg ~9.6 years, ~18
+// world ticks/career -- see this branch's own report for the full
+// per-ecology/per-rank breakdown):
+//   MODERATE (originally shipped): titleChance .14-.16, vacancyChance
+//           .80-.85, 2/2/3-4 bouts -- ~0.44-0.61 fights/fighter/yr;
+//           2.4-3.1 title fights/10y/tier; 0% of HOT_PROSPECT fighters
+//           ever reached a Top-15 ranking in the whole measured window
+//           (a separate boundary-movement eligibility gap, fixed
+//           alongside this retune -- see runWorldTickForDivision's
+//           boundary-movement section).
+//   MODEL D "MODERATE+" (titleChance .30-.34, vacancyChance .90-.92,
+//           4/3/6-7 bouts): ~0.82-1.14 fights/fighter/yr; ~6-6.5 title
+//           fights/10y/tier.
+//   MODEL E "ACTIVE" (shipped, below: titleChance .36-.40, vacancyChance
+//           .92-.95, 5/4/8-9 bouts): ~0.96-1.37 fights/fighter/yr (most
+//           of the roster lands in the 1.0-1.99/yr distribution bucket);
+//           ~6.6-7.9 title fights/10y/tier; 43% of HOT_PROSPECT fighters
+//           reach a Top-15 ranking (median ~7 ticks / ~5 fights to first
+//           ranking) entirely in the background; ranked fighters in the
+//           8-15 range see a rank drop 37% of the time and a Top-15 exit
+//           25% of the time -- genuine two-way movement, not a one-way
+//           ratchet.
+//   MODEL F "HIGH-ACTIVITY" (titleChance .42-.46, vacancyChance .95-.97,
+//           7/5/11-13 bouts): ~1.20-1.69 fights/fighter/yr; ~8.2-8.9
+//           title fights/10y/tier -- roughly another ~40% more ledger
+//           volume than MODEL E for comparatively little further gain in
+//           believability (Hot Prospect Top-15 entry actually drops
+//           slightly, 39% vs 43%, from more crowded ranked-ladder churn).
+// MODEL E is selected: it clears every Section 38 target (a Hot Prospect
+// can build a real 5-year résumé; ranked veterans genuinely rise and
+// fall; Premier rankings visibly move; a multi-year title reign still
+// contains real defenses) without MODEL F's extra ~40% ledger-volume cost
+// to the completed-archive storage budget (see this branch's own report,
+// Section 13-19) for a believability gain that measurement did not show.
 // titleChance is the odds a tier with an NPC champion gets a title fight
 // THIS tick; vacancyChance is the (deliberately higher) odds a genuinely
 // vacant belt gets contested this tick, so a title the player left behind
 // doesn't sit vacant indefinitely. rankedBouts/boundaryBouts/unrankedBouts
 // are bout COUNTS per tick, not chances.
 const WORLD_TICK_CADENCE = {
-  "CLF Regional": { titleChance: 0.14, vacancyChance: 0.80, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 4 },
-  "CLF National": { titleChance: 0.15, vacancyChance: 0.80, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 3 },
-  "CLF PREMIER": { titleChance: 0.16, vacancyChance: 0.85, rankedBouts: 2, boundaryBouts: 2, unrankedBouts: 3 },
+  "CLF Regional": { titleChance: 0.36, vacancyChance: 0.92, rankedBouts: 5, boundaryBouts: 4, unrankedBouts: 9 },
+  "CLF National": { titleChance: 0.38, vacancyChance: 0.92, rankedBouts: 5, boundaryBouts: 4, unrankedBouts: 8 },
+  "CLF PREMIER": { titleChance: 0.40, vacancyChance: 0.95, rankedBouts: 5, boundaryBouts: 4, unrankedBouts: 8 },
 };
+
+// Small rematch-recency guard (Section 22-25 of the underlying task) --
+// deliberately NOT rivalry matchmaking. Prototyped N=1/2/3 across 20
+// simulated careers (15 player fights each) at the new MODEL E activity
+// cadence above (this branch's own report has the full before/after
+// numbers): N=1 turned out to be a no-op (a pairing from exactly one
+// tick ago is never actually "within the last 1 tick" by the time the
+// next tick runs); N=2 cut immediate/next-tick rematches by ~84% and
+// repeats-within-2-ticks by ~82% versus no cooldown, while N=3 pushed
+// further into candidate-starvation territory (a visibly higher max
+// repeated pairing and more frequent same-night-adjacent fallback) for
+// only a modest further gain. N=2 is selected. A pairing is "on
+// cooldown" if the same two fighters already fought each other, in this
+// tier, within the last REMATCH_COOLDOWN_TICKS world ticks -- sourced
+// directly from the persisted bout ledger (universe.bouts), which is
+// already the single source of historical truth here; no redundant
+// `lastOpponentIds` field is added to the fighter record for this (see
+// Section 25 of the underlying task -- querying the ledger for this
+// measured cheap enough, at these universe sizes, not to need one; see
+// this branch's own report for the measured cost).
+const REMATCH_COOLDOWN_TICKS = 2;
+
+function pairKey(idA, idB) {
+  return idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`;
+}
+
+// Builds the set of pairings that fought each other, IN THIS TIER, within
+// the last REMATCH_COOLDOWN_TICKS world ticks -- called once per tier per
+// tick from runWorldTick, before that tier's own runWorldTickForDivision
+// call, so the ledger scan happens exactly once per tier per tick rather
+// than once per candidate pairing considered.
+function recentPairingsForTier(bouts, tierName, worldTick) {
+  const set = new Set();
+  (bouts || []).forEach((b) => {
+    if (b.circuit !== tierName) return;
+    // "fought within the last N world ticks" -- gap of N or fewer ticks
+    // ago is on cooldown; gap is always >= 1 here since this is called
+    // before this tick's own bouts exist yet.
+    if (worldTick - b.worldTick > REMATCH_COOLDOWN_TICKS) return;
+    if (b.fighterAId === PLAYER_BOUT_ID || b.fighterBId === PLAYER_BOUT_ID) return;
+    set.add(pairKey(b.fighterAId, b.fighterBId));
+  });
+  return set;
+}
+function isRecentPairing(recentPairings, idA, idB) {
+  return recentPairings.has(pairKey(idA, idB));
+}
 
 // Runs ONE tier's background activity for ONE world tick. Pure: returns a
 // new division array + the bouts it produced + the advanced rngState,
@@ -1768,7 +1838,8 @@ const WORLD_TICK_CADENCE = {
 // inert for a tier the player isn't in, and for Contender Series opponents
 // (never part of any persistent roster, so their id never matches anyone
 // here anyway).
-function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds, year, worldTick, rngState) {
+function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds, year, worldTick, rngState, recentPairings) {
+  const recent = recentPairings || new Set();
   const cadence = WORLD_TICK_CADENCE[tierName] || WORLD_TICK_CADENCE["CLF Regional"];
   let state = rngState;
   const rngFn = () => {
@@ -1876,7 +1947,21 @@ function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds
         const j = i + 1;
         if (j > rankedEnd) continue;
         if (used.has(d[i].id) || used.has(d[j].id)) continue;
+        if (isRecentPairing(recent, d[i].id, d[j].id)) continue;
         picked = [i, j];
+      }
+      if (!picked) {
+        // Fallback: the ranked ladder is a narrow, adjacent-pair pool --
+        // a genuine cooldown-clear pair can be unavailable this tick. No
+        // permanent rematch ban (Section 22-25): take any still-open
+        // adjacent pair even if it repeats, rather than losing the slot.
+        for (let attempt = 0; attempt < 6 && !picked; attempt++) {
+          const i = rankedStartNow + Math.floor(Math.random() * Math.max(1, rankedEnd - rankedStartNow));
+          const j = i + 1;
+          if (j > rankedEnd) continue;
+          if (used.has(d[i].id) || used.has(d[j].id)) continue;
+          picked = [i, j];
+        }
       }
       if (!picked) continue;
       const [i, j] = picked;
@@ -1890,25 +1975,37 @@ function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds
 
     // ---- unranked <-> ranked boundary movement ---------------------------
     // A real path into the Top 15 without ever fighting the player --
-    // section 21/22 of the underlying task. Only RANKING_BUBBLE-tagged
-    // unranked fighters get this shot (a believable "knocking on the
-    // door" candidate, not a random developmental fighter) against the
-    // bottom of the ranked ladder. A win swaps them in; the loser drops to
-    // the front of the unranked pool with a freshly-assigned ecology tag
-    // (see ecologyForDemotedFighter) -- their stable id/record/form all
-    // survive the move untouched, only their ladder position and ecology
-    // label change.
+    // section 21/22 of the underlying task. RANKING_BUBBLE-tagged unranked
+    // fighters get this shot (a believable "knocking on the door"
+    // candidate, not a random developmental fighter) against the bottom of
+    // the ranked ladder -- and so do HOT_PROSPECT fighters: a fighter that
+    // ecology generation itself defines as wins-losses>=4 within their
+    // first ~12 fights (see the ECOLOGY_PROFILES table) is exactly a "on a
+    // tear, ready to test the ranked ladder" prospect, and excluding them
+    // here (as an earlier version of this pass did) meant NO Hot Prospect
+    // could ever background-path into a ranking at all -- a real gap
+    // against the "7-0 -> gatekeeper win -> #15 test -> ranked" contender
+    // arc the pre-PR hardening pass measured and flagged. A win swaps them
+    // in; the loser drops to the front of the unranked pool with a
+    // freshly-assigned ecology tag (see ecologyForDemotedFighter) -- their
+    // stable id/record/form all survive the move untouched, only their
+    // ladder position and ecology label change.
     for (let n = 0; n < cadence.boundaryBouts; n++) {
       let bottomIdx = -1;
       for (let i = rankedEnd; i >= Math.max(rankedStartNow, rankedEnd - 3); i--) {
         if (!used.has(d[i].id)) { bottomIdx = i; break; }
       }
       if (bottomIdx === -1) continue;
-      const bubblePool = d.slice(rankedEnd + 1).filter((f) => f.ecology === "RANKING_BUBBLE" && !used.has(f.id));
+      const bubblePool = d.slice(rankedEnd + 1).filter((f) => (f.ecology === "RANKING_BUBBLE" || f.ecology === "HOT_PROSPECT") && !used.has(f.id));
       if (!bubblePool.length) continue;
-      const challenger = bubblePool[Math.floor(Math.random() * bubblePool.length)];
-      const challengerIdx = d.indexOf(challenger);
       const incumbent = d[bottomIdx];
+      // Prefer a challenger this incumbent hasn't just fought; fall back to
+      // the full pool (no permanent ban) if the cooldown would otherwise
+      // starve this bubble-pool candidate slot entirely.
+      const nonRecentBubble = bubblePool.filter((f) => !isRecentPairing(recent, incumbent.id, f.id));
+      const bubbleCandidates = nonRecentBubble.length ? nonRecentBubble : bubblePool;
+      const challenger = bubbleCandidates[Math.floor(Math.random() * bubbleCandidates.length)];
+      const challengerIdx = d.indexOf(challenger);
       const { aWins, method, round } = resolveLightweightBout(incumbent.attrs, challenger.attrs, false, Math.random);
       pushBout(incumbent, challenger, aWins, method, round, false, null);
       used.add(incumbent.id); used.add(challenger.id);
@@ -1930,7 +2027,18 @@ function runWorldTickForDivision(division, tierName, playerHoldsBelt, excludeIds
       const pool = d.slice(rankedEnd + 1).filter((f) => !used.has(f.id));
       if (pool.length < 2) continue;
       const sorted = [...pool].sort((a, b) => a.overall - b.overall);
-      const startIdx = Math.floor(Math.random() * Math.max(1, sorted.length - 1));
+      let startIdx = -1;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const idx = Math.floor(Math.random() * Math.max(1, sorted.length - 1));
+        const candA = sorted[idx], candB = sorted[Math.min(idx + 1, sorted.length - 1)];
+        if (candA.id === candB.id) continue;
+        if (isRecentPairing(recent, candA.id, candB.id)) continue;
+        startIdx = idx; break;
+      }
+      // Fallback: quality-adjacent pairing over a small unranked pool can
+      // exhaust every cooldown-clear adjacent pair; take any adjacent pair
+      // rather than skip the slot (no permanent ban).
+      if (startIdx === -1) startIdx = Math.floor(Math.random() * Math.max(1, sorted.length - 1));
       const a = sorted[startIdx], b = sorted[Math.min(startIdx + 1, sorted.length - 1)];
       if (a.id === b.id) continue;
       const { aWins, method, round } = resolveLightweightBout(a.attrs, b.attrs, false, Math.random);
@@ -2005,7 +2113,8 @@ function runWorldTick(universe, worldTick, playerCircuitTier, playerHoldsBelt, e
     if (!division) return; // defensive -- always exists post-Foundation-V1
     const excludeIds = (tierName === persistentTierForActiveRoster(playerCircuitTier) && excludeOppId) ? [excludeOppId] : [];
     const holdsBelt = tierName === playerCircuitTier && playerHoldsBelt;
-    const result = runWorldTickForDivision(division, tierName, holdsBelt, excludeIds, year, worldTick, rngState);
+    const recentPairings = recentPairingsForTier(universe.bouts, tierName, worldTick);
+    const result = runWorldTickForDivision(division, tierName, holdsBelt, excludeIds, year, worldTick, rngState, recentPairings);
     divisions[key] = result.division;
     rngState = result.nextRngState;
     allNewBouts.push(...result.bouts);
