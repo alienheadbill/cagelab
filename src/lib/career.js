@@ -1012,7 +1012,145 @@ function verdictFor(score, peakCircuitTier) {
 // =========================================================================
 const DIVISION_SIZE = 15;      // how many are RANKED (plus the champion at index 0)
 
-const UNRANKED_COUNT = 24;     // prospects below the rankings you fight on the way up
+// Roster Ecology V1: the champion/ranked ladder above is untouched and
+// stays identical at every circuit tier (prestige shouldn't erode just
+// because the world underneath gets deeper). The UNRANKED tier is what
+// this pass replaces -- previously a single monotonic-taper population
+// (UNRANKED_COUNT=24 everywhere), which the Division Depth + Roster
+// Ecology Audit found structurally incapable of producing a winning-record
+// unranked fighter at all (0/19,200 sampled satisfied isHotContender) and
+// identical regardless of which circuit you were actually in. Tier-specific
+// counts below (tested head-to-head against a flat-40-everywhere baseline
+// and a deeper-Premier alternative -- see this branch's own report):
+// Regional stays exactly as before (a proving ground doesn't need to be
+// bigger, just believable); National and Premier grow, Premier the most --
+// a major promotion's roster should feel deeper than a regional one, and
+// the audit's own finding that "just add more fighters" doesn't help
+// elite pacing on its own was about population QUALITY, not tier-aware
+// sizing paired with ecology-aware selection (see ecologyPoolFor below).
+const TIER_UNRANKED_COUNT = {
+  "CLF Regional": 24,
+  "CLF National": 32,
+  "CLF PREMIER": 40,
+};
+function unrankedCountFor(circuitTier) {
+  return TIER_UNRANKED_COUNT[circuitTier] || TIER_UNRANKED_COUNT["CLF Regional"];
+}
+
+// ---- Unranked ecology buckets ------------------------------------------
+// Each bucket is {baseRating:[lo,hi], experience:[lo,hi], winRate:[lo,hi]}.
+// baseRating deliberately OVERLAPS the bottom of the ranked ladder (#11-15
+// run roughly baseRating 55-70 -- see buildDivision's ranked baseRating
+// formula) for RANKING_BUBBLE, and can exceed it for HOT_PROSPECT -- rank
+// is meant to be résumé+standing, not a perfectly sorted OVR list (brief
+// section 3/11), so "unranked" must be able to mean "hasn't proven it yet,"
+// not "worse." winRate/experience are read directly by generateBucketRecord
+// (a small, parameterized alternative to generateOpponentRecord/winRateFor
+// -- those two stay completely unchanged, still driving champion/ranked/
+// Contender-Series generation exactly as before; this is a genuinely
+// different generation rule the audit found no existing function could
+// produce, not a duplicate of one).
+const ECOLOGY_BUCKETS = {
+  // "Let's see if this prospect belongs" -- a real shot at #15 already.
+  RANKING_BUBBLE: { baseRating: [56, 70], experience: [9, 22], winRate: [0.66, 0.85] },
+  // Fewer fights, excellent record -- résumé hasn't caught up to talent.
+  HOT_PROSPECT: { baseRating: [58, 76], experience: [4, 10], winRate: [0.72, 1.0] },
+  // Significant experience, mixed record, still dangerous -- "you have to
+  // beat this guy to prove you belong."
+  VETERAN_GATEKEEPER: { baseRating: [54, 68], experience: [20, 34], winRate: [0.55, 0.7] },
+  // Competent pro, neither elite nor developmental.
+  SOLID_UNRANKED: { baseRating: [48, 60], experience: [8, 18], winRate: [0.42, 0.58] },
+  // Appropriate early-career opposition.
+  DEVELOPMENTAL: { baseRating: [40, 52], experience: [3, 9], winRate: [0.25, 0.45] },
+};
+// Proportions of the UNRANKED slice per persistent circuit tier. All five
+// buckets exist at every tier -- only the MIX shifts, so no tier is pure
+// filler and no tier is pure elite prospects. Regional (a proving ground)
+// leans developmental/solid; National (a serious pro circuit) shifts
+// toward veterans and the ranking bubble; Premier (a major promotion)
+// carries the deepest bubble/prospect population and the fewest true
+// developmental opponents.
+const UNRANKED_ECOLOGY_MIX = {
+  "CLF Regional": [
+    ["DEVELOPMENTAL", 0.30], ["SOLID_UNRANKED", 0.28], ["VETERAN_GATEKEEPER", 0.20],
+    ["HOT_PROSPECT", 0.12], ["RANKING_BUBBLE", 0.10],
+  ],
+  "CLF National": [
+    ["DEVELOPMENTAL", 0.14], ["SOLID_UNRANKED", 0.24], ["VETERAN_GATEKEEPER", 0.26],
+    ["HOT_PROSPECT", 0.16], ["RANKING_BUBBLE", 0.20],
+  ],
+  "CLF PREMIER": [
+    ["DEVELOPMENTAL", 0.08], ["SOLID_UNRANKED", 0.22], ["VETERAN_GATEKEEPER", 0.24],
+    ["HOT_PROSPECT", 0.18], ["RANKING_BUBBLE", 0.28],
+  ],
+};
+function pickInRange([lo, hi]) { return lo + Math.random() * (hi - lo); }
+// Parameterized directly off a bucket's own experience/winRate ranges,
+// rather than derived from overall rating the way generateOpponentRecord's
+// winRateFor works -- that coupling is exactly why the old generator could
+// never produce a low-fight-count, high-win% "hot prospect" no matter how
+// high its baseRating rolled (winRateFor tops out at 0.75 for any
+// non-ranked/champion tier). See this file's own audit history.
+function generateBucketRecord(experienceRange, winRateRange) {
+  const experience = Math.round(pickInRange(experienceRange));
+  const winRate = pickInRange(winRateRange);
+  const wins = Math.round(experience * winRate);
+  const losses = Math.max(0, experience - wins);
+  return { w: wins, l: losses };
+}
+function createEcologyFighter(name, seedIndex, ecology) {
+  const def = ECOLOGY_BUCKETS[ecology];
+  const baseRating = Math.round(pickInRange(def.baseRating));
+  const profile = generateOpponentProfile(baseRating);
+  const record = generateBucketRecord(def.experience, def.winRate);
+  return {
+    id: `div-${seedIndex}-${slugify(name)}`,
+    name,
+    attrs: profile.attrs,
+    overall: profile.overall,
+    archetype: profile.archetype,
+    traits: profile.traits,
+    record,
+    recentForm: generateRecentForm(record.w, record.l),
+    isChampion: false,
+    // Generation-origin metadata ONLY -- not a permanent role lock. Drives
+    // initial candidate-pool selection (ecologyPoolFor/pickEcologyCandidate
+    // below); nothing gates ELIGIBILITY on it that the fighter's own
+    // current record/form/rank can't already answer (isHotContender,
+    // isOnLosingSkid, displayRankFor all still read real current numbers,
+    // same as every other fighter). A fighter generated as a
+    // VETERAN_GATEKEEPER who goes on a tear still reads as isHotContender
+    // to Step-Up; this tag never overrides that. Kept because it's a cheap,
+    // useful generation/debugging seam (this branch's report reads
+    // populations off it directly) -- not because runtime logic strictly
+    // requires a stored label instead of re-deriving one.
+    ecology,
+  };
+}
+// Flat list of bucket names for `count` unranked slots, proportioned per
+// `circuitTier`'s mix, then SHUFFLED -- a blocked layout (all bubble
+// fighters first, then all prospects, ...) would make selectDivisionOpponent's
+// centre+-jitter draw an accident of BUCKET ORDER rather than a fair
+// reflection of bucket CONTENT (confirmed during the read-only audit this
+// branch is based on). Ecology-aware selection (ecologyPoolFor/
+// pickEcologyCandidate) doesn't depend on this shuffle for correctness --
+// it filters by characteristic, not position -- but the plain centre+jitter
+// fallback path still exists (see selectDivisionOpponent) and must not
+// silently start reading array position as quality again.
+function buildUnrankedEcology(count, circuitTier) {
+  const mix = UNRANKED_ECOLOGY_MIX[circuitTier] || UNRANKED_ECOLOGY_MIX["CLF Regional"];
+  const flat = [];
+  mix.forEach(([ecology, proportion]) => {
+    const n = Math.round(count * proportion);
+    for (let j = 0; j < n && flat.length < count; j++) flat.push(ecology);
+  });
+  while (flat.length < count) flat.push("SOLID_UNRANKED"); // rounding remainder
+  for (let i = flat.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [flat[i], flat[j]] = [flat[j], flat[i]];
+  }
+  return flat;
+}
 
 function createDivisionFighter(name, baseRating, seedIndex, tier) {
   const profile = generateOpponentProfile(baseRating);
@@ -1032,19 +1170,26 @@ function createDivisionFighter(name, baseRating, seedIndex, tier) {
 
 // Builds the division ladder: index 0 is the champion, 1..15 are ranked
 // contenders in descending strength.
-function buildDivision() {
-  const total = DIVISION_SIZE + 1 + UNRANKED_COUNT;
+// circuitTier picks the unranked population's size and ecology mix (see
+// TIER_UNRANKED_COUNT/UNRANKED_ECOLOGY_MIX above); defaults to Regional so
+// any call site that genuinely can't supply a tier yet (none currently
+// need to -- see this branch's own report) still gets a valid division
+// rather than a crash. The champion + ranked ladder (indices 0..DIVISION_SIZE)
+// is generated exactly as before, completely tier-independent -- the Top 15
+// stays equally prestigious everywhere; only what's underneath it changes.
+function buildDivision(circuitTier = "CLF Regional") {
+  const unrankedCount = unrankedCountFor(circuitTier);
+  const total = DIVISION_SIZE + 1 + unrankedCount;
   const names = generateOpponentNames(total);
+  const ecologyAssignments = buildUnrankedEcology(unrankedCount, circuitTier);
   const roster = names.map((name, i) => {
-    // Champion is strongest; strength tapers through the rankings and keeps
-    // falling through the unranked tier below them.
-    const tier = i === 0 ? "champion" : i <= DIVISION_SIZE ? "ranked" : "unranked";
-    const baseRating = i === 0
-      ? 92
-      : i <= DIVISION_SIZE
-        ? clamp(Math.round(90 - i * 2.1 + (Math.random() * 6 - 3)), 58, 91)
-        : clamp(Math.round(60 - (i - DIVISION_SIZE) * 0.5 + (Math.random() * 8 - 4)), 45, 62);
-    return createDivisionFighter(name, baseRating, i, tier);
+    if (i <= DIVISION_SIZE) {
+      // Champion is strongest; strength tapers through the rankings --
+      // completely unchanged from before this pass.
+      const baseRating = i === 0 ? 92 : clamp(Math.round(90 - i * 2.1 + (Math.random() * 6 - 3)), 58, 91);
+      return createDivisionFighter(name, baseRating, i, i === 0 ? "champion" : "ranked");
+    }
+    return createEcologyFighter(name, i, ecologyAssignments[i - (DIVISION_SIZE + 1)]);
   });
   roster[0].isChampion = true;
   return roster;
@@ -1242,7 +1387,64 @@ function regionalCompetitionCeiling(streak, regionalEverBeatRanked) {
 // Top 5/champion, and keeps Easy/Ranked/Step-Up clearly differentiated.
 const PREMIER_MATCHMAKING_CEILING = 11;
 
-function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier, streak, regionalEverBeatRanked) {
+// Roster Ecology V1 -- candidate-pool helpers. Matchmaking Realism V1's
+// own decision logic (regionalCompetitionCeiling, maybeFightChoice's
+// deliberate rankedTest/eliminator/contenderTest checks, Step-Up's
+// momentum gate) is completely untouched by any of this: those systems
+// already decide WHAT LEVEL of fight a booking should be. This only helps
+// selectDivisionOpponent decide WHICH UNRANKED FIGHTER fills an "easy" or
+// ordinary "default" booking once that decision has already been made --
+// reading straight off the ecology tag createEcologyFighter stamped at
+// generation time, never inventing a new eligibility gate. Ranked/Step-Up
+// candidates (pickRankedCandidate/pickStepUpCandidate) are untouched.
+function eligibleEcologyPool(division, ecologyTags, avoid, extraFilter) {
+  return division.filter((f) => f.ecology && ecologyTags.includes(f.ecology) && !avoid.includes(f.id) && (!extraFilter || extraFilter(f)));
+}
+function pickEcologyCandidate(division, ecologyTags, avoid, extraFilter) {
+  const pool = eligibleEcologyPool(division, ecologyTags, avoid, extraFilter);
+  if (!pool.length) return null;
+  const fighter = pool[Math.floor(Math.random() * pool.length)];
+  return { fighter, rank: displayRankFor(division, division.indexOf(fighter)) };
+}
+// "easy" ALSO always excludes any currently-hot fighter (see the
+// extraFilter passed alongside this below), regardless of which ecology
+// bucket they were generated into -- a VETERAN_GATEKEEPER can be a
+// genuinely dangerous "prove you belong" test when they're on form, which
+// is exactly wrong for a low-risk Stay Busy pick; the "cold veteran"
+// section 15 asks for is a gatekeeper who currently ISN'T hot, not a
+// gatekeeper who happens to carry that generation label regardless of
+// form. First cut of this pass forgot that filter and measurably dragged
+// LOW-cohort win% down (a real veteran-gatekeeper record averages a
+// winning one) -- exactly the section 27 regression this branch is
+// required not to repeat.
+//
+// Which ecology buckets make sense for THIS booking -- read from the exact
+// same demonstrated-results signals Matchmaking Realism V1 already reads
+// (streak, regionalEverBeatRanked, record), never the fighter's own hidden
+// generation origin and never a new progression threshold (the constants
+// referenced here -- REGIONAL_RISING_STREAK -- are Realism V1's own,
+// completely unchanged). "easy" is deliberately narrow and never reaches
+// into HOT_PROSPECT/RANKING_BUBBLE -- a struggling or fresh fighter picking
+// their own low-risk fight should never land a dangerous undefeated
+// prospect merely because both happen to be unranked (the LOW-cohort
+// regression a prior pass already had to fix once).
+function ecologyPoolFor(difficulty, streak, regionalEverBeatRanked, record) {
+  if (difficulty === "easy") return ["DEVELOPMENTAL", "SOLID_UNRANKED", "VETERAN_GATEKEEPER"];
+  const s = streak || 0;
+  const rec = record || { w: 0, l: 0 };
+  const strugglingOrFresh = rec.w + rec.l < 3 || rec.l > rec.w;
+  if (strugglingOrFresh) return ["DEVELOPMENTAL", "SOLID_UNRANKED"];
+  // Real momentum, no ranked scalp yet -- a serious-but-not-ranked test
+  // (a "gatekeeper matchup"), the same rising window regionalCompetitionCeiling
+  // already tightens toward.
+  if (s >= REGIONAL_RISING_STREAK && !regionalEverBeatRanked) {
+    return ["VETERAN_GATEKEEPER", "RANKING_BUBBLE", "HOT_PROSPECT"];
+  }
+  // General "prospect test" territory: a believable, varied pool.
+  return ["HOT_PROSPECT", "RANKING_BUBBLE", "SOLID_UNRANKED", "VETERAN_GATEKEEPER"];
+}
+
+function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, difficulty, circuitTier, streak, regionalEverBeatRanked, record) {
   if (forTitle) {
     // Always resolve the title fight off the isChampion flag, never off
     // array position -- once the player has held the belt, the old champ no
@@ -1275,6 +1477,44 @@ function selectDivisionOpponent(division, playerRankPoints, forTitle, avoidIds, 
   if (difficulty === "easy") centre = clamp(centre + 8, 1, span);
   else if (difficulty === "stepUp") centre = clamp(centre - 8, 1, span);
   const avoid = avoidIds || [];
+  // Roster Ecology V1: once the centre has landed beyond the ranked ladder
+  // -- an ordinary "easy"/"default" booking that would have drawn an
+  // unranked opponent anyway -- prefer a fighter from whichever ecology
+  // bucket(s) actually fit this exact context over the old blind
+  // centre+-3 jitter below. A believable unranked population is wasted if
+  // selection still only ever samples whichever few fighters happen to
+  // sit in a narrow index window around centre. Falls straight through to
+  // the unchanged jitter approach if the ecology pool comes up empty for
+  // any reason (avoid-list exhaustion, ranked/title picks, an edge case) --
+  // this can only ever add a more contextual result, never a worse one.
+  if ((difficulty === "easy" || difficulty === "default") && centre > DIVISION_SIZE) {
+    const tags = ecologyPoolFor(difficulty, streak, regionalEverBeatRanked, record);
+    // "easy" additionally excludes anyone currently hot, whatever bucket
+    // they were generated into -- see ecologyPoolFor's own comment.
+    const hotFilter = difficulty === "easy" ? (f) => !isHotContender(f) : null;
+    // Difficulty-appropriate OVR window: reuses `centre` as a REFERENCE
+    // toughness level, the same way the old monotonic-taper generation
+    // implicitly capped how hard an unranked opponent could ever be
+    // (baseRating 45-62 regardless of how tight the ceiling clamped
+    // centre). Ecology buckets can run up to baseRating 76 -- exactly the
+    // point, for a fighter who's actually earned that test -- but a fighter
+    // who merely hit the same streak THRESHOLD on a much weaker run (a
+    // LOW-cohort career can still string together 2-3 wins by chance)
+    // must not draw the identical hot-prospect pool a genuinely dominant
+    // run does just because Realism V1's ceiling clamp reads the same
+    // streak number either way. Ecology still decides the FLAVOR of who
+    // fills the booking; this keeps `centre` -- itself driven purely by
+    // rankPoints/streak, never hidden attributes -- deciding how hard it
+    // actually is. Widens by dropping the window (keeping ecology+hot
+    // filters) before falling through to the full jitter approach, so an
+    // empty windowed pool can never produce a worse result than before.
+    const referenceOvr = clamp(Math.round(60 - (centre - DIVISION_SIZE) * 0.5), 45, 62);
+    const ovrWindowed = (f) => Math.abs(f.overall - referenceOvr) <= 6;
+    const windowedFilter = hotFilter ? (f) => hotFilter(f) && ovrWindowed(f) : ovrWindowed;
+    let ecologyPicked = pickEcologyCandidate(division, tags, avoid, windowedFilter);
+    if (!ecologyPicked) ecologyPicked = pickEcologyCandidate(division, tags, avoid, hotFilter);
+    if (ecologyPicked) return ecologyPicked;
+  }
   let target = clamp(centre + Math.floor(Math.random() * 7 - 3), 1, span);
   if (avoid.includes(division[target].id)) {
     // Re-sampling the same +-3 jitter and re-clamping doesn't reliably
@@ -1521,13 +1761,13 @@ function matchmakerOptionFrom(tag, picked, playerRank) {
 // current momentum, not just the opponent's -- see pickStepUpCandidate.
 // regionalEverBeatRanked (realism-v1 follow-up) feeds the Regional
 // competition-level step function -- see regionalCompetitionCeiling.
-function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier, playerStreak, regionalEverBeatRanked) {
+function generateMatchmakerOptions(division, playerRankPoints, playerRank, recentOpponentIds, circuitTier, playerStreak, regionalEverBeatRanked, record) {
   const avoid = [...(recentOpponentIds || [])];
   const pickedRecords = [];
 
   let easyPicked;
   for (let attempt = 0; attempt < 5; attempt++) {
-    easyPicked = selectDivisionOpponent(division, playerRankPoints, false, avoid, "easy", circuitTier, playerStreak, regionalEverBeatRanked);
+    easyPicked = selectDivisionOpponent(division, playerRankPoints, false, avoid, "easy", circuitTier, playerStreak, regionalEverBeatRanked, record);
     const dupRecord = pickedRecords.some((r) => r.w === easyPicked.fighter.record.w && r.l === easyPicked.fighter.record.l);
     if (!dupRecord) break;
     avoid.push(easyPicked.fighter.id);
@@ -1576,10 +1816,15 @@ function generateMicTimeTargets(division, playerRank, rivals, avoid, fightEntry)
     if (contextSupportsRankedTarget) {
       eligibleRankedInWindow(division, DIVISION_SIZE - 2, DIVISION_SIZE, avoid).slice(0, 1).forEach(push);
     }
-    division.forEach((f, idx) => {
-      if (pool.length >= 2 || idx <= DIVISION_SIZE || idx > DIVISION_SIZE + 4) return;
-      push(f);
-    });
+    // Roster Ecology V1: the unranked slice is no longer laid out in
+    // quality order by array index (see buildUnrankedEcology's shuffle),
+    // so "the first few unranked slots" stopped meaning "the best few
+    // unranked fighters" the moment that shuffle landed -- this used to
+    // read idx <= DIVISION_SIZE+4 for exactly that reason. Prefer genuine
+    // hot unranked contenders (the same real-record-plus-live-form bar
+    // Step-Up already uses) from the WHOLE unranked pool instead.
+    division.filter((f) => f.ecology && !avoid.includes(f.id) && isHotContender(f))
+      .forEach((f) => { if (pool.length < 2) push(f); });
   }
 
   const activeRivals = (rivals || []).filter((r) => r.active && r.isRival);
@@ -1817,7 +2062,7 @@ function initCareer(picks, options) {
     actualReach: (options && options.actualReach) || null,
     // The persistent world: 15 ranked contenders + a champion who exist and
     // fight each other between your bouts.
-    divisionRoster: buildDivision(),
+    divisionRoster: buildDivision("CLF Regional"),
     // playerRank is the real ladder position (0 = champion, 1-15 = ranked,
     // null = unranked) -- the single source of truth for anything the
     // player sees as "my ranking." peakPlayerRank is its high-water mark
@@ -2176,7 +2421,7 @@ function resolveWeightMoveOffer(state, accept) {
   if (accept) {
     const { direction, targetDivision } = state.pendingDecision;
     s.division = targetDivision;
-    s.divisionRoster = buildDivision();
+    s.divisionRoster = buildDivision(s.circuitTier);
     s.playerRank = null;
     s.rankPoints = 0;
     s.champion = false;
@@ -2328,7 +2573,7 @@ function maybeFightChoice(state) {
     // Computed once, right here -- fixed for the life of this decision
     // (same convention as trainingEvent's attr below), not re-rolled on
     // every render.
-    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier, rolled.streak, rolled.regionalEverBeatRanked);
+    const options = generateMatchmakerOptions(rolled.divisionRoster, rolled.rankPoints, rolled.playerRank, rolled.recentOpponentIds, rolled.circuitTier, rolled.streak, rolled.regionalEverBeatRanked, rolled.record);
     return { ...rolled, pendingDecision: { type: "fightChoice", options } };
   }
   if (roll < 0.30) return suppressFlavor ? prepareFight(rolled, "default") : { ...state, pendingDecision: { type: "trainingEvent", attr: pickWeakestSkill(state.base) } };
@@ -2533,7 +2778,7 @@ function prepareFight(state, choiceTag, targetId) {
       // No freshly-drawn Easy option exists in this rebooking path -- draw
       // one the same way generateMatchmakerOptions does, purely as the
       // "harder than Easy" reference point Step-Up eligibility needs.
-      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier, s.streak, s.regionalEverBeatRanked);
+      const referenceEasy = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, "easy", s.circuitTier, s.streak, s.regionalEverBeatRanked, s.record);
       picked = pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, s.recentOpponentIds, s.streak)
         || pickStepUpCandidate(s.divisionRoster, s.playerRank, referenceEasy.fighter, [], s.streak)
         // Genuinely nobody clears the Step-Up bar even with nothing
@@ -2548,7 +2793,7 @@ function prepareFight(state, choiceTag, targetId) {
     // Only "easy" (and the unreachable-in-practice absolute edge case)
     // ever falls through to here -- Ranked/Step-Up are both structurally
     // guaranteed non-null by the two-tier fallback above.
-    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked);
+    if (!picked) picked = selectDivisionOpponent(s.divisionRoster, s.rankPoints, false, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked, s.record);
   } else {
     // Draw the opponent from the persistent division: a real fighter with a
     // standing record, not a throwaway profile. An active rival can be drawn
@@ -2568,7 +2813,7 @@ function prepareFight(state, choiceTag, targetId) {
     const drawRival = rivalEntry && Math.random() < 0.4;
     picked = drawRival
       ? { fighter: rivalEntry, rank: s.divisionRoster.indexOf(rivalEntry) }
-      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked);
+      : selectDivisionOpponent(s.divisionRoster, s.rankPoints, isTitleFight, s.recentOpponentIds, choiceTag, s.circuitTier, s.streak, s.regionalEverBeatRanked, s.record);
   }
   const oppEntry = picked.fighter;
   const oppName = oppEntry.name;
@@ -3030,8 +3275,10 @@ function commitFight(state) {
     // Fresh climb at the new level -- you're a nobody again, same as
     // stepping up a weight class in real life. A Contender Series loss
     // bouncing back to National is deliberately NOT here: that keeps the
-    // National standing already earned instead of erasing it.
-    s.divisionRoster = buildDivision();
+    // National standing already earned instead of erasing it. s.circuitTier
+    // is already the NEW tier at this point (set above), so this builds the
+    // division the fighter is actually entering, not the one just left.
+    s.divisionRoster = buildDivision(s.circuitTier);
     s.playerRank = null;
     s.champion = false;
     // Premier entry alone seeds rankPoints instead of the usual 0 -- a
