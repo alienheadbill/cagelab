@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
-  Trophy, ChevronRight, Lock, RotateCw, Shuffle, Users, MapPin, AlertTriangle,
+  Trophy, ChevronRight, ArrowLeft, Lock, RotateCw, Shuffle, Users, MapPin, AlertTriangle,
   Crown, FastForward, Sparkles, TrendingUp, TrendingDown, Calendar, Copy,
   Moon, Sun, Home, Volume2, VolumeX, Link2, Repeat, HelpCircle,
   Target, Megaphone, Award, Globe, Loader2, Swords, BarChart3, ListOrdered, Dumbbell,
@@ -36,8 +36,11 @@ import {
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
   CAMP_FOCUSES, setFightStance, buildGameplanInsight, TRAIT_DEFS,
-  migrateStateToUniverse, normalizeUniverseState, PLAYER_BOUT_ID,
+  migrateStateToUniverse, normalizeUniverseState,
 } from "./lib/career.js";
+import {
+  buildUniverseArchive, getActiveUniverseHistory, getCompletedCareerEventArchive,
+} from "./lib/universeHistory.js";
 
 import TierIcon from "./components/TierIcon.jsx";
 import CopyScorecardButton from "./components/CopyScorecardButton.jsx";
@@ -58,6 +61,7 @@ import LeaderboardList from "./components/LeaderboardList.jsx";
 import HomeScreen from "./components/HomeScreen.jsx";
 import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
+import EventArchivePanel from "./components/EventArchivePanel.jsx";
 import LabScreen from "./components/LabScreen.jsx";
 
 // Career History used to render strictly oldest-first, so on anything but a
@@ -178,219 +182,13 @@ function loadPersistedActiveCareer() {
   }
 }
 
-// Pre-PR Realism & Archive Hardening: fixed, versioned lookup tables for
-// the compact archive below. NOT re-serialized inside every archive --
-// they're static for a given archive `version`, so the decoder (this
-// table itself, for now; a future Event Archive/Fighter History reader
-// later) ships the mapping instead of paying to store it in every one of
-// up to 50 history entries. A future archive version that ever needs a
-// 5th circuit or a 5th method gets its OWN table (UNIVERSE_ARCHIVE_V2_*)
-// and its own `version` number -- these two never change shape underneath
-// an already-written version: 1 archive.
-const UNIVERSE_ARCHIVE_V1_CIRCUITS = ["CLF Regional", "CLF National", "CLF PREMIER", "CLF Contender Series"];
-// Verified exhaustive against career.js (both the lightweight NPC
-// resolver's 3 values and the player's own full combat resolver's win/
-// loss variants of all 3) via this branch's own round-trip archive test
-// -- a real gap here (a `grep '"[A-Za-z/ ]* Loss"'` miss) was caught by
-// that test before this shipped. A future new method string in career.js
-// needs a version:2 table, not a silent edit of this one.
-const UNIVERSE_ARCHIVE_V1_METHODS = ["Decision", "Decision Loss", "KO/TKO", "KO/TKO Loss", "Submission", "Submission Loss"];
-// Reserved sentinel values inside a version:1 bout tuple's aIdx/bIdx and
-// championBeforeIdx slots. -1 always means "the player", regardless of
-// which of those three fields it appears in; -2 (championBeforeIdx only)
-// means "no defending champion" (a genuinely vacant-title fight) -- see
-// buildUniverseArchive's own comment for why that's a real, meaningful
-// distinct state from "the player held it" or "an NPC held it."
-const UNIVERSE_ARCHIVE_V1_PLAYER_IDX = -1;
-const UNIVERSE_ARCHIVE_V1_NO_CHAMPION = -2;
-
-// NPC World Movement + Bout Ledger V1 originally stored the completed
-// Career's whole bout ledger uncompressed (full readable objects, every
-// property name repeated per bout) plus a name/archetype/finalRecord/
-// finalOverall object per referenced fighter. Measured at ~111-183KB per
-// completed career depending on activity cadence (this branch's own
-// report has the exact numbers before/after this pass's cadence retune)
-// -- at up to 50 completed careers (LS_CAREER_HISTORY's existing cap),
-// that is several MB before counting the active save, Daily data, or
-// anything else already living in the same ~5MB conservative localStorage
-// budget. This is a real risk, not a theoretical one (see Section 13 of
-// the underlying task), so this pass replaces it with a versioned COMPACT
-// encoding for COMPLETED-Career storage ONLY -- the LIVE
-// state.universe.bouts representation read by the active simulation
-// itself is completely untouched by this change (still the full, readable
-// object form; see Section 2 of the underlying task -- that stays useful
-// for active-simulation debugging/future feature work).
-//
-// Compaction techniques used, in order of how much they save:
-//   1. Tuple arrays instead of repeated JSON property names per bout --
-//      by far the largest win at hundreds of bouts per career.
-//   2. A fighter-id dictionary (fighters[] below) with bouts referencing
-//      fighters by small integer INDEX, not by their `fighter-1234`-style
-//      string id repeated on every one of their bouts.
-//   3. circuit/method enum-index instead of repeating those strings.
-//   4. Compact [w,l] record pairs instead of {w,l} objects.
-//   5. Dropped fields that are NOT in the "must remain recoverable" list
-//      below: no finalRecord/finalOverall per fighter (derivable by
-//      walking that fighter's own bouts if a future feature ever needs
-//      it; NOT needed for Event Archive/Fighter History/Title Lineage,
-//      which all read PER-BOUT before-state, never a fighter's final
-//      snapshot) and no bout id/finalFighterSeq/finalBoutSeq (bout id is
-//      reconstructible: bouts are appended in strictly increasing
-//      boutSeq order with no gaps, so archive.bouts[i] is always
-//      "bout-<i+1>"; finalFighterSeq/finalBoutSeq were never read by
-//      anything -- both were pure post-hoc bookkeeping nobody consumed).
-// Nothing on the "must remain recoverable" list is dropped: bout
-// id/order (reconstructed from array position, above), circuit, year,
-// world tick, fighter identities (via the dictionary), winner (via
-// winnerSide), method, round, titleFight, championBefore (via
-// championBeforeIdx's 3-way sentinel), rank-before, record-before.
-//
-// Player identity: the archive intentionally stores NOTHING about the
-// player (no name field for the -1/player sentinel anywhere). The
-// completed Career's own LS_CAREER_HISTORY entry that this archive lives
-// inside of already carries `fighterName`, `record`, `division`,
-// `careerStyle`, etc. right alongside `universeArchive` -- a future
-// renderer resolving a "player" bout side reads ITS OWN sibling field on
-// the same history entry, not React state, and not a second copy stored
-// here. Verified directly (see this branch's own report) rather than
-// assumed.
-//
-// CS opponent identity: a Contender Series opponent never belongs to any
-// persistent roster (generateContenderSeriesOpponent, untouched), so the
-// normal division-lookup pass below can never resolve their id -- their
-// name/archetype was captured directly on the PLAYER's own bout ledger
-// entry for exactly this reason (opponentName/opponentArchetype, see
-// commitFight's own comment). This builder folds that fallback identity
-// into the SAME fighters[] dictionary as everyone else (so a CS
-// opponent's bout tuple can reference them by ordinary dictionary index,
-// no special-casing needed at decode time) -- verified to still resolve
-// correctly after compaction (see this branch's own report).
-// Universe Events V1: fixed reason table for title-transition tuples,
-// version:2-only (V1 archives predate the concept entirely, hence no
-// titleTransitions field at all on a version:1 archive -- see Section
-// 40-41). "vacated" is the only transition `type` this pass ever
-// produces (see career.js's appendTitleTransition), so `type` itself is
-// not encoded per-entry -- a version:3 that ever needs a second type
-// gets its own table, not a silent reinterpretation of this one.
-const UNIVERSE_ARCHIVE_V2_TRANSITION_REASONS = ["promotion", "contenderSeries", "weightMove", "retirement"];
-
-// Universe Events V1: extends the version:1 completed-Career archive
-// (still fully intact above -- untouched, still decodable, see
-// UNIVERSE_ARCHIVE_V1_* and this function's own version:1 branch removed
-// entirely from HERE but preserved historically in already-saved
-// LS_CAREER_HISTORY entries; Section 41) with the event layer World
-// Movement's bout ledger already organizes into. This function now
-// always PRODUCES version 2 for any NEWLY completed Career -- old
-// already-saved version:1 entries are never rewritten (Section 41: "no
-// UI exists yet, so decoder/API compatibility is sufficient" -- a future
-// reader branches on `archive.version`).
-//
-// Compaction techniques reused from V1 (fighter dictionary, tuple
-// arrays, enum-coded circuit/method) plus two more for the new fields:
-//   - events reference bouts by ARRAY INDEX into archive.bouts, not by
-//     id string (bout-<n> is reconstructible from index+1 exactly like
-//     V1 already established for id/order -- Section 42: "do not repeat
-//     bout details inside event archive").
-//   - a small per-archive `divisions` (weight class) dictionary, same
-//     shape as the fighter dictionary, since a Career's weight-class
-//     history is normally 1-2 distinct strings, not one per bout/event.
-function buildUniverseArchive(careerState) {
-  if (!careerState.universe) return null;
-  const bouts = careerState.universe.bouts || [];
-  const fighterIndex = new Map(); // original string id -> dictionary index
-  const fighters = []; // [id, name, archetype]
-  function indexFor(id, name, archetype) {
-    if (fighterIndex.has(id)) return fighterIndex.get(id);
-    const idx = fighters.length;
-    fighters.push([id, name, archetype ?? null]);
-    fighterIndex.set(id, idx);
-    return idx;
-  }
-  // Pass 1: every fighter reachable through a persistent roster, but only
-  // the ones the ledger actually references -- same "referenced, not the
-  // whole roster" scoping the original archive already used.
-  const referencedIds = new Set();
-  bouts.forEach((b) => {
-    if (b.fighterAId !== PLAYER_BOUT_ID) referencedIds.add(b.fighterAId);
-    if (b.fighterBId !== PLAYER_BOUT_ID) referencedIds.add(b.fighterBId);
-  });
-  Object.values(careerState.universe.divisions).forEach((division) => {
-    division.forEach((f) => {
-      if (referencedIds.has(f.id)) indexFor(f.id, f.name, f.archetype);
-    });
-  });
-  // Pass 2: Contender Series opponents (and any other referenced id that
-  // pass 1 couldn't resolve -- defensive, shouldn't happen) via the
-  // fallback identity captured on the player's own bout entries.
-  bouts.forEach((b) => {
-    if (b.opponentName && !fighterIndex.has(b.fighterBId)) indexFor(b.fighterBId, b.opponentName, b.opponentArchetype || null);
-  });
-  // Pass 3 (Universe Events V1, Section 25-29): fighters who only ever
-  // existed in a weight class this Career has since moved OUT of are
-  // unreachable through careerState.universe.divisions (the CURRENT
-  // weight class's live rosters) -- their identity survives instead in
-  // universe.historicalFighterIdentities, captured at the moment of the
-  // move. Same fallback shape as pass 2's CS handling.
-  Object.entries(careerState.universe.historicalFighterIdentities || {}).forEach(([id, nameArchetype]) => {
-    if (referencedIds.has(id) && !fighterIndex.has(id)) indexFor(id, nameArchetype[0], nameArchetype[1]);
-  });
-
-  function fighterIdxFor(id) {
-    if (id === PLAYER_BOUT_ID) return UNIVERSE_ARCHIVE_V1_PLAYER_IDX;
-    return fighterIndex.has(id) ? fighterIndex.get(id) : indexFor(id, null, null); // defensive: never drop a bout for an unresolvable id
-  }
-  function rankCode(rank) { return rank == null ? -1 : rank; }
-  function championBeforeCode(championBeforeId) {
-    if (championBeforeId == null) return UNIVERSE_ARCHIVE_V1_NO_CHAMPION;
-    return fighterIdxFor(championBeforeId);
-  }
-  const divisionIndex = new Map(); // weight-class string -> dictionary index
-  const divisions = [];
-  function divisionIdxFor(name) {
-    const key = name ?? "";
-    if (divisionIndex.has(key)) return divisionIndex.get(key);
-    const idx = divisions.length;
-    divisions.push(key);
-    divisionIndex.set(key, idx);
-    return idx;
-  }
-  const boutIndexById = new Map(); // "bout-N" -> array index, for event boutIds -> indices
-
-  const compactBouts = bouts.map((b, i) => {
-    boutIndexById.set(b.id, i);
-    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(b.circuit));
-    const methodCode = Math.max(0, UNIVERSE_ARCHIVE_V1_METHODS.indexOf(b.method));
-    const winnerSide = b.winnerId === b.fighterAId ? 0 : 1;
-    return [
-      b.year, b.worldTick, circuitCode,
-      fighterIdxFor(b.fighterAId), fighterIdxFor(b.fighterBId),
-      winnerSide, methodCode, b.round, b.titleFight ? 1 : 0,
-      championBeforeCode(b.championBeforeId),
-      rankCode(b.rankABefore), rankCode(b.rankBBefore),
-      b.recordABefore.w, b.recordABefore.l, b.recordBBefore.w, b.recordBBefore.l,
-    ];
-  });
-
-  const compactEvents = (careerState.universe.events || []).map((ev) => {
-    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(ev.circuit));
-    const boutIndices = ev.boutIds.map((id) => boutIndexById.get(id)).filter((i) => i != null);
-    return [ev.year, ev.worldTick, circuitCode, divisionIdxFor(ev.division), ev.eventNumber, boutIndices];
-  });
-
-  const compactTitleTransitions = (careerState.universe.titleTransitions || []).map((t) => {
-    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(t.circuit));
-    const reasonCode = Math.max(0, UNIVERSE_ARCHIVE_V2_TRANSITION_REASONS.indexOf(t.reason));
-    return [t.worldTick, t.year, circuitCode, divisionIdxFor(t.division), fighterIdxFor(t.championId), reasonCode];
-  });
-
-  return {
-    version: 2,
-    fighters, divisions,
-    bouts: compactBouts,
-    events: compactEvents,
-    titleTransitions: compactTitleTransitions,
-  };
-}
+// Event Archive + Fighter Histories V1: the compact-archive constants and
+// encoder (buildUniverseArchive) moved verbatim to lib/universeHistory.js
+// -- that module now owns the whole encode/decode contract for completed-
+// Career universe archives (the decoder needs the exact same version
+// tables, so keeping both together in one file is the smallest coherent
+// home, per that branch's own report). Behavior here is byte-for-byte
+// identical; only the import path changed.
 
 // Framing for the 3 real candidates the matchmaking panel offers -- same
 // risk/reward promise the old abstract Easy/Ranked/Step-Up buttons made,
@@ -474,6 +272,14 @@ function ordinal(n) {
 
 export default function CageLab() {
   const [phase, setPhase] = useState("home");
+  // Event Archive + Fighter Histories V1: which universe history the
+  // "eventArchive" phase should read from, and which phase to return to
+  // on back -- { type: "active" } for the current in-progress Career's
+  // own universe, or { type: "completed", career } for a completed
+  // Career History entry's stored universeArchive. Local UI-only state,
+  // never persisted -- opening/closing this view never touches
+  // careerState, universe, or LS_ACTIVE_CAREER (Section 39).
+  const [eventArchiveSource, setEventArchiveSource] = useState(null);
   const [mode, setMode] = useState("classic"); // classic | blind | daily | challenge
   // Active Career Save + Resume V1: resolved ONCE, synchronously, before
   // this component's very first render -- a plain lazy useState
@@ -1548,8 +1354,46 @@ export default function CageLab() {
           onClearCareers={() => { saveJSON(LS_CAREER_HISTORY, []); setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onImportFile={() => { setPhase("home"); setTimeout(() => setPhase("collection"), 0); }}
           onReplayIntro={replayIntro}
+          onViewUniverseArchive={(career) => { setEventArchiveSource({ type: "completed", career }); setPhase("eventArchive"); }}
         />
       )}
+
+
+      {/* Event Archive + Fighter Histories V1: a plain phase-level overlay,
+          same shape as "collection" above -- read-only presentation over
+          either the active Career's own live universe or a completed
+          Career History entry's stored archive. Never mutates
+          careerState/universe/LS_ACTIVE_CAREER/LS_CAREER_HISTORY -- purely
+          derives a view model each render (getActiveUniverseHistory /
+          getCompletedCareerEventArchive), so simply opening and closing
+          this phase leaves every persisted byte exactly as it was. */}
+      {phase === "eventArchive" && eventArchiveSource && (() => {
+        const history = eventArchiveSource.type === "active"
+          ? getActiveUniverseHistory(careerState && careerState.universe, name)
+          : getCompletedCareerEventArchive(eventArchiveSource.career);
+        const returnPhase = eventArchiveSource.type === "active" ? "sim" : "collection";
+        const backHandler = () => { setPhase(returnPhase); setEventArchiveSource(null); };
+        if (!history) {
+          return (
+            <div className="panel">
+              <div className="section-head-row">
+                <button className="icon-btn" onClick={backHandler} aria-label="Back"><ArrowLeft size={16} /></button>
+                <div className="attr-name">Event Archive</div>
+              </div>
+              <div className="empty-txt">No universe history recorded for this Career.</div>
+            </div>
+          );
+        }
+        return (
+          <div className="panel">
+            <EventArchivePanel
+              history={history}
+              title={eventArchiveSource.type === "active" ? "Event Archive" : `${eventArchiveSource.career.fighterName}'s Universe`}
+              onBack={backHandler}
+            />
+          </div>
+        );
+      })()}
 
       {phase === "lab" && (
         <LabScreen
@@ -2997,6 +2841,26 @@ export default function CageLab() {
                 </div>
               ))}
             </div>
+
+            {/* Event Archive + Fighter Histories V1: the universe kept
+                moving while you were away -- this opens a read-only
+                browse of every CLF card recorded so far, Regional/
+                National/Premier/CS alike, with tappable fighters that
+                trace their own tracked fight history. Placed here rather
+                than a new bottom-nav tab (Section 1 of the underlying
+                task: a 5th tab crowds the existing 4-tab bar at 390px for
+                a feature most sessions will check occasionally, not
+                every screen). */}
+            {careerState.universe && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ marginTop: 14 }}
+                onClick={() => { setEventArchiveSource({ type: "active" }); setPhase("eventArchive"); }}
+              >
+                <Globe size={15} /> View Event Archive
+              </button>
+            )}
 
             {/* Training Camp Rework V1, item 14/6: a persistent, always-
                 reachable live Career attributes view -- the missing

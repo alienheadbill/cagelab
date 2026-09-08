@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowLeft, Crown } from "lucide-react";
+import { ArrowLeft, Crown, Globe } from "lucide-react";
 import { CLF_TIERS, rankLabel } from "../lib/career.js";
 import AttributeBarList from "./AttributeBarList.jsx";
 
@@ -34,7 +34,7 @@ function highestTitleTier(c) {
 // never recomputes GOAT Score, Build Value, or ranking from current
 // formulas, so a career saved before a balance pass reads exactly as it
 // did the day it finished.
-function LegacyCareerDetail({ career: c, onBack }) {
+function LegacyCareerDetail({ career: c, onBack, onViewUniverseArchive }) {
   const hasPeak = c.peakPlayerRank !== undefined && c.peakPlayerRank !== null;
   const peakRankLabel = hasPeak ? rankLabel(c.peakPlayerRank, c.peakPlayerRank === 0) : "Not recorded";
   const peakTier = c.peakCircuitTier ? (CLF_TIERS.find((t) => t.name === c.peakCircuitTier) || {}).short || c.peakCircuitTier : "Not recorded";
@@ -69,6 +69,18 @@ function LegacyCareerDetail({ career: c, onBack }) {
           );
         })()}
       </div>
+
+      {/* Event Archive + Fighter Histories V1: the completed Career's own
+          compact universe archive (Section 8 of the underlying task) --
+          only shown when one was actually recorded (careers finished
+          before Universe Events V1 shipped have no universeArchive.events
+          at all, and pre-#38 careers have no universeArchive whatsoever;
+          absence means "not recorded," never a broken link). */}
+      {c.universeArchive && onViewUniverseArchive && (
+        <button type="button" className="btn btn-ghost" style={{ marginBottom: 14 }} onClick={() => onViewUniverseArchive(c)}>
+          <Globe size={15} /> View Universe / Event Archive
+        </button>
+      )}
 
       <div className="collection-block-title">Fighter</div>
       <div className="stat-grid">
