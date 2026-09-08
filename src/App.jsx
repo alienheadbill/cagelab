@@ -265,6 +265,35 @@ const UNIVERSE_ARCHIVE_V1_NO_CHAMPION = -2;
 // opponent's bout tuple can reference them by ordinary dictionary index,
 // no special-casing needed at decode time) -- verified to still resolve
 // correctly after compaction (see this branch's own report).
+// Universe Events V1: fixed reason table for title-transition tuples,
+// version:2-only (V1 archives predate the concept entirely, hence no
+// titleTransitions field at all on a version:1 archive -- see Section
+// 40-41). "vacated" is the only transition `type` this pass ever
+// produces (see career.js's appendTitleTransition), so `type` itself is
+// not encoded per-entry -- a version:3 that ever needs a second type
+// gets its own table, not a silent reinterpretation of this one.
+const UNIVERSE_ARCHIVE_V2_TRANSITION_REASONS = ["promotion", "contenderSeries", "weightMove", "retirement"];
+
+// Universe Events V1: extends the version:1 completed-Career archive
+// (still fully intact above -- untouched, still decodable, see
+// UNIVERSE_ARCHIVE_V1_* and this function's own version:1 branch removed
+// entirely from HERE but preserved historically in already-saved
+// LS_CAREER_HISTORY entries; Section 41) with the event layer World
+// Movement's bout ledger already organizes into. This function now
+// always PRODUCES version 2 for any NEWLY completed Career -- old
+// already-saved version:1 entries are never rewritten (Section 41: "no
+// UI exists yet, so decoder/API compatibility is sufficient" -- a future
+// reader branches on `archive.version`).
+//
+// Compaction techniques reused from V1 (fighter dictionary, tuple
+// arrays, enum-coded circuit/method) plus two more for the new fields:
+//   - events reference bouts by ARRAY INDEX into archive.bouts, not by
+//     id string (bout-<n> is reconstructible from index+1 exactly like
+//     V1 already established for id/order -- Section 42: "do not repeat
+//     bout details inside event archive").
+//   - a small per-archive `divisions` (weight class) dictionary, same
+//     shape as the fighter dictionary, since a Career's weight-class
+//     history is normally 1-2 distinct strings, not one per bout/event.
 function buildUniverseArchive(careerState) {
   if (!careerState.universe) return null;
   const bouts = careerState.universe.bouts || [];
@@ -296,6 +325,15 @@ function buildUniverseArchive(careerState) {
   bouts.forEach((b) => {
     if (b.opponentName && !fighterIndex.has(b.fighterBId)) indexFor(b.fighterBId, b.opponentName, b.opponentArchetype || null);
   });
+  // Pass 3 (Universe Events V1, Section 25-29): fighters who only ever
+  // existed in a weight class this Career has since moved OUT of are
+  // unreachable through careerState.universe.divisions (the CURRENT
+  // weight class's live rosters) -- their identity survives instead in
+  // universe.historicalFighterIdentities, captured at the moment of the
+  // move. Same fallback shape as pass 2's CS handling.
+  Object.entries(careerState.universe.historicalFighterIdentities || {}).forEach(([id, nameArchetype]) => {
+    if (referencedIds.has(id) && !fighterIndex.has(id)) indexFor(id, nameArchetype[0], nameArchetype[1]);
+  });
 
   function fighterIdxFor(id) {
     if (id === PLAYER_BOUT_ID) return UNIVERSE_ARCHIVE_V1_PLAYER_IDX;
@@ -306,8 +344,20 @@ function buildUniverseArchive(careerState) {
     if (championBeforeId == null) return UNIVERSE_ARCHIVE_V1_NO_CHAMPION;
     return fighterIdxFor(championBeforeId);
   }
+  const divisionIndex = new Map(); // weight-class string -> dictionary index
+  const divisions = [];
+  function divisionIdxFor(name) {
+    const key = name ?? "";
+    if (divisionIndex.has(key)) return divisionIndex.get(key);
+    const idx = divisions.length;
+    divisions.push(key);
+    divisionIndex.set(key, idx);
+    return idx;
+  }
+  const boutIndexById = new Map(); // "bout-N" -> array index, for event boutIds -> indices
 
-  const compactBouts = bouts.map((b) => {
+  const compactBouts = bouts.map((b, i) => {
+    boutIndexById.set(b.id, i);
     const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(b.circuit));
     const methodCode = Math.max(0, UNIVERSE_ARCHIVE_V1_METHODS.indexOf(b.method));
     const winnerSide = b.winnerId === b.fighterAId ? 0 : 1;
@@ -321,7 +371,25 @@ function buildUniverseArchive(careerState) {
     ];
   });
 
-  return { version: 1, fighters, bouts: compactBouts };
+  const compactEvents = (careerState.universe.events || []).map((ev) => {
+    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(ev.circuit));
+    const boutIndices = ev.boutIds.map((id) => boutIndexById.get(id)).filter((i) => i != null);
+    return [ev.year, ev.worldTick, circuitCode, divisionIdxFor(ev.division), ev.eventNumber, boutIndices];
+  });
+
+  const compactTitleTransitions = (careerState.universe.titleTransitions || []).map((t) => {
+    const circuitCode = Math.max(0, UNIVERSE_ARCHIVE_V1_CIRCUITS.indexOf(t.circuit));
+    const reasonCode = Math.max(0, UNIVERSE_ARCHIVE_V2_TRANSITION_REASONS.indexOf(t.reason));
+    return [t.worldTick, t.year, circuitCode, divisionIdxFor(t.division), fighterIdxFor(t.championId), reasonCode];
+  });
+
+  return {
+    version: 2,
+    fighters, divisions,
+    bouts: compactBouts,
+    events: compactEvents,
+    titleTransitions: compactTitleTransitions,
+  };
 }
 
 // Framing for the 3 real candidates the matchmaking panel offers -- same
