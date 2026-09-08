@@ -1910,6 +1910,16 @@ function initCareer(picks, options) {
     purse: 0,
     contract: DEFAULT_CONTRACT,
     contractNegotiated: false,
+    // Duplicate timeline ID hotfix: trainingEvent/mediaEvent/offCycleEvent
+    // are the only timeline entries that can recur several times within the
+    // same year without fightGlobalIndex advancing (see
+    // nextTimelineEventSeq's own comment, right above resolveTrainingEvent,
+    // for why). One small dedicated counter, bumped once per such event
+    // regardless of which of the three it is, folded into each id as a
+    // trailing suffix -- see nextTimelineEventSeq. Missing entirely on an
+    // old save reads as 0 (`|| 0`), same compatibility convention as
+    // regionalEverBeatRanked above: no migration, no rewritten history.
+    timelineEventSeq: 0,
     timeline: [
       { type: "styleSelected", id: "style-select",
         style: (options && options.careerStyle) || "Balanced",
@@ -2330,6 +2340,34 @@ function maybeFightChoice(state) {
   return prepareFight(rolled, "default");
 }
 
+// Duplicate timeline ID hotfix: resolveTrainingEvent/resolveMediaEvent/
+// resolveOffCycleEvent all keyed their timeline id as
+// `${prefix}-${year}-${fightGlobalIndex}` -- unique for every OTHER timeline
+// entry type (fight/circuitMove/rivalEvent/hypeEvent all fire at most once
+// per commitFight, which is the only place fightGlobalIndex advances;
+// campPlan/injury/coach*/weightMove* all fire at most once per year, via
+// resolveCampPlanning/resolveWeightMoveOffer). These three are different:
+// maybeFightChoice's post-fight roll can land on trainingEvent, mediaEvent,
+// or offCycleEvent, each of which clears pendingDecision and loops right
+// back through advanceCareer -> maybeFightChoice for a fresh roll -- so two
+// or more of the SAME type can fire back-to-back before the next actual
+// fight commits and fightGlobalIndex ticks forward, with `year` also
+// unchanged across all of them. Two media events in the same gap could both
+// become `media-5-9`, exactly the collision the Career V1 audit found.
+// fightGlobalIndex itself must stay fight-only (bumping it here would
+// corrupt every promotion/matchmaking check that reads it as "fights so
+// far") and no other counter already tracks "how many non-fight events have
+// fired," so this adds the smallest thing that does: one dedicated,
+// monotonically increasing counter (timelineEventSeq, see initCareer),
+// shared across all three event types and folded into the id as a trailing
+// suffix. `state.timelineEventSeq || 0` means an old save from before this
+// field existed just starts counting from 0 -- no migration, no rewritten
+// history, and its old unsuffixed ids (`train-5-9`) can never collide with
+// the new suffixed shape (`train-5-9-1`) since the strings simply differ.
+function nextTimelineEventSeq(state) {
+  return (state.timelineEventSeq || 0) + 1;
+}
+
 // CHIN excluded (Training Camp Rework V1, item 3/11) -- Training Event's
 // "Address It" is a permanent-growth path, same restriction as Camp focus.
 function pickWeakestSkill(base) {
@@ -2364,7 +2402,9 @@ function resolveTrainingEvent(state, attr, addressed) {
     const best = SKILL_KEYS.reduce((a, b) => (s.base[b] > s.base[a] ? b : a));
     s.mediaBuff = { attr: best, delta: 3 };
   }
-  s.timeline = [...s.timeline, { type: "trainingEvent", id: `train-${s.year}-${s.fightGlobalIndex}`, attr, addressed }];
+  const trainingSeq = nextTimelineEventSeq(s);
+  s.timelineEventSeq = trainingSeq;
+  s.timeline = [...s.timeline, { type: "trainingEvent", id: `train-${s.year}-${s.fightGlobalIndex}-${trainingSeq}`, attr, addressed }];
   s.pendingDecision = null;
   return s;
 }
@@ -2373,7 +2413,9 @@ function resolveTrainingEvent(state, attr, addressed) {
 function resolveMediaEvent(state, fireBack) {
   const s = { ...state };
   s.mediaBuff = fireBack ? { attr: "POWER", delta: 4 } : { attr: "IQ", delta: 3 };
-  s.timeline = [...s.timeline, { type: "mediaEvent", id: `media-${s.year}-${s.fightGlobalIndex}`, fireBack }];
+  const mediaSeq = nextTimelineEventSeq(s);
+  s.timelineEventSeq = mediaSeq;
+  s.timeline = [...s.timeline, { type: "mediaEvent", id: `media-${s.year}-${s.fightGlobalIndex}-${mediaSeq}`, fireBack }];
   s.pendingDecision = null;
   return s;
 }
@@ -2392,7 +2434,9 @@ function resolveOffCycleEvent(state, choice) {
   } else {
     s.fame = clamp(s.fame + 4, 0, 100);
   }
-  s.timeline = [...s.timeline, { type: "offCycleEvent", id: `offcycle-${s.year}-${s.fightGlobalIndex}`, choice, fameAfter: s.fame }];
+  const offCycleSeq = nextTimelineEventSeq(s);
+  s.timelineEventSeq = offCycleSeq;
+  s.timeline = [...s.timeline, { type: "offCycleEvent", id: `offcycle-${s.year}-${s.fightGlobalIndex}-${offCycleSeq}`, choice, fameAfter: s.fame }];
   s.pendingDecision = null;
   return s;
 }
