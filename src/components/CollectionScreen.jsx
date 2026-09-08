@@ -26,6 +26,7 @@ function buildValueForSavedBuild(build) {
 function CollectionScreen({
   onBack, dailyStats, savedBuilds, careerHistory, dailyLog, achievements,
   reducedMotion, onToggleReducedMotion, onLoadBuild, onClearBuilds, onClearCareers, onImportFile, onReplayIntro,
+  onViewUniverseArchive,
 }) {
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState("");
@@ -184,7 +185,7 @@ function CollectionScreen({
       {activeTab === "careers" && (
         <div className="collection-block">
           {selectedCareer ? (
-            <LegacyCareerDetail career={selectedCareer} onBack={() => setSelectedCareerId(null)} />
+            <LegacyCareerDetail career={selectedCareer} onBack={() => setSelectedCareerId(null)} onViewUniverseArchive={onViewUniverseArchive} />
           ) : (
             <>
               <div className="collection-block-title-row">

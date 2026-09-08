@@ -13,6 +13,13 @@ _Last updated: 2026-09-08_
 > Keep this doc in sync going forward: when a roadmap item's real status
 > changes (branch pushed, PR opened, PR merged), update its entry here in
 > the same pass rather than leaving it to drift.
+>
+> **Update log (2026-09-08, later same day):** Active Career Save + Resume
+> V1 (PR #37), NPC World Movement + Bout Ledger V1 (PR #38, including its
+> own pre-PR realism/archive hardening pass), and Universe Events V1
+> (PR #39) all merged into `main`. Event Archive + Fighter Histories V1 is
+> now implemented, tested, and pushed to
+> `career-event-archive-fighter-histories-v1` — no PR opened yet.
 
 ## Product North Star
 
@@ -222,10 +229,7 @@ They exist, but they do not yet generate background fights or ranking movement.
 
 # 2. Current Work
 
-## 🟡 Active Career Save + Resume V1
-
-**Status: implemented, tested, and pushed** to branch `career-active-save-v1`
-(`071d3b303dd08765c68f548cfb52ac92fd3974eb`). **No PR opened yet.**
+## ✅ Active Career Save + Resume V1 — PR #37
 
 ### Goal
 
@@ -277,134 +281,80 @@ The player should return later and continue the same:
 - No NPC world movement yet
 - No event cards yet
 
-### Next action
-
-Open the PR for `career-active-save-v1` → `main` when ready.
-
 ---
 
 # 3. Near-Term Roadmap
 
-## ⏳ NPC World Movement + Bout Ledger V1
+## ✅ NPC World Movement + Bout Ledger V1 — PR #38
 
-### Goal
-
-The persistent universe begins to **move**.
-
-While the player is in Regional, National and Premier should generate real background results.
-
-### Core principle
-
-Once NPC world movement begins, meaningful NPC state changes should be traceable to an actual stored bout.
-
-Avoid a new period of invisible mutations like:
-
-`record.w += 1`
-
-with no history of who was fought.
-
-### Planned capabilities
-
-- Background activity for non-active circuits
-- Lightweight NPC bout resolver
-- Persisted bout ledger
-- Record updates from bout results
-- Last-5 updates from bout results
-- Ranking movement from bout results
-- Unranked ↔ Top-15 movement
-- Hot prospects can rise without fighting the player
-- Ranked veterans can fall out of the Top 15
-- Champion changes should be driven by actual background title bouts
-
-### Lightweight background bout concept
-
-A compact record may include:
-
-```js
-{
-  id,
-  circuit,
-  year,
-  fighterAId,
-  fighterBId,
-  winnerId,
-  method,
-  round,
-  titleFight
-}
-```
-
-Exact production schema remains implementation-dependent.
+**Shipped** (`career-npc-world-bout-ledger-v1`, PR #38, merged), including a
+pre-PR realism/archive hardening pass on the same branch. Regional/
+National/Premier now advance one world tick per committed player fight,
+every meaningful NPC record/form/ranking/title change is backed by a real
+persisted bout, and a versioned compact archive keeps completed-Career
+storage safe at scale. Actual shipped schema, cadence, and rematch-cooldown
+details are documented in `universe.bouts`/`WORLD_TICK_CADENCE`/
+`REMATCH_COOLDOWN_TICKS` in `career.js` rather than duplicated here.
 
 ---
 
-## ⏳ Universe Events V1
+## ✅ Universe Events V1 — PR #39
 
-### Goal
-
-Turn background bouts into actual CLF fight cards.
-
-Instead of background state silently changing, the world should produce events such as:
-
-**CLF PREMIER 184**
-
-- Championship fight
-- Ranked contender fight
-- Ranking-bubble fight
-- Prospect fight
-- Veteran / gatekeeper fight
-- Player fight when appropriate
-
-### Planned capabilities
-
-- Named / numbered events by circuit
-- 5–8 meaningful tracked bouts per event
-- Player fight integrated onto a universe card
-- Title fights tied to real cards
-- Title lineage starts from actual event results
-- Cards persist in Career history
-
-### Design principle
-
-The player's fights and NPC fights should not become separate histories.
-
-**The player fights inside the same universe event system.**
+**Shipped** (`career-universe-events-v1`, PR #39, merged). Bouts World
+Movement already resolves are grouped into persistent CLF event cards
+(`universe.events`, `eventNumbers` independently monotonic per circuit,
+deterministic permanent card order) without resimulating anything. Also
+fixed a real weight-class-move bug found during that pass (a move used to
+discard all prior universe history) and added `titleTransitions` for
+non-fight belt vacancies (promotion/Contender Series/weight move/
+retirement). No Event Archive/Fighter History UI yet — that's this next
+section.
 
 ---
 
-## ⏳ Event Archive + Fighter Histories
+## 🟡 Event Archive + Fighter Histories V1
+
+**Status: implemented, tested, and pushed** to branch
+`career-event-archive-fighter-histories-v1`. **No PR opened yet.**
 
 ### Goal
 
 Make accumulated universe history browsable.
 
-### Event Archive
+### What shipped
 
-Players should be able to revisit previous cards:
+- Read-only presentation layer (`src/lib/universeHistory.js`) over the
+  canonical bout ledger / universe events / completed-Career archive —
+  never resimulates a fight, never mutates universe/rankings/active save
+- **Event Archive**: browse Regional/National/Premier/Contender Series
+  cards (newest first, circuit filter), open one to see the real
+  historical card in permanent order — main event / co-main / featured /
+  full card, fight-night rank and record snapshots, title context, tapped
+  fighter names open their own history
+- **Fighter History**: tracked record, tracked CLF fight count (never
+  overclaimed as a fighter's whole career — generated fighters begin with
+  a synthetic pre-tracking record), peak observed rank, full event-linked
+  fight list with fighter-to-fighter navigation
+- Works uniformly across all four historical data shapes: an active
+  Career's live universe, a migrated pre-Events-V1 active save, a
+  completed Career's compact archive V2, and an older completed archive
+  V1 (synthetic event grouping honestly labeled as reconstructed)
+- Reached from the existing Stats tab (active Career) and My Legacy's
+  Career Archive detail (completed Careers) — no new bottom-nav tab
 
-- CLF PREMIER events
-- CLF National events
-- CLF Regional events
-- full stored results
+### Explicit non-goals (this pass)
 
-### Fighter History
-
-NPC profiles should eventually show actual fight histories:
-
-- opponent
-- W/L
-- method
-- round
-- event
-- Last 5
-- current record
-- peak rank
-
-A fighter should stop feeling like a generated stat block and start feeling like a person with a career.
+- No Title Lineage presentation page yet (a pre-existing, unrelated live
+  roster `isChampion` staleness edge case around same-fight promotions
+  remains a watch item for that later pass)
+- No Universe News
+- No Rankings History (week/year-by-year) page
 
 ### Source-of-truth rule
 
-Do not create independent duplicate fighter-history arrays if the bout ledger can derive the same information reliably.
+No independent duplicate fighter-history arrays — everything here is
+derived from the bout ledger, universe events, and title transitions
+already persisted by the two phases above.
 
 ---
 
@@ -730,11 +680,11 @@ This should remain a separate exploration until the core CageLab Career universe
 
 As of this roadmap revision:
 
-1. ✅ **Persistent Universe Foundation V1 — merged**
-2. 🟡 **Active Career Save + Resume V1 — implemented, pushed, PR not yet opened**
-3. ⏳ **NPC World Movement + Bout Ledger V1**
-4. ⏳ **Universe Events V1**
-5. ⏳ **Event Archive + Fighter Histories**
+1. ✅ **Persistent Universe Foundation V1 — merged (PR #35)**
+2. ✅ **Active Career Save + Resume V1 — merged (PR #37)**
+3. ✅ **NPC World Movement + Bout Ledger V1 — merged (PR #38)**
+4. ✅ **Universe Events V1 — merged (PR #39)**
+5. 🟡 **Event Archive + Fighter Histories V1 — implemented, pushed, PR not yet opened**
 6. ⏳ **Universe News + Historical Presentation**
 7. ⏳ **Move-by-Move Spectator Fight Simulation**
 8. 🧪 **Dedicated balance passes only where playtesting/data justify them**

@@ -1226,6 +1226,60 @@
         .rankings-list.rankings-list-tab { max-height: none; margin-top: 0; }
         .camp-idle-view { margin-top: 4px; }
 
+        /* ---- Event Archive + Fighter Histories V1 ------------------------
+           Reuses the existing panel/section-head-row/collection-block/mono
+           vocabulary throughout -- these rules only cover what's genuinely
+           new: the browse-list row, the card hierarchy inside one event,
+           and the fighter-history rows. No new color system. */
+        .ue-list-row { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
+          background: var(--card-bg); border: 1px solid rgba(154,143,125,0.18); border-radius: 8px;
+          padding: 10px 12px; margin-bottom: 8px; cursor: pointer; touch-action: manipulation; }
+        .ue-list-row:active { transform: scale(0.99); }
+        .ue-list-row-label { font-size: 11px; color: var(--brass); letter-spacing: 0.05em; font-weight: 700; }
+        .ue-list-row-sub { font-size: 13px; color: var(--ink); }
+        .ue-list-row-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .ue-list-row-meta { font-size: 10px; color: var(--slate); margin-left: auto; }
+        .ue-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 700;
+          letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; }
+        .ue-tag-title { background: rgba(224,172,58,0.18); color: var(--brass); }
+        .ue-tag-player { background: rgba(224,172,58,0.22); color: var(--brass); }
+        .ue-derived-tag { color: var(--slate); font-weight: 400; font-size: 9.5px; }
+
+        .ue-card { background: var(--card-bg); border: 1px solid rgba(154,143,125,0.18); border-radius: 10px; padding: 12px; margin-top: 4px; }
+        .ue-card-head { margin-bottom: 10px; }
+        .ue-card-label { font-size: 12px; color: var(--brass); font-weight: 700; letter-spacing: 0.04em; }
+        .ue-card-sub { font-size: 10.5px; color: var(--slate); margin-top: 2px; }
+
+        .ue-bout-row { padding: 10px 0; border-top: 1px dashed rgba(154,143,125,0.16); }
+        .ue-bout-row:first-child { border-top: none; padding-top: 0; }
+        .ue-bout-main { padding: 12px; margin: -12px -12px 10px; background: rgba(224,172,58,0.08); border-radius: 8px 8px 0 0; border-top: none; }
+        .ue-bout-comain { background: rgba(224,172,58,0.03); }
+        .ue-bout-eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 9.5px; letter-spacing: 0.06em; }
+        .ue-bout-position { color: var(--brass); font-weight: 700; }
+        .ue-bout-title-flag { display: inline-flex; align-items: center; gap: 3px; color: var(--brass); font-weight: 700; }
+        .ue-bout-matchup { display: flex; align-items: center; gap: 8px; }
+        .ue-bout-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .ue-bout-side.won .ue-fighter-name-btn { color: var(--brass); font-weight: 700; }
+        .ue-bout-side-meta { font-size: 10.5px; color: var(--slate); }
+        .ue-bout-vs { font-size: 9.5px; color: var(--slate); flex-shrink: 0; }
+        .ue-bout-result { font-size: 10.5px; color: var(--slate); margin-top: 6px; }
+        .ue-fighter-name-btn { background: none; border: none; padding: 0; margin: 0; color: var(--ink); font-size: 13px;
+          text-align: left; cursor: pointer; font-family: inherit; touch-action: manipulation; }
+        .ue-fighter-name-btn:hover, .ue-fighter-name-btn:focus-visible { text-decoration: underline; }
+        .ue-expand-btn { display: flex; align-items: center; gap: 5px; margin-top: 10px; width: 100%; justify-content: center;
+          padding: 8px; border: 1px dashed rgba(154,143,125,0.3); border-radius: 6px; }
+        .ue-undercard-label { font-size: 9.5px; color: var(--slate); letter-spacing: 0.06em; margin: 12px 0 4px; }
+
+        .fh-panel .fh-sub { font-size: 11px; color: var(--slate); margin-top: 2px; }
+        .fh-fight-row { padding: 8px 0; border-top: 1px dashed rgba(154,143,125,0.16); }
+        .fh-fight-row:first-child { border-top: none; }
+        .fh-fight-top { display: flex; align-items: center; gap: 8px; }
+        .fh-fight-result { width: 16px; text-align: center; font-weight: 700; }
+        .fh-fight-result.win { color: var(--brass); }
+        .fh-fight-result.loss { color: var(--slate); }
+        .fh-fight-title-icon { color: var(--brass); margin-left: auto; }
+        .fh-fight-meta { font-size: 10.5px; color: var(--slate); margin-top: 2px; margin-left: 24px; }
+
         @media (max-width: 380px) {
           .stat-grid { grid-template-columns: repeat(2, 1fr); }
           .action-grid { grid-template-columns: 1fr; }
@@ -1237,4 +1291,7 @@
           .event-corner.opp { text-align: center; }
           .promotion-tier { font-size: 24px; }
           .result-weapon-row { gap: 14px; }
+          .ue-bout-matchup { flex-direction: column; align-items: stretch; gap: 4px; }
+          .ue-bout-vs { align-self: center; }
+          .ue-list-row-tags { justify-content: space-between; }
         }
