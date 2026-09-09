@@ -4,9 +4,15 @@ import { lerpColor } from "../lib/utils.js";
 // ---------- Decorative build-board silhouette (abstract, no real photos) ----------
 // Fills in color and opacity as more attributes get locked in, so the board
 // visibly "comes alive" as the draft progresses instead of sitting static.
+// Fill reflects overall DRAFT COMPLETION only (drafted slots / total slots)
+// -- deliberately not mapped to individual attributes (no "Chin = head"
+// claims), since the app has no such body-region model to be truthful to.
+// Direction correction: the fill target is CageLab gold, not a drift toward
+// red -- red stays reserved for danger/loss, never "more built." Outline-only
+// at 0 reads as a dark graphite silhouette (unbuilt), full brass at 1 (built).
 function FighterSilhouette({ size = 96, fillPct = 0 }) {
-  const color = lerpColor([176, 141, 63], [140, 29, 24], fillPct);
-  const opacity = 0.3 + fillPct * 0.65;
+  const color = lerpColor([90, 88, 82], [209, 166, 56], fillPct);
+  const opacity = 0.4 + fillPct * 0.6;
   return (
     <svg viewBox="0 0 120 160" width={size} height={Math.round(size * (160 / 120))} className="silhouette-svg" style={{ fill: color, opacity }} aria-hidden="true">
       <circle cx="60" cy="26" r="20" />
