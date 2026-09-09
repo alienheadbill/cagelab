@@ -2003,7 +2003,7 @@ export default function CageLab() {
                       {promoCopy.label}{promoCopy.tierLine && <><br />{promoCopy.tierLine}</>}
                     </div>
                   )}
-                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                  <button className="btn btn-championship full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
                 </div>
               );
             }
@@ -2019,7 +2019,7 @@ export default function CageLab() {
                   <div className={`promotion-tier display ${tierRampCls(m.tier)}`}>{t.short}</div>
                   <div className="milestone-subtitle">{(m.division || "").toUpperCase()} CHAMPION</div>
                   <div className="promotion-blurb">{ordinal(m.defenseCount).toUpperCase()} TITLE DEFENSE</div>
-                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                  <button className="btn btn-championship full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
                 </div>
               );
             }
