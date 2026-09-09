@@ -27,6 +27,18 @@ _Last updated: 2026-09-08_
 > V2** (branch `visual-design-system-v2`, implemented and pushed, no PR
 > opened yet). Title Lineage, Universe News, and Rankings History all move
 > one slot later in Section 10's priority order to make room for it.
+>
+> **Update log (2026-09-09, direction correction):** PR #41 (Design System
+> V2) opened, then corrected after live-preview review: the green
+> win/positive semantic and white primary buttons moved too far from
+> CageLab's identity. Gold/brass is restored as the one brand + success
+> color; buttons are dark/graphite with a gold edge instead of white; a
+> faint cage-mesh + vignette background atmosphere was added; the draft
+> screen's false-clickable attribute grid was replaced with a read-only
+> Scouting Summary plus the (previously built but unused) `FighterSilhouette`
+> component, now also reused on the Stats tab. The neutral dark
+> canvas/surface readability win from the first pass is kept. PR #41
+> updated in place, still not merged.
 
 ## Product North Star
 
@@ -364,10 +376,10 @@ already persisted by the two phases above.
 
 ---
 
-## 🟡 Visual Design Audit + CageLab Design System V2
+## 🟡 Visual Design Audit + CageLab Design System V2 — PR #41 (open)
 
-**Status: implemented and pushed** to branch `visual-design-system-v2`.
-**No PR opened yet.**
+**Status: implemented and pushed** to branch `visual-design-system-v2`,
+open as **PR #41**, not yet merged.
 
 ### Goal
 
@@ -382,56 +394,77 @@ rankings, World Movement, event creation, Fighter History, Career
 progression, Legacy, Camp, or title logic changed. `src/lib/career.js` is
 untouched (byte-identical to the merged-main copy).
 
-### Direction: CageLab V2 — Text-First Fight Broadcast
+### Direction correction (post-preview review)
 
-Modern MMA/broadcast information hierarchy, still CageLab's own fictional
-promotion and still a text-based career simulator — no portraits, no UFC
-clone, no generic SaaS dashboard.
+The first PR #41 preview leaned too far toward a generic light/green
+dashboard (white primary buttons, green win states). Reviewing the live
+preview, that direction was corrected back toward CageLab's own identity
+**without discarding the genuine readability win**:
+
+**CageLab — UFC-inspired fight broadcast × CageLab gold.** Neutral dark
+canvas/surfaces stay (the real fix for the old muddy brown foundation),
+but CageLab brass/gold is restored as the ONE brand + success color —
+wins, positive progression, and premium moments are gold again, not
+green. Red stays reserved for loss/danger/Step-Up. Routine buttons are a
+dark/graphite surface with a gold edge + gold label, not a flat white
+block. A faint CSS-only cage/chain-link crosshatch plus a soft vignette
+give the background more arena atmosphere (no image asset).
 
 ### What shipped
 
-- **Neutral dark foundation**: canvas/surfaces/borders moved off the old
-  brown/sepia family onto near-black/charcoal/graphite (`--canvas`,
-  `--bone`, `--card-bg`, `--surface-2`), so CageLab gold reads as a
-  deliberate accent again instead of the base identity of every surface.
-- **New green semantic (`--positive`)**: wins, favorable matchups, and
-  positive progression now render in green instead of gold — previously
-  the app had no distinction between "you won" and "this is a premium/
-  championship moment." Gold is now reserved for genuinely
-  premium/championship context (GOAT reveal, title straps, Elite/
-  Legendary builds, the "AND NEW"/"AND STILL" champion milestone CTAs).
-  Matchmaking's opportunity tags now follow the intended risk language
-  (Easy → green, Ranked → neutral/selective gold, Step-Up → red) instead
-  of all three defaulting to gold.
-- **Shared tint tokens**: every rgba() border/background wash in
-  `styles.css` now draws from `--line-rgb` / `--brass-rgb` / `--blood-rgb`
-  / `--positive-rgb` instead of ~170 scattered literal hex/rgb values, so
-  a hue only needs tuning in one place going forward.
-- **Button system**: `.btn-primary` is now a neutral, high-contrast solid
-  (the obvious "press this" action) rather than gold on every ordinary
-  CTA; a new `.btn-championship` (gold) is reserved for the title-win/
-  title-defense milestone CTAs, and a new `.btn-danger` (red) primitive
-  is available for destructive/high-risk actions.
-- **Surface-over-border**: interactive rows that used to be distinguished
-  from their parent panel only by a border (Matchmaking cards, Camp
-  focus/stat cards, contract options, callout/Mic Time rows, decision
-  choice buttons) now sit on the raised surface token with a lighter,
-  more structural border, matching the "surface → spacing → typography →
-  divider" ordering over "border → border → border."
+- **Neutral dark foundation** (kept from the first pass): canvas/surfaces/
+  borders moved off the old brown/sepia family onto near-black/charcoal/
+  graphite (`--canvas`, `--bone`, `--card-bg`, `--surface-2`).
+- **Gold restored as CageLab's one brand/success color**: wins, favorable
+  matchups, positive progression, event-card winner treatment, and Fight
+  Result WIN all render in brass again, not green — the `--positive`
+  green token introduced in the first pass was removed entirely. Gold
+  still gets stronger treatment (full solid fill via `.btn-championship`,
+  hero glow) at genuinely premium/championship moments, so there's still
+  real distance between "routine gold accent" and "hero moment" — the
+  distinction comes from hierarchy and context, not a second brand hue.
+  Matchmaking's Easy tag is now a quiet neutral (not green, not
+  gold-competing-with-Ranked); Ranked keeps gold; Step-Up stays red.
+- **Shared tint tokens** (kept): every rgba() border/background wash in
+  `styles.css` draws from `--line-rgb` / `--brass-rgb` / `--blood-rgb`
+  instead of scattered literal hex/rgb values.
+- **Button system, reworked**: `.btn-primary` is now a dark/graphite
+  surface with a gold border and gold label (not a white/neutral solid,
+  not a full gold fill) — obvious as "the action to take" without
+  spending the brand's full-strength fill on every ordinary CTA.
+  `.btn-championship` (full gold fill) is reserved for the title-win/
+  title-defense milestone CTAs; `.btn-danger` (red) is unchanged.
+- **Surface-over-border** (kept): interactive rows distinguished from
+  their parent panel by the raised surface token with a lighter,
+  structural border rather than a strong border alone.
+- **Cage atmosphere**: a very low-opacity CSS crosshatch (chain-link/
+  cage-mesh suggestion) plus a soft edge vignette sit behind every screen
+  — pure gradients, no image, tuned to stay present-if-you-look-for-it
+  and never compete with text.
+- **Draft screen — false-affordance fix + fighter silhouette**: the old
+  boxed attribute grid (looked like a second, clickable menu next to the
+  real draft board) is replaced with a plain-text, read-only Scouting
+  Summary (best-so-far/weak-spot, gold/red respectively) plus the
+  existing `FighterSilhouette` component — previously built but unused in
+  practice — now shown progressively filling gold as the draft completes
+  (fill reflects overall completion, not a fabricated attribute-to-body
+  mapping). A "Draft Board / Choose 1 fighter this round" heading and a
+  gold accent bar make the actual candidate cards the clear primary
+  surface, with a new desktop hover state on each card. The same
+  silhouette (fully filled) now also appears on the Stats tab as a small
+  visual anchor for the finished build.
 - Typography (Anton condensed display / Work Sans UI sans / IBM Plex Mono
-  tabular) was already a clean three-role system matching the target
-  direction — kept as-is, no new font payload.
+  tabular) unchanged — already the right three-role system.
 
 ### Explicit non-goals (this pass)
 
 - No Title Lineage, Universe News, or Rankings History UI
-- No fighter portraits or new game systems
+- No fighter portraits, faces, or generated fighter art
 - No bottom-nav changes (still Career / Rankings / Stats / Camp)
-- A full bespoke reference-mockup rebuild of every screen in the brief
-  (e.g. the literal Matchmaking/Fight Result layouts sketched as
-  examples) was explicitly out of scope for a systemic token pass — see
-  the PR's own "known limitations" for what remains available as
-  follow-up polish once this token/semantic foundation is reviewed.
+- A full bespoke reference-mockup rebuild of every screen in the original
+  brief was explicitly out of scope for a systemic token pass — see the
+  PR's own "known limitations" for what remains available as follow-up
+  polish once this corrected foundation is reviewed.
 
 ---
 
@@ -762,7 +795,7 @@ As of this roadmap revision:
 3. ✅ **NPC World Movement + Bout Ledger V1 — merged (PR #38)**
 4. ✅ **Universe Events V1 — merged (PR #39)**
 5. ✅ **Event Archive + Fighter Histories V1 — merged (PR #40)**
-6. 🟡 **Visual Design Audit + CageLab Design System V2 — implemented, pushed, PR not yet opened**
+6. 🟡 **Visual Design Audit + CageLab Design System V2 — PR #41 open, direction-corrected, not yet merged**
 7. ⏳ **Title Lineage + live-title-state correctness**
 8. ⏳ **Universe News + Historical Presentation**
 9. ⏳ **Move-by-Move Spectator Fight Simulation**
