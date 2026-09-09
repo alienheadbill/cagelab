@@ -10,46 +10,57 @@
            lights" (default) and "main event, lights down" (.dark)
            rather than between dark and pale.
 
-           Design System V2 replaces the old brown/sepia-tinted foundation
-           (canvas, cards, borders, secondary text were all warm tan/brown)
-           with a neutral near-black/charcoal/graphite family, so gold reads
-           as a deliberate, premium accent rather than the base identity of
-           every surface. Semantics:
+           Direction correction: CageLab -- UFC-inspired fight broadcast x
+           CageLab gold. Design System V2 replaced the old brown/sepia-tinted
+           foundation (canvas, cards, borders, secondary text were all warm
+           tan/brown) with a neutral near-black/charcoal/graphite family --
+           that readability win stays. What's corrected here is the brand/
+           color direction built on top of it: gold is CageLab's one signature
+           color for both brand AND success, not diluted by a second
+           "positive" hue competing with it. Semantics:
 
-           --brass    = the ONE signature accent (championship gold):
-                        premium/championship moments only -- GOAT reveal,
-                        the champion tag, Elite/Legendary build, a title
-                        strap, the legacy score. At low opacity it also does
-                        double duty tinting routine "selected/active" UI
-                        states -- one hue at two intensities.
-           --positive = wins, positive progression, favorable matchups.
-                        NEW in V2 -- previously wins used --brass, which
-                        left the app with no visual distinction between
-                        "you won" and "this is a premium/championship
-                        moment." Green is reserved for that distinction.
-           --blood    = crimson, reserved ONLY for danger/loss/step-up/
-                        bad states. Never used for a neutral "this is
-                        selected" state -- that would read as an error.
-           --ember    = burnt amber, the one deliberate exception: rivalry
-                        framing only, a third state distinct from win/loss.
+           --brass = CageLab's primary signal, full stop: wins, positive
+                     Career outcomes, progression, highlighted success,
+                     championship context, premium opportunities, selected
+                     states. At low opacity it also does double duty tinting
+                     routine "selected/active" UI states -- one hue at
+                     multiple intensities, distinguished by hierarchy and
+                     context (a routine gold border vs. a hero-moment gold
+                     fill+glow), not by swapping to a different hue.
+           --blood = crimson, reserved ONLY for danger/loss/step-up/bad
+                     states -- the one color that contrasts against gold,
+                     not a third brand color competing with it. Never used
+                     for a neutral "this is selected" state.
+           --ember = burnt amber, the one deliberate exception: rivalry
+                     framing only, a third state distinct from win/loss.
 
-           --line-rgb/--brass-rgb/--blood-rgb/--positive-rgb are the shared
-           tint families every rgba() border/background wash in this file
-           draws from, so a hue only needs tuning in one place. --line-rgb
-           in particular replaces what used to be a literal warm sepia gray
-           (154,143,125) scattered through ~100 rules -- it's now a neutral
-           graphite that matches the canvas family instead of fighting it.
+           --line-rgb/--brass-rgb/--blood-rgb are the shared tint families
+           every rgba() border/background wash in this file draws from, so
+           a hue only needs tuning in one place. --line-rgb in particular
+           replaces what used to be a literal warm sepia gray (154,143,125)
+           scattered through ~100 rules -- it's now a neutral graphite that
+           matches the canvas family instead of fighting it.
+
+           A faint diagonal crosshatch (cage/chain-link mesh) plus a soft
+           edge vignette sit behind every screen for arena atmosphere --
+           pure CSS gradients, no image asset, no measurable payload. Kept
+           deliberately close to invisible: present if you look for it,
+           never competing with text.
            ========================================================== */
         .app-root {
           --canvas: #0D0E10; --ink: #F4F1EA; --blood: #D64545; --ember: #CC6A2E;
-          --positive: #4FA66A; --brass: #D1A638; --slate: #A7A9AD; --muted: #73777D;
+          --brass: #D1A638; --slate: #A7A9AD; --muted: #73777D;
           --bone: #15171A; --card-bg: #1D2024; --surface-2: #24272B;
-          --line-rgb: 122,128,138; --brass-rgb: 209,166,56; --blood-rgb: 214,69,69; --positive-rgb: 79,166,106;
+          --line-rgb: 122,128,138; --brass-rgb: 209,166,56; --blood-rgb: 214,69,69;
           --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
           --space-5: 20px; --space-6: 24px; --space-7: 32px;
           font-family: 'Work Sans', sans-serif;
           background: var(--canvas);
-          background-image: radial-gradient(circle at 50% -10%, rgba(var(--brass-rgb),0.06), transparent 45%),
+          background-image:
+            radial-gradient(ellipse 90% 65% at 50% 30%, transparent 55%, rgba(0,0,0,0.4) 100%),
+            repeating-linear-gradient(45deg, rgba(255,255,255,0.022) 0px, rgba(255,255,255,0.022) 1px, transparent 1px, transparent 27px),
+            repeating-linear-gradient(-45deg, rgba(255,255,255,0.022) 0px, rgba(255,255,255,0.022) 1px, transparent 1px, transparent 27px),
+            radial-gradient(circle at 50% -10%, rgba(var(--brass-rgb),0.08), transparent 45%),
             radial-gradient(circle at 92% 100%, rgba(var(--blood-rgb),0.04), transparent 50%);
           color: var(--ink); min-height: 100vh;
           /* Safe-area fix: without viewport-fit=cover (set in index.html) these
@@ -61,7 +72,11 @@
         }
         .app-root.dark {
           --canvas: #08090A; --ink: #F7F4EE; --slate: #B4B6BA; --muted: #7D8085; --bone: #101214; --card-bg: #17191C; --surface-2: #1E2124;
-          background-image: radial-gradient(circle at 50% -10%, rgba(var(--brass-rgb),0.045), transparent 45%),
+          background-image:
+            radial-gradient(ellipse 90% 65% at 50% 30%, transparent 55%, rgba(0,0,0,0.45) 100%),
+            repeating-linear-gradient(45deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 27px),
+            repeating-linear-gradient(-45deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 27px),
+            radial-gradient(circle at 50% -10%, rgba(var(--brass-rgb),0.05), transparent 45%),
             radial-gradient(circle at 92% 100%, rgba(var(--blood-rgb),0.035), transparent 50%);
         }
         .app-root.reduced-motion *, .app-root.reduced-motion *::before, .app-root.reduced-motion *::after {
@@ -101,6 +116,11 @@
 
         .panel { max-width: 560px; margin: 0 auto 16px; background: var(--bone); border: 1px solid rgba(var(--line-rgb),0.18);
           border-radius: 10px; padding: 18px; box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 6px 18px rgba(0,0,0,0.35); }
+        /* Draft screen: the tape card is reference material, not the
+           primary action -- drop its shadow so it visibly recedes behind
+           the draft board (.draft-round-panel below), which keeps the
+           panel's own border/shadow at full strength. */
+        .tape-card { box-shadow: none; }
 
         .home-hero { text-align: center; margin-bottom: 18px; }
         .home-hero-title { font-size: 30px; letter-spacing: 0.03em; }
@@ -309,23 +329,37 @@
         .live-goat-delta.up { color: var(--brass); }
         .live-goat-delta.down { color: var(--blood); }
 
-        .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .slot-box { border: 1.5px solid rgba(var(--line-rgb),0.2); border-radius: 6px; padding: 6px 8px; background: rgba(var(--line-rgb),0.04); min-width: 0;
-          transition: border-color 1.4s ease, background-color 1.4s ease; }
-        .slot-box.filled { border-color: rgba(var(--brass-rgb),0.55); background: rgba(var(--brass-rgb),0.07); animation: popIn 0.25s ease; }
-        /* Extends past the one-time 0.25s pop -- a static, stronger state
-           (not an animation) that decays on its own ~1.8s timer set in
-           App.jsx, so the slot the player just filled stays legible as
-           "the new one" long enough to connect it back to the pick that
-           was just made. Reduced motion still gets this in full: it's a
-           border/background state, not motion, so it isn't touched by the
-           .reduced-motion override -- only the decay's transition is. */
-        .slot-box.filled.newest { border-color: var(--brass); background: rgba(var(--brass-rgb),0.16); }
-        .slot-box-label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
-        .slot-box-open { font-size: 10px; color: rgba(var(--line-rgb),0.55); font-weight: 700; letter-spacing: 0.04em; }
-        .slot-box-value { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
-        .slot-box-name { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .slot-box-rating { font-size: 12.5px; font-weight: 700; color: var(--ink); flex-shrink: 0; }
+        /* ---- Draft screen: read-only scouting summary ----
+           Replaces the old slot-grid (a grid of individually-bordered boxes
+           that visually doubled the real, clickable pick-card grid on the
+           draft board and read as a second menu). Nothing here is boxed
+           per-row, has a pointer cursor, or is keyboard-focusable -- it is
+           plain label/value text, deliberately distinct from FighterPickCard's
+           button language so the two can never be confused at a glance.
+           Best-so-far stays gold (CageLab's one positive/brand signal);
+           weak-spot uses red, the same "this is the low point" language
+           the rest of the app already reserves for danger/loss. */
+        .scouting-summary { margin-top: 4px; }
+        .scouting-summary-eyebrow { display: flex; align-items: center; gap: 5px; font-size: 9.5px; letter-spacing: 0.1em;
+          text-transform: uppercase; color: var(--slate); font-weight: 700; margin-bottom: 8px; }
+        .scouting-note { font-size: 11px; color: var(--slate); line-height: 1.45; font-style: italic; }
+        .scouting-callouts { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+        .scouting-callout-row { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; font-size: 11px; font-weight: 600; color: var(--brass); }
+        .scouting-callout-row.weak { color: var(--blood); }
+        .scouting-callout-via { font-size: 10px; font-weight: 400; color: var(--slate); }
+        .scouting-row-list { display: flex; flex-direction: column; }
+        .scouting-attr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+          font-size: 11.5px; padding: 4px 0; border-bottom: 1px dashed rgba(var(--line-rgb),0.14); transition: background-color 1.4s ease; }
+        .scouting-attr-row:last-child { border-bottom: none; }
+        .scouting-attr-label { color: var(--slate); }
+        .scouting-attr-value { font-weight: 700; color: var(--ink); }
+        /* Same "the pick I just made stays legible a beat longer" intent the
+           old slot-box.newest had -- a background tint that decays on its
+           own ~1.8s timer (set in App.jsx), not a border, so it never reads
+           as a button state. Untouched by .reduced-motion (it's a color
+           state, not motion) except for the decay's own transition. */
+        .scouting-attr-row.newest { background: rgba(var(--brass-rgb),0.12); border-radius: 4px; padding-left: 6px; padding-right: 6px; margin: 0 -6px; }
+        .scouting-attr-row.newest .scouting-attr-value { color: var(--brass); }
 
         @keyframes popIn { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -335,8 +369,15 @@
           font-family: 'Anton', sans-serif; font-size: 20px; padding: 3px 2px 5px; color: var(--ink); outline: none; }
         .name-input-inline::placeholder { color: rgba(var(--line-rgb),0.5); }
 
-        .draft-round-panel { padding: 14px; }
+        /* The draft board itself gets a small brass accent bar -- same
+           "this is the one that matters" language .event-card-wrap.won's
+           left border already uses -- so it visually wins the hierarchy
+           against the tape card beside it. */
+        .draft-round-panel { padding: 14px; border-left: 3px solid var(--brass); }
         .round-attr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+        .draft-board-heading { margin: 4px 0 10px; padding-top: 10px; border-top: 1px dashed rgba(var(--line-rgb),0.18); }
+        .draft-board-title { font-size: 15px; letter-spacing: 0.02em; }
+        .draft-board-sub { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brass); font-weight: 700; margin-top: 2px; }
         .round-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); flex-shrink: 0; }
         .attr-badge { display: flex; align-items: center; gap: 8px; min-width: 0; }
         /* Just a "current category" tag, not a good/bad signal -- neutral slate,
@@ -374,7 +415,9 @@
 
         .build-board { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0 16px;
           border-bottom: 1px dashed rgba(var(--line-rgb),0.18); margin-bottom: 14px; }
-        .build-board.compact { flex-direction: row; justify-content: center; padding: 6px 4px; gap: 6px; margin-bottom: 10px; }
+        .build-board.compact { flex-direction: row; align-items: center; justify-content: flex-start; padding: 8px 4px; gap: 10px; margin-bottom: 10px; }
+        .build-board-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .build-board.compact .build-board-caption, .build-board.compact .build-board-progress { text-align: left; }
         .silhouette-svg { fill: var(--brass); opacity: 0.45; }
         .radar-ring { fill: none; stroke: rgba(var(--line-rgb),0.18); stroke-width: 1; }
         .radar-spoke { stroke: rgba(var(--line-rgb),0.18); stroke-width: 1; }
@@ -398,10 +441,15 @@
         .radar-swatch.opponent { background: var(--blood); }
         .build-board-caption { font-size: 10.5px; letter-spacing: 0.06em; color: var(--slate); text-align: center; text-transform: uppercase; }
         .build-board.compact .build-board-caption { font-size: 10px; }
+        .build-board-progress { font-size: 9px; letter-spacing: 0.06em; color: var(--brass); text-align: center; text-transform: uppercase; font-weight: 700; }
 
         .pick-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
         .pick-card { border: 1.5px solid rgba(var(--line-rgb),0.22); border-radius: 8px; background: var(--card-bg); overflow: hidden; min-width: 0;
-          cursor: pointer; transition: transform 0.1s ease, border-color 0.1s ease; touch-action: manipulation; }
+          cursor: pointer; transition: transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease; touch-action: manipulation; }
+        /* Desktop-only feedback (mouse hover has no :active equivalent) --
+           makes clicking one of these the obvious, inviting action instead
+           of a flat card, without touching the touch/:active language below. */
+        .pick-card:not(.dimmed):hover { border-color: var(--brass); box-shadow: 0 4px 14px rgba(var(--brass-rgb),0.16); }
         .pick-card:active { transform: scale(0.98); border-color: var(--brass); }
         .pick-card-header { display: flex; align-items: center; gap: 6px; padding: 5px 9px; color: #fff; }
         /* Header color is driven by rating tier, not arbitrary rotation -- muted/cool for
@@ -463,17 +511,20 @@
           touch-action: manipulation; min-height: 46px; }
         .btn:active { transform: scale(0.97); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        /* Design System V2 button primitives (Section 13): PRIMARY is the
-           default "this is the action to take" button -- a bright, obvious,
-           NEUTRAL solid (not gold), because gold indiscriminately spent on
-           every ordinary CTA (Start Career, Save Build, Next, Run Sim...)
-           is exactly the "brown/gold everywhere" problem V2 is fixing.
-           CHAMPIONSHIP is the deliberate gold primitive, reserved for
-           genuinely premium/championship-adjacent actions. DANGER is the
-           irreversible/high-risk primitive (retire, clear history, decline
-           a title shot). SECONDARY (.btn-dark) and TEXT ACTION (.btn-ghost)
-           are unchanged in role, just riding the new neutral surface tokens. */
-        .btn-primary { background: var(--ink); color: var(--canvas); }
+        /* Button primitives, direction-corrected: routine CageLab buttons
+           should still feel like CageLab, not a generic app. PRIMARY is a
+           dark/graphite button carrying a strong gold edge + gold label --
+           obvious as "the action to take" without becoming a flat white/
+           neutral block, and without spending a full gold FILL on every
+           ordinary CTA (Start Career, Save Build, Next, Run Sim...).
+           CHAMPIONSHIP steps up to the full solid-gold fill, reserved for
+           genuinely premium/championship-adjacent actions -- so there's
+           still real distance between "routine gold-accented action" and
+           "hero moment." DANGER is the irreversible/high-risk primitive
+           (retire, clear history, decline a title shot). SECONDARY
+           (.btn-dark) and TEXT ACTION (.btn-ghost) are unchanged. */
+        .btn-primary { background: rgba(var(--brass-rgb),0.1); color: var(--brass); border: 1.5px solid var(--brass); }
+        .btn-primary:active { background: rgba(var(--brass-rgb),0.2); }
         .btn-championship { background: var(--brass); color: #201603; }
         .btn-danger { background: var(--blood); color: #2A0B0B; }
         /* "Dark" meant a dark-toned button against the old cream page -- now
@@ -495,7 +546,7 @@
         .tier-gold { background: var(--brass); color: #241A05; }
         .tier-legend { background: linear-gradient(90deg, var(--ember), var(--brass)); color: #211505; }
 
-        .good-text { color: var(--positive); }
+        .good-text { color: var(--brass); }
         .bad-text { color: var(--blood); }
 
         /* ---- Result screen hero: "the Belt Reveal" -- the GOAT Score dominates
@@ -572,7 +623,7 @@
            scoring.js -- confirmed zero mechanical effect), so this is
            deliberately a neutral/info treatment, not the brass+border
            "bonus" look .fight-tag.bonus uses elsewhere for a REAL bonus --
-           same slate-tinted family as .slot-box/.fight-tag.trait, no icon. */
+           same slate-tinted family as .fight-tag.trait, no icon. */
         .build-quality-chip { font-size: 12px; color: var(--ink); background: rgba(var(--line-rgb),0.07); border: 1px solid rgba(var(--line-rgb),0.22); border-radius: 8px;
           padding: 8px 10px; margin-bottom: 6px; line-height: 1.5; }
 
@@ -593,8 +644,8 @@
         .scout-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
         .scout-opp-name { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; }
         .scout-verdict { font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 0.02em; }
-        .scout-favorable { color: var(--positive); }
-        .scout-slight-edge { color: var(--positive); opacity: 0.75; }
+        .scout-favorable { color: var(--brass); }
+        .scout-slight-edge { color: var(--brass); opacity: 0.75; }
         .scout-even { color: var(--slate); }
         .scout-dangerous { color: var(--blood); opacity: 0.85; }
         .scout-nightmare { color: var(--blood); }
@@ -736,13 +787,15 @@
           display: flex; flex-direction: column; gap: 3px; }
         .matchmaker-card:active { border-color: var(--brass); background: rgba(var(--brass-rgb),0.1); }
         .matchmaker-card.tag-stepUp { border-color: rgba(var(--blood-rgb),0.3); }
-        /* Opportunity-type color language (Section 17): Easy reads as a
-           subtle favorable/green signal, Ranked keeps the neutral/selective-
-           gold default (it's the standard booking, not a hero moment), and
-           Step-Up stays red -- three genuinely distinct colors instead of
-           gold for every card regardless of risk. */
+        /* Opportunity-type color language, direction-corrected: gold stays
+           CageLab's one brand/success color, so it's reserved for Ranked
+           (the standard, most common booking) rather than spent on Easy
+           too -- Easy reads as a quiet/neutral "lower stakes" indicator
+           instead of competing for the same gold, and Step-Up stays red.
+           Three genuinely distinct weights (muted / gold / red) instead of
+           a second brand hue. */
         .matchmaker-tag { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brass); font-weight: 700; }
-        .matchmaker-card.tag-easy .matchmaker-tag { color: var(--positive); }
+        .matchmaker-card.tag-easy .matchmaker-tag { color: var(--slate); }
         .matchmaker-card.tag-stepUp .matchmaker-tag { color: var(--blood); }
         .matchmaker-name { font-family: 'Anton', sans-serif; font-size: 15px; line-height: 1.15; }
         .matchmaker-archetype { font-size: 10.5px; color: var(--slate); }
@@ -751,7 +804,7 @@
         .matchmaker-form-pips { display: flex; gap: 2px; }
         .form-pip { width: 15px; height: 15px; border-radius: 3px; font-size: 8.5px; font-weight: 700; font-family: 'IBM Plex Mono', monospace;
           display: flex; align-items: center; justify-content: center; color: #fff; }
-        .form-pip.win { background: var(--positive); color: #0C2115; }
+        .form-pip.win { background: var(--brass); color: #201603; }
         .form-pip.loss { background: rgba(var(--line-rgb),0.4); }
         .matchmaker-form-empty { font-size: 9px; color: var(--slate); }
         .matchmaker-form-ratio { font-size: 10.5px; color: var(--slate); margin-left: auto; }
@@ -839,7 +892,7 @@
         /* ---- Title strap: solid gold, no crimson mixed in -- the belt itself,
            the single most "meaningful moment" label in the app ---- */
         .title-ribbon { display: flex; align-items: center; gap: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--brass); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 6px; }
-        .fight-win { background: rgba(var(--positive-rgb),0.18); color: var(--positive); }
+        .fight-win { background: rgba(var(--brass-rgb),0.2); color: var(--brass); }
         .fight-loss { background: rgba(var(--blood-rgb),0.14); color: var(--blood); }
         .fight-narrative { font-size: 11.5px; color: var(--ink); line-height: 1.5; margin: 0 12px 8px; }
         .fight-narrative div { margin-bottom: 2px; }
@@ -857,7 +910,7 @@
         .round-tracker { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
         .round-pip { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700; padding: 3px 7px;
           border-radius: 5px; background: rgba(var(--line-rgb),0.1); color: var(--slate); }
-        .round-pip.you { background: rgba(var(--positive-rgb),0.2); color: var(--positive); }
+        .round-pip.you { background: rgba(var(--brass-rgb),0.22); color: var(--brass); }
         .round-pip.opp { background: rgba(var(--blood-rgb),0.12); color: var(--blood); }
         .round-pip.finish { box-shadow: 0 0 0 1.5px currentColor inset; }
 
@@ -868,11 +921,11 @@
            just with the "why" now attached. */
         .round-narrative-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
         .round-narrative-row { padding: 6px 9px; border-left: 2.5px solid rgba(var(--line-rgb),0.3); border-radius: 4px; background: rgba(var(--line-rgb),0.06); }
-        .round-narrative-row.you { border-left-color: var(--positive); }
+        .round-narrative-row.you { border-left-color: var(--brass); }
         .round-narrative-row.opp { border-left-color: var(--blood); }
         .round-narrative-row.finish { background: rgba(var(--brass-rgb),0.1); }
         .round-narrative-head { font-size: 8.5px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 1px; }
-        .round-narrative-row.you .round-narrative-head { color: var(--positive); }
+        .round-narrative-row.you .round-narrative-head { color: var(--brass); }
         .round-narrative-row.opp .round-narrative-head { color: var(--blood); }
         .round-narrative-text { font-size: 11.5px; color: var(--ink); line-height: 1.4; }
 
@@ -958,19 +1011,19 @@
         .style-option-tradeoffs { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; font-size: 11px; }
         .style-option-tradeoff-row { display: flex; gap: 6px; align-items: baseline; }
         .style-option-tradeoff-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
-        .style-option-tradeoff-row.up .style-option-tradeoff-label { color: var(--positive); }
+        .style-option-tradeoff-row.up .style-option-tradeoff-label { color: var(--brass); }
         .style-option-tradeoff-row.down .style-option-tradeoff-label { color: var(--blood); }
         .style-option-tradeoff-row span:last-child { color: var(--ink); }
 
         /* ---- CLF event card: every fight is a card on a numbered event ---- */
         .event-card-wrap { border: 1.5px solid rgba(var(--line-rgb),0.22); border-radius: 10px; margin-bottom: 12px; overflow: hidden;
           background: var(--card-bg); animation: cardIn 0.3s ease; }
-        .event-card-wrap.won { border-left: 3px solid var(--positive); }
+        .event-card-wrap.won { border-left: 3px solid var(--brass); }
         .event-card-wrap.lost { border-left: 3px solid rgba(var(--blood-rgb),0.6); }
         .event-card-wrap.title-event { border-color: var(--brass); border-width: 2px; box-shadow: 0 2px 16px rgba(var(--brass-rgb),0.15); }
         /* A finish should read with more weight than a decision at a glance --
            a touch of glow in the win/loss color, not a scoring signal. */
-        .event-card-wrap.finish.won { box-shadow: 0 2px 14px rgba(var(--positive-rgb),0.16); }
+        .event-card-wrap.finish.won { box-shadow: 0 2px 14px rgba(var(--brass-rgb),0.16); }
         .event-card-wrap.finish.lost { box-shadow: 0 2px 14px rgba(var(--blood-rgb),0.12); }
         .event-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px;
           background: rgba(0,0,0,0.18); border-bottom: 1px solid rgba(var(--line-rgb),0.16); }
@@ -1006,7 +1059,7 @@
         .corner-sub { font-size: 9.5px; color: var(--slate); margin-top: 2px; }
         .event-verdict { text-align: center; flex-shrink: 0; padding: 0 4px; }
         .event-wl { font-family: 'Anton', sans-serif; font-size: 26px; line-height: 1; }
-        .event-wl.win { color: var(--positive); }
+        .event-wl.win { color: var(--brass); }
         .event-wl.loss { color: var(--blood); }
         .event-wl.finish { font-size: 30px; text-shadow: 0 0 10px currentColor; }
         .event-method { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; margin-top: 2px; color: var(--ink); }
@@ -1015,7 +1068,7 @@
 
         .rank-move-row { display: flex; align-items: center; gap: 5px; margin: 0 12px; padding: 6px 0;
           border-top: 1px dashed rgba(var(--line-rgb),0.16); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; }
-        .rank-move-row.up { color: var(--positive); }
+        .rank-move-row.up { color: var(--brass); }
         .rank-move-row.down { color: var(--blood); }
 
         /* Fight Result + Retirement cleanup, item 12: lightweight,
@@ -1135,7 +1188,7 @@
         .recent-form-row { display: flex; gap: 6px; flex-wrap: wrap; }
         .form-pill { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center;
           justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 12px; cursor: default; }
-        .form-pill.win { background: rgba(var(--positive-rgb),0.16); color: var(--positive); }
+        .form-pill.win { background: rgba(var(--brass-rgb),0.18); color: var(--brass); }
         .form-pill.loss { background: rgba(var(--blood-rgb),0.14); color: var(--blood); }
 
         .year-end-card { border: 1.5px solid rgba(var(--line-rgb),0.26); border-radius: 8px; padding: 12px 14px; margin-bottom: 9px;
@@ -1159,6 +1212,11 @@
         .verdict-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; }
         .verdict-title { font-family: 'Anton', sans-serif; font-size: 28px; margin: 8px 0 4px; color: var(--brass); line-height: 1.1; }
         .retirement-beat { font-size: 12.5px; font-style: italic; color: var(--slate); line-height: 1.4; max-width: 320px; margin: 0 auto 6px; }
+        /* Stats tab: the same build-progress silhouette from the draft
+           screen, reused at full fill as a small visual anchor for "this
+           is the finished fighter" -- a symbol, not a second stats block,
+           so it stays compact and never competes with the numbers below. */
+        .stats-silhouette-row { display: flex; justify-content: center; padding: 4px 0 2px; }
         .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
         .stat-box { background: rgba(var(--line-rgb),0.07); border-radius: 8px; padding: 10px 6px; }
         .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
@@ -1293,7 +1351,7 @@
         .ue-bout-title-flag { display: inline-flex; align-items: center; gap: 3px; color: var(--brass); font-weight: 700; }
         .ue-bout-matchup { display: flex; align-items: center; gap: 8px; }
         .ue-bout-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-        .ue-bout-side.won .ue-fighter-name-btn { color: var(--positive); font-weight: 700; }
+        .ue-bout-side.won .ue-fighter-name-btn { color: var(--brass); font-weight: 700; }
         .ue-bout-side-meta { font-size: 10.5px; color: var(--slate); }
         .ue-bout-vs { font-size: 9.5px; color: var(--slate); flex-shrink: 0; }
         .ue-bout-result { font-size: 10.5px; color: var(--slate); margin-top: 6px; }
@@ -1309,7 +1367,7 @@
         .fh-fight-row:first-child { border-top: none; }
         .fh-fight-top { display: flex; align-items: center; gap: 8px; }
         .fh-fight-result { width: 16px; text-align: center; font-weight: 700; }
-        .fh-fight-result.win { color: var(--positive); }
+        .fh-fight-result.win { color: var(--brass); }
         .fh-fight-result.loss { color: var(--slate); }
         .fh-fight-title-icon { color: var(--brass); margin-left: auto; }
         .fh-fight-meta { font-size: 10.5px; color: var(--slate); margin-top: 2px; margin-left: 24px; }
