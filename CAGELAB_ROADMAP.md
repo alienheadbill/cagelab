@@ -20,6 +20,13 @@ _Last updated: 2026-09-08_
 > (PR #39) all merged into `main`. Event Archive + Fighter Histories V1 is
 > now implemented, tested, and pushed to
 > `career-event-archive-fighter-histories-v1` — no PR opened yet.
+>
+> **Update log (2026-09-09):** Event Archive + Fighter Histories V1 merged
+> (PR #40). New Career/Universe feature work is intentionally paused for a
+> focused presentation pass: **Visual Design Audit + CageLab Design System
+> V2** (branch `visual-design-system-v2`, implemented and pushed, no PR
+> opened yet). Title Lineage, Universe News, and Rankings History all move
+> one slot later in Section 10's priority order to make room for it.
 
 ## Product North Star
 
@@ -312,10 +319,9 @@ section.
 
 ---
 
-## 🟡 Event Archive + Fighter Histories V1
+## ✅ Event Archive + Fighter Histories V1 — PR #40
 
-**Status: implemented, tested, and pushed** to branch
-`career-event-archive-fighter-histories-v1`. **No PR opened yet.**
+**Shipped** (`career-event-archive-fighter-histories-v1`, PR #40, merged).
 
 ### Goal
 
@@ -355,6 +361,77 @@ Make accumulated universe history browsable.
 No independent duplicate fighter-history arrays — everything here is
 derived from the bout ledger, universe events, and title transitions
 already persisted by the two phases above.
+
+---
+
+## 🟡 Visual Design Audit + CageLab Design System V2
+
+**Status: implemented and pushed** to branch `visual-design-system-v2`.
+**No PR opened yet.**
+
+### Goal
+
+External playtest feedback consistently praised the game systems/content
+but flagged the presentation: the color scheme and font treatment "throw
+people off," and readability should improve. This pass addresses that
+before adding more text-heavy systems (Title Lineage, Universe News,
+Rankings History) on top of a presentation layer that isn't landing.
+
+**Not a gameplay redesign.** No mechanics, combat, matchmaking logic,
+rankings, World Movement, event creation, Fighter History, Career
+progression, Legacy, Camp, or title logic changed. `src/lib/career.js` is
+untouched (byte-identical to the merged-main copy).
+
+### Direction: CageLab V2 — Text-First Fight Broadcast
+
+Modern MMA/broadcast information hierarchy, still CageLab's own fictional
+promotion and still a text-based career simulator — no portraits, no UFC
+clone, no generic SaaS dashboard.
+
+### What shipped
+
+- **Neutral dark foundation**: canvas/surfaces/borders moved off the old
+  brown/sepia family onto near-black/charcoal/graphite (`--canvas`,
+  `--bone`, `--card-bg`, `--surface-2`), so CageLab gold reads as a
+  deliberate accent again instead of the base identity of every surface.
+- **New green semantic (`--positive`)**: wins, favorable matchups, and
+  positive progression now render in green instead of gold — previously
+  the app had no distinction between "you won" and "this is a premium/
+  championship moment." Gold is now reserved for genuinely
+  premium/championship context (GOAT reveal, title straps, Elite/
+  Legendary builds, the "AND NEW"/"AND STILL" champion milestone CTAs).
+  Matchmaking's opportunity tags now follow the intended risk language
+  (Easy → green, Ranked → neutral/selective gold, Step-Up → red) instead
+  of all three defaulting to gold.
+- **Shared tint tokens**: every rgba() border/background wash in
+  `styles.css` now draws from `--line-rgb` / `--brass-rgb` / `--blood-rgb`
+  / `--positive-rgb` instead of ~170 scattered literal hex/rgb values, so
+  a hue only needs tuning in one place going forward.
+- **Button system**: `.btn-primary` is now a neutral, high-contrast solid
+  (the obvious "press this" action) rather than gold on every ordinary
+  CTA; a new `.btn-championship` (gold) is reserved for the title-win/
+  title-defense milestone CTAs, and a new `.btn-danger` (red) primitive
+  is available for destructive/high-risk actions.
+- **Surface-over-border**: interactive rows that used to be distinguished
+  from their parent panel only by a border (Matchmaking cards, Camp
+  focus/stat cards, contract options, callout/Mic Time rows, decision
+  choice buttons) now sit on the raised surface token with a lighter,
+  more structural border, matching the "surface → spacing → typography →
+  divider" ordering over "border → border → border."
+- Typography (Anton condensed display / Work Sans UI sans / IBM Plex Mono
+  tabular) was already a clean three-role system matching the target
+  direction — kept as-is, no new font payload.
+
+### Explicit non-goals (this pass)
+
+- No Title Lineage, Universe News, or Rankings History UI
+- No fighter portraits or new game systems
+- No bottom-nav changes (still Career / Rankings / Stats / Camp)
+- A full bespoke reference-mockup rebuild of every screen in the brief
+  (e.g. the literal Matchmaking/Fight Result layouts sketched as
+  examples) was explicitly out of scope for a systemic token pass — see
+  the PR's own "known limitations" for what remains available as
+  follow-up polish once this token/semantic foundation is reviewed.
 
 ---
 
@@ -684,11 +761,13 @@ As of this roadmap revision:
 2. ✅ **Active Career Save + Resume V1 — merged (PR #37)**
 3. ✅ **NPC World Movement + Bout Ledger V1 — merged (PR #38)**
 4. ✅ **Universe Events V1 — merged (PR #39)**
-5. 🟡 **Event Archive + Fighter Histories V1 — implemented, pushed, PR not yet opened**
-6. ⏳ **Universe News + Historical Presentation**
-7. ⏳ **Move-by-Move Spectator Fight Simulation**
-8. 🧪 **Dedicated balance passes only where playtesting/data justify them**
-9. 🧪 **Roblox adaptation exploration later**
+5. ✅ **Event Archive + Fighter Histories V1 — merged (PR #40)**
+6. 🟡 **Visual Design Audit + CageLab Design System V2 — implemented, pushed, PR not yet opened**
+7. ⏳ **Title Lineage + live-title-state correctness**
+8. ⏳ **Universe News + Historical Presentation**
+9. ⏳ **Move-by-Move Spectator Fight Simulation**
+10. 🧪 **Dedicated balance passes only where playtesting/data justify them**
+11. 🧪 **Roblox adaptation exploration later**
 
 The exact ordering of post-Universe presentation work can change after playtesting, but the dependency chain should remain:
 
