@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { Eye, TrendingUp, TrendingDown } from "lucide-react";
 import { ATTRS, ATTR_BY_KEY } from "../data/attrs.js";
 import { estimateGoatSoFar } from "../lib/scoring.js";
-import FighterSilhouette from "./FighterSilhouette.jsx";
 
 // ---------- Tale of the tape build panel (blind-aware) ----------
 // lastPick ({key, value}) and newestSlotKey are both sourced from App.jsx's
@@ -41,9 +40,10 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
   // revealed attributes only, best/weak-spot callout. Deliberately plain
   // label/value text -- never boxed like FighterPickCard -- so this panel
   // reads as a scouting readout, not a second menu next to the real,
-  // clickable draft board. No radar here: the silhouette above is the
-  // one primary visual, and a second competing chart was cut rather than
-  // shrunk (see App.jsx draft screen comment for the fuller rationale).
+  // clickable draft board. This IS the centerpiece now -- a decorative
+  // fighter silhouette was tried and cut after review read as clutter
+  // competing with it; watching real attributes accumulate here as you
+  // pick is the part worth keeping.
   const revealed = !blind
     ? ATTRS.filter((a) => picks[a.key])
         .map((a) => ({ key: a.key, label: a.label, value: picks[a.key].scoreValue, fighter: picks[a.key].fighter, display: picks[a.key].display }))
@@ -98,10 +98,12 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
       </div>
 
       <div className={`build-board ${compact ? "compact" : ""}`}>
-        <FighterSilhouette size={compact ? 64 : 96} fillPct={fillPct} />
         <div className="build-board-text">
           <div className="build-board-caption mono">{caption}</div>
           <div className="build-board-progress mono">{filledCount} / {ATTRS.length} ATTRIBUTES DRAFTED</div>
+        </div>
+        <div className="progress-bar-track">
+          <div className="progress-bar-fill" style={{ width: `${Math.round(fillPct * 100)}%` }} />
         </div>
       </div>
 
@@ -127,8 +129,13 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
               )}
             </div>
             <div className="scouting-row-list">
+              {/* Each row mounts once, the moment its attribute is drafted --
+                  React never remounts an existing key, so .reveal-in's one-shot
+                  entrance only plays for the row that's actually new, not the
+                  ones already sitting here (the part of this screen worth
+                  keeping, per review: watching real picks accumulate here). */}
               {revealed.map((r) => (
-                <div className={`scouting-attr-row ${r.key === newestSlotKey ? "newest" : ""}`} key={r.key}>
+                <div className={`scouting-attr-row reveal-in ${r.key === newestSlotKey ? "newest" : ""}`} key={r.key}>
                   <span className="scouting-attr-label">{r.label}</span>
                   <span className="scouting-attr-value mono">{r.display}</span>
                 </div>

@@ -50,7 +50,6 @@ import AnimatedGoatScore from "./components/AnimatedGoatScore.jsx";
 import BlindGoatReveal from "./components/BlindGoatReveal.jsx";
 import AttributeBarList from "./components/AttributeBarList.jsx";
 import TapeCard from "./components/TapeCard.jsx";
-import FighterSilhouette from "./components/FighterSilhouette.jsx";
 import FighterPickCard from "./components/FighterPickCard.jsx";
 import FightResultCard from "./components/FightResultCard.jsx";
 import DivisionRollPanel from "./components/DivisionRollPanel.jsx";
@@ -2819,14 +2818,6 @@ export default function CageLab() {
 
           {careerTab === "stats" && (
             <>
-            {/* Same fighter silhouette the draft screen uses to show a build
-                coming together -- reused here at full fill (a Career only
-                exists once the draft is complete) as a small visual anchor
-                for "this is the finished fighter," not a replacement for
-                the actual stats below it. */}
-            <div className="stats-silhouette-row">
-              <FighterSilhouette size={72} fillPct={1} />
-            </div>
             <div className="stat-grid" style={{ marginTop: 4 }}>
               {[
                 { num: `${careerState.record.w}-${careerState.record.l}`, lbl: "Record" },

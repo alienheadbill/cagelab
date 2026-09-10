@@ -360,6 +360,12 @@
            state, not motion) except for the decay's own transition. */
         .scouting-attr-row.newest { background: rgba(var(--brass-rgb),0.12); border-radius: 4px; padding-left: 6px; padding-right: 6px; margin: 0 -6px; }
         .scouting-attr-row.newest .scouting-attr-value { color: var(--brass); }
+        /* Plays once, on mount, for the row a pick just added -- React keys
+           each row by attribute, so an existing row that merely changes
+           position (the list re-sorts by value) is reordered, not
+           remounted, and never replays this. Reuses the same entrance the
+           rest of the app already uses for a freshly-appeared card. */
+        .scouting-attr-row.reveal-in { animation: cardIn 0.3s ease; }
 
         @keyframes popIn { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -415,9 +421,14 @@
 
         .build-board { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0 16px;
           border-bottom: 1px dashed rgba(var(--line-rgb),0.18); margin-bottom: 14px; }
-        .build-board.compact { flex-direction: row; align-items: center; justify-content: flex-start; padding: 8px 4px; gap: 10px; margin-bottom: 10px; }
-        .build-board-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .build-board.compact .build-board-caption, .build-board.compact .build-board-progress { text-align: left; }
+        .build-board.compact { padding: 8px 4px 10px; gap: 6px; margin-bottom: 10px; }
+        .build-board-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; width: 100%; }
+        /* No decorative silhouette on the draft screen -- a version of this
+           was tried and cut after review read it as clutter competing with
+           the actual scouting summary below. Draft completion instead gets
+           the same slim progress-bar language the app already uses
+           elsewhere (Camp coach XP, milestones), inside this same block. */
+        .build-board .progress-bar-track { width: 100%; margin: 2px 0 0; }
         .silhouette-svg { fill: var(--brass); opacity: 0.45; }
         .radar-ring { fill: none; stroke: rgba(var(--line-rgb),0.18); stroke-width: 1; }
         .radar-spoke { stroke: rgba(var(--line-rgb),0.18); stroke-width: 1; }
@@ -1212,11 +1223,6 @@
         .verdict-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: var(--slate); text-transform: uppercase; }
         .verdict-title { font-family: 'Anton', sans-serif; font-size: 28px; margin: 8px 0 4px; color: var(--brass); line-height: 1.1; }
         .retirement-beat { font-size: 12.5px; font-style: italic; color: var(--slate); line-height: 1.4; max-width: 320px; margin: 0 auto 6px; }
-        /* Stats tab: the same build-progress silhouette from the draft
-           screen, reused at full fill as a small visual anchor for "this
-           is the finished fighter" -- a symbol, not a second stats block,
-           so it stays compact and never competes with the numbers below. */
-        .stats-silhouette-row { display: flex; justify-content: center; padding: 4px 0 2px; }
         .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
         .stat-box { background: rgba(var(--line-rgb),0.07); border-radius: 8px; padding: 10px 6px; }
         .stat-num { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
