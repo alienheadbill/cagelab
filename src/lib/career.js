@@ -3677,6 +3677,85 @@ function resolveWeightMoveOffer(state, accept) {
   return s;
 }
 
+// Promotion agency pass: mirrors resolveWeightMoveOffer's own "earn it, the
+// player decides, applying it is a separate step from earning it" shape.
+// Regional->National is the only transition this covers -- National-
+// >Contender Series is already framed as an invite the player earns by
+// winning National's title (own copy/CTA, see MILESTONE_COPY), and
+// Contender Series's own win/loss outcome is a direct, single-fight
+// consequence, not a standing offer -- neither reads as "already decided
+// for you" the way the old unconditional Regional->National flip did.
+//
+// Accepting applies EXACTLY the transition that used to happen
+// automatically (circuitTier, division sync, playerRank/champion/
+// rankPoints/streak reset, peak-tier tracking, specialTitleShotLockedUntilWin
+// reset) -- just evaluated against the CURRENT state at accept time rather
+// than mid-fight. That is a deliberate improvement, not an oversight: a
+// player who wins the Regional belt and declines the National call is
+// still the Regional champion (they haven't left), so the belt is only
+// recorded as vacated (appendTitleTransition) if `state.champion` is still
+// true at the moment of ACCEPTING -- same idiom resolveWeightMoveOffer
+// already uses for its own left-behind-belt case, just triggered later.
+//
+// Declining costs nothing mechanically and is not the exploit it might
+// look like: nothing about staying in Regional inflates National's
+// eventual starting position (rank/rankPoints/streak all still reset to
+// zero on whatever later fight the player does accept), so there is no
+// reward for delaying beyond the ones any real fighter has for defending
+// a belt before moving up -- more Regional bookings, more Regional-level
+// competition, not a discount on National. commitFight re-offers once
+// the player earns 2 more Regional wins after declining (title defenses
+// count), or immediately on winning the Regional title if they hadn't
+// already won it when they declined -- see promotionOfferDeclined/
+// postDeclineWins/promotionOfferDeclinedAsChampion there. No requirement
+// to lose, and no permanent suppression.
+function resolvePromotionOffer(state, accept) {
+  const s = { ...state };
+  const { tier } = state.pendingDecision;
+  if (accept) {
+    const tierBefore = s.circuitTier;
+    s.circuitTier = tier;
+    const destinationDivision = s.universe
+      ? getDivisionForTier(s, s.circuitTier)
+      : buildDivision(s.circuitTier);
+    syncActiveDivision(s, destinationDivision || buildDivision(s.circuitTier));
+    if (state.champion) {
+      s.universe = appendTitleTransition(s.universe, {
+        circuit: tierBefore, division: state.division,
+        worldTick: s.universe.worldTickSeq, year: s.year, reason: "promotion",
+      });
+    }
+    s.playerRank = null;
+    s.champion = false;
+    s.rankPoints = 0;
+    s.streak = 0;
+    s.specialTitleShotLockedUntilWin = false;
+    s.promotionOfferDeclined = false;
+    s.postDeclineWins = 0;
+    s.promotionOfferDeclinedAsChampion = false;
+    if (CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(s.peakCircuitTier)) {
+      s.peakCircuitTier = s.circuitTier;
+    }
+    // Reuses the existing circuitMove timeline type/rendering -- this IS a
+    // circuit promotion, just decided later than the fight that earned it,
+    // so it gets the exact same "SIGNED — MOVING UP" Career History card
+    // any other circuitMove already produces, no new UI needed for accept.
+    s.timeline = [...s.timeline, { type: "circuitMove", id: `circuit-promo-${s.year}-${s.fightGlobalIndex}`, promoted: true, from: tierBefore, to: tier }];
+  } else {
+    // Restart the re-offer clock on every decline (including a re-decline
+    // of a later re-offer) -- promotionOfferDeclinedAsChampion is captured
+    // fresh here, at THIS decline, not left over from an earlier one, so
+    // "was already champion when they declined" always reflects the most
+    // recent decline.
+    s.promotionOfferDeclined = true;
+    s.postDeclineWins = 0;
+    s.promotionOfferDeclinedAsChampion = !!state.champion;
+    s.timeline = [...s.timeline, { type: "promotionDeclined", id: `promod-${s.year}-${s.fightGlobalIndex}`, tier }];
+  }
+  s.pendingDecision = null;
+  return s;
+}
+
 // Matchmaking Realism V1 finalization: deliberately decide WHAT LEVEL of
 // fight a Regional/National fighter has EARNED, from demonstrated results
 // already tracked in state (streak, regionalEverBeatRanked, nationalWins/
@@ -4465,11 +4544,45 @@ function commitFight(state) {
   // when that dominance was never actually tested against real competition.
   const regionalFastTrackReady = s.streak >= 4 && s.regionalEverBeatRanked;
   const regionalDominanceOverride = s.streak >= 7;
-  if (s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride)) {
-    s.circuitTier = "CLF National";
-    resetForFreshTier = true;
-    if (championAfterFight) titleTransitionPending = { circuit: "CLF Regional", division: s.division, reason: "promotion" };
-  } else if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
+  // Promotion agency pass: earning eligibility used to auto-transition the
+  // player into National the instant it was met -- the decision had
+  // already been made mechanically before the milestone screen even
+  // rendered. Now it creates an OFFER (pendingDecision, same "earn it, the
+  // player decides" pattern already used for weightMoveOffer/
+  // contractNegotiation) instead of a fait accompli; see
+  // resolvePromotionOffer for what actually applies the move on accept.
+  // Regional/circuitTier/streak/rank/champion all stay exactly as they are
+  // this fight either way -- nothing here changes state, it only decides
+  // whether to surface the offer.
+  const regionalPromotionEligible = s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride);
+  // Re-offer correction: a flat "re-arms only on a loss" rule created an
+  // unrealistic dead end -- decline at 4-0, keep winning, become and
+  // defend the Regional title, and never hear from National again unless
+  // you actually lose. Continued Regional success should be able to
+  // produce another call-up on its own, with no requirement to lose and
+  // no offer-spam every single fight.
+  //
+  // s.postDeclineWins counts real Regional wins (title defenses included
+  // -- a defense is still a win) since the most recent decline;
+  // s.promotionOfferDeclinedAsChampion freezes whether the player already
+  // held the belt AT THE MOMENT they declined (set in resolvePromotionOffer,
+  // not recomputed here). Re-offer fires on EITHER: 2 such wins, or --
+  // only for a player who was NOT yet champion when they declined --
+  // winning the Regional title for the first time since that decline
+  // (immediate, doesn't wait for the 2-win count). A player who was
+  // already champion at decline time has no "win the title" event left to
+  // trigger on (they already hold it), so defenses/wins are the only path
+  // back -- exactly the 2-defenses-count-as-2-wins case.
+  if (result.win && s.circuitTier === "CLF Regional" && s.promotionOfferDeclined) {
+    s.postDeclineWins = (s.postDeclineWins || 0) + 1;
+  }
+  const regionalReofferReady = s.circuitTier === "CLF Regional" && s.promotionOfferDeclined && (
+    (s.postDeclineWins || 0) >= 2
+    || (!s.promotionOfferDeclinedAsChampion && justWonTierTitle)
+  );
+  const regionalPromotionOfferJustEarned = s.circuitTier === "CLF Regional"
+    && (s.promotionOfferDeclined ? regionalReofferReady : regionalPromotionEligible);
+  if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
     // title, no rank, no matter how you earned the invite. Winning the
@@ -4966,7 +5079,9 @@ function commitFight(state) {
   // A fresh Premier contract waits until the very next decision point --
   // everything about THIS fight (result card, rank move, the promotion
   // banner) still needs to render first.
-  s.pendingDecision = triggerContractNegotiation ? { type: "contractNegotiation" } : null;
+  s.pendingDecision = triggerContractNegotiation ? { type: "contractNegotiation" }
+    : regionalPromotionOfferJustEarned ? { type: "promotionOffer", tier: "CLF National", fromTier: "CLF Regional" }
+    : null;
   s.pendingFight = null;
   return s;
 }
@@ -5133,6 +5248,15 @@ function fastForwardCareer(state) {
         // Show Money is the safe, no-regrets default for a fast-forwarded
         // career with no player actually weighing the trade-off.
         s = resolveContractNegotiation(s, "showMoney");
+      } else if (s.pendingDecision.type === "promotionOffer") {
+        // Unlike weightMoveOffer (a lateral, take-it-or-leave-it move),
+        // declining here indefinitely would leave a fast-forwarded career
+        // stuck farming Regional forever -- climbing the circuit ladder is
+        // the actual point of a simulated career, so the sensible default
+        // (matching campPlanning's own "do what an engaged player would
+        // do" fast-forward philosophy, not weightMoveOffer's "avoid any
+        // change" one) is to accept.
+        s = resolvePromotionOffer(s, true);
       }
     } else {
       s = advanceCareer(s);
@@ -5336,6 +5460,7 @@ export {
   resolveMediaEvent,
   resolveMilestone,
   resolveOffCycleEvent,
+  resolvePromotionOffer,
   resolveTrainingEvent,
   resolveWeightMoveOffer,
   runFight,
