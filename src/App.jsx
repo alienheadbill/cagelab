@@ -1510,6 +1510,11 @@ export default function CageLab() {
                   reads, so the two can never disagree. Blind omits the
                   rating line entirely (not even "?") -- a lock-in
                   confirmation communicates success, not a hidden value. */}
+              <div className="draft-board-heading">
+                <div className="draft-board-title display">Draft Board</div>
+                <div className="draft-board-sub mono">Choose 1 fighter this round</div>
+              </div>
+
               {isRolling ? (
                 <div className="rolling-box lock-in-box">
                   <RotateCw size={16} className="spin-icon" />
@@ -2003,7 +2008,7 @@ export default function CageLab() {
                       {promoCopy.label}{promoCopy.tierLine && <><br />{promoCopy.tierLine}</>}
                     </div>
                   )}
-                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                  <button className="btn btn-championship full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
                 </div>
               );
             }
@@ -2019,7 +2024,7 @@ export default function CageLab() {
                   <div className={`promotion-tier display ${tierRampCls(m.tier)}`}>{t.short}</div>
                   <div className="milestone-subtitle">{(m.division || "").toUpperCase()} CHAMPION</div>
                   <div className="promotion-blurb">{ordinal(m.defenseCount).toUpperCase()} TITLE DEFENSE</div>
-                  <button className="btn btn-primary full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
+                  <button className="btn btn-championship full-span milestone-cta" onClick={handleAcknowledgeMilestone}>CONTINUE</button>
                 </div>
               );
             }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Eye, TrendingUp, TrendingDown } from "lucide-react";
 import { ATTRS, ATTR_BY_KEY } from "../data/attrs.js";
 import { estimateGoatSoFar } from "../lib/scoring.js";
-import FighterSilhouette from "./FighterSilhouette.jsx";
 
 // ---------- Tale of the tape build panel (blind-aware) ----------
 // lastPick ({key, value}) and newestSlotKey are both sourced from App.jsx's
@@ -35,6 +35,22 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
     : lastPick
       ? `${ATTR_BY_KEY[lastPick.key].label.toUpperCase()}: ${blind ? lastPick.value.fighter.split(" ")[0] : lastPick.value.fighter} (${blind ? "?" : lastPick.value.display})`
       : "— AWAITING FIRST PICK —";
+
+  // Read-only scouting summary (Draft Focus + Clarity, gold direction):
+  // revealed attributes only, best/weak-spot callout. Deliberately plain
+  // label/value text -- never boxed like FighterPickCard -- so this panel
+  // reads as a scouting readout, not a second menu next to the real,
+  // clickable draft board. This IS the centerpiece now -- a decorative
+  // fighter silhouette was tried and cut after review read as clutter
+  // competing with it; watching real attributes accumulate here as you
+  // pick is the part worth keeping.
+  const revealed = !blind
+    ? ATTRS.filter((a) => picks[a.key])
+        .map((a) => ({ key: a.key, label: a.label, value: picks[a.key].scoreValue, fighter: picks[a.key].fighter, display: picks[a.key].display }))
+        .sort((x, y) => y.value - x.value)
+    : [];
+  const best = revealed[0] || null;
+  const worst = revealed.length > 1 ? revealed[revealed.length - 1] : null;
 
   return (
     <div className="panel tape-card">
@@ -82,28 +98,51 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
       </div>
 
       <div className={`build-board ${compact ? "compact" : ""}`}>
-        {!compact && <FighterSilhouette fillPct={fillPct} />}
-        <div className="build-board-caption mono">{caption}</div>
+        <div className="build-board-text">
+          <div className="build-board-caption mono">{caption}</div>
+          <div className="build-board-progress mono">{filledCount} / {ATTRS.length} ATTRIBUTES DRAFTED</div>
+        </div>
+        <div className="progress-bar-track">
+          <div className="progress-bar-fill" style={{ width: `${Math.round(fillPct * 100)}%` }} />
+        </div>
       </div>
 
-      <div className="slot-grid">
-        {ATTRS.map((a) => {
-          const p = picks[a.key];
-          const Icon = a.icon;
-          return (
-            <div className={`slot-box ${p ? "filled" : ""} ${a.key === newestSlotKey ? "newest" : ""}`} key={a.key}>
-              <div className="slot-box-label"><Icon size={11} /> {a.label}</div>
-              {p ? (
-                <div className="slot-box-value">
-                  <span className="slot-box-name">{p.fighter.split(" ").slice(-1)[0]}</span>
-                  <span className="slot-box-rating mono">{blind ? "?" : p.display}</span>
+      <div className="scouting-summary">
+        <div className="scouting-summary-eyebrow mono"><Eye size={11} /> Scouting Summary</div>
+
+        {blind ? (
+          <div className="scouting-note">Attribute values stay hidden until your build is complete — the shape of this fighter is a surprise.</div>
+        ) : revealed.length === 0 ? (
+          <div className="scouting-note">Make your first pick on the board to start this fighter's revealed profile.</div>
+        ) : (
+          <>
+            <div className="scouting-callouts">
+              {best && (
+                <div className="scouting-callout-row">
+                  <TrendingUp size={12} /> Best so far: <b>{best.label}</b> <span className="mono">{best.display}</span> <span className="scouting-callout-via">via {best.fighter}</span>
                 </div>
-              ) : (
-                <div className="slot-box-open mono">OPEN</div>
+              )}
+              {worst && (
+                <div className="scouting-callout-row weak">
+                  <TrendingDown size={12} /> Weak spot: <b>{worst.label}</b> <span className="mono">{worst.display}</span> <span className="scouting-callout-via">via {worst.fighter}</span>
+                </div>
               )}
             </div>
-          );
-        })}
+            <div className="scouting-row-list">
+              {/* Each row mounts once, the moment its attribute is drafted --
+                  React never remounts an existing key, so .reveal-in's one-shot
+                  entrance only plays for the row that's actually new, not the
+                  ones already sitting here (the part of this screen worth
+                  keeping, per review: watching real picks accumulate here). */}
+              {revealed.map((r) => (
+                <div className={`scouting-attr-row reveal-in ${r.key === newestSlotKey ? "newest" : ""}`} key={r.key}>
+                  <span className="scouting-attr-label">{r.label}</span>
+                  <span className="scouting-attr-value mono">{r.display}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
