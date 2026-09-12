@@ -2225,23 +2225,38 @@ function eventNumberKeyFor(circuit) {
 }
 
 // Deterministic card-order priority for one bout -- LOWER sorts first
-// (headlines). No RNG. Title fight always headlines (Section 32); the
-// player's own fight (if not itself the title fight) is naturally high on
-// the card next; then ranked fights ordered by how good the best-ranked
-// participant was going into it (a Champion-adjacent #2-vs-#4 outranks a
-// #14-vs-#15 scrap); then fights with exactly one ranked side (boundary/
-// prospect tests); everything else (unranked-pool bouts) fills the rest.
-// Reads only rankABefore/rankBBefore -- already on every bout, no new
-// per-bout tagging needed to reconstruct this later.
+// (headlines). No RNG. Title fight always headlines (Section 32); then
+// ranked fights ordered by how good the best-ranked participant was going
+// into it (a Champion-adjacent #2-vs-#4 outranks a #14-vs-#15 scrap); then
+// fights with exactly one ranked side (boundary/prospect tests); everything
+// else (unranked-pool bouts) fills the rest.
+//
+// Playtest realism pass: the player's own fight is scored by this exact
+// same ranked-significance rule, never by player involvement alone -- an
+// unranked 0-0 player debut must NOT outrank a genuinely significant #3
+// vs #4 bout on the same card just because the protagonist is in it. A
+// meaningful player fight (title shot, ranked matchup) still surfaces
+// naturally through the same bothRanked/oneRanked scoring every other
+// bout uses -- MMA card position should reflect bout importance, not who
+// happens to be playing. (The UI can still visually spotlight the
+// player's row without moving it up the actual card -- that's a
+// presentation concern, not this ordering.) Ties within a tier fall back
+// to original array position (stable sort), which is itself deterministic
+// (see orderBoutsForCard) -- an all-unranked card still lists the
+// player's bout first among equals, since it's always generated first
+// each tick, without needing a special-cased priority band for it.
+//
+// Reads only rankABefore/rankBBefore -- already on every bout (including
+// the player's own, see appendPlayerBout's rankABefore/rankBBefore), no
+// new per-bout tagging needed to reconstruct this later.
 function cardPriorityScore(bout) {
   if (bout.titleFight) return 0;
-  if (bout.fighterAId === PLAYER_BOUT_ID || bout.fighterBId === PLAYER_BOUT_ID) return 1;
   const rA = bout.rankABefore, rB = bout.rankBBefore;
   const bothRanked = rA != null && rB != null;
   const oneRanked = (rA != null) !== (rB != null);
-  if (bothRanked) return 2 + Math.min(rA, rB) / 1000;
-  if (oneRanked) return 3 + (rA ?? rB) / 1000;
-  return 4;
+  if (bothRanked) return 1 + Math.min(rA, rB) / 1000;
+  if (oneRanked) return 2 + (rA ?? rB) / 1000;
+  return 3;
 }
 // Stable sort (Array.prototype.sort is spec-guaranteed stable) by
 // priority score; ties (rare -- would need identical rank inputs) resolve
