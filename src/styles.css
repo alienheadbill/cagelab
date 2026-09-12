@@ -351,8 +351,14 @@
         .scouting-attr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
           font-size: 11.5px; padding: 4px 0; border-bottom: 1px dashed rgba(var(--line-rgb),0.14); transition: background-color 1.4s ease; }
         .scouting-attr-row:last-child { border-bottom: none; }
-        .scouting-attr-label { color: var(--slate); }
-        .scouting-attr-value { font-weight: 700; color: var(--ink); }
+        /* Label + source-fighter name share one line and one flex item, so
+           adding provenance never grows the row -- the fighter name is the
+           part allowed to truncate (min-width:0 + ellipsis) when space is
+           tight, never the label or the value. */
+        .scouting-attr-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; }
+        .scouting-attr-label { color: var(--slate); flex-shrink: 0; }
+        .scouting-attr-via { font-size: 10px; color: var(--slate); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .scouting-attr-value { font-weight: 700; color: var(--ink); flex-shrink: 0; }
         /* Same "the pick I just made stays legible a beat longer" intent the
            old slot-box.newest had -- a background tint that decays on its
            own ~1.8s timer (set in App.jsx), not a border, so it never reads
@@ -412,10 +418,23 @@
 
         /* Responsive two-column draft layout: stacked on mobile, sticky build board on wide screens */
         .draft-flex { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin: 0 auto; }
+        /* Mobile UX pass: the active Draft choice (.draft-right) is the
+           primary interaction on this screen -- by late rounds the
+           Scouting Summary's growing row list (.draft-left) could push it
+           below a full mobile viewport, forcing a scroll past the
+           developing build just to reach the round you're actually
+           playing. A pure order swap keeps both pieces of information
+           fully visible (nothing collapsed or hidden) while making the
+           actual choice reachable first; no auto-collapse and no change
+           to source DOM order, so keyboard/reader order is untouched.
+           Desktop's existing sticky side-by-side layout already put the
+           choice front and center, so this only applies below 900px. */
+        .draft-left { order: 2; }
+        .draft-right { order: 1; }
         @media (min-width: 900px) {
           .draft-flex { flex-direction: row; align-items: flex-start; max-width: 1080px; gap: 24px; }
-          .draft-left { position: sticky; top: 20px; width: 300px; flex-shrink: 0; }
-          .draft-right { flex: 1; min-width: 0; }
+          .draft-left { position: sticky; top: 20px; width: 300px; flex-shrink: 0; order: 0; }
+          .draft-right { flex: 1; min-width: 0; order: 0; }
           .draft-right .panel, .draft-left .panel { max-width: none; margin: 0 0 12px; }
         }
 
