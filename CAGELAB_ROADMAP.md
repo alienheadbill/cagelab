@@ -1,6 +1,6 @@
 # CageLab Development Roadmap
 
-_Last updated: 2026-09-08_
+_Last updated: 2026-09-12_
 
 > **Update log (2026-09-08, post-upload):** Two sections below were corrected
 > against actual repo state before this doc was committed:
@@ -74,6 +74,17 @@ _Last updated: 2026-09-08_
 > considerations. The broader Draft Strategy investigation (highest-
 > number dominance, synergy, physical tradeoffs) is unchanged and still
 > applies to Classic and Daily alike. Planning only, not yet implemented.
+>
+> **Update log (2026-09-12, status bookkeeping):** Visual Design Audit +
+> CageLab Design System V2 (PR #41) is **merged** into `main` (merge
+> commit `4a8f2237`). Regression check confirmed `career.js`, `scoring.js`,
+> and `storage.js` are byte-identical to pre-PR `main` — no gameplay logic
+> was touched. Corrected this doc's "what shipped" wording: the
+> `FighterSilhouette` component was prototyped on Draft and Stats during
+> this pass but was cut after review (read as clutter) and ships nowhere
+> in the merged version; the component itself stays in the tree unused.
+> Draft Strategy + Daily Challenge V2 moves to 🔜 Next in Section 10 — it
+> remains planning-only, not implemented.
 
 ## Product North Star
 
@@ -411,10 +422,10 @@ already persisted by the two phases above.
 
 ---
 
-## 🟡 Visual Design Audit + CageLab Design System V2 — PR #41 (open)
+## ✅ Visual Design Audit + CageLab Design System V2 — merged (PR #41)
 
-**Status: implemented and pushed** to branch `visual-design-system-v2`,
-open as **PR #41**, not yet merged.
+**Status: merged** into `main` via **PR #41** (merge commit
+`4a8f2237`).
 
 ### Goal
 
@@ -476,18 +487,23 @@ give the background more arena atmosphere (no image asset).
   cage-mesh suggestion) plus a soft edge vignette sit behind every screen
   — pure gradients, no image, tuned to stay present-if-you-look-for-it
   and never compete with text.
-- **Draft screen — false-affordance fix + fighter silhouette**: the old
-  boxed attribute grid (looked like a second, clickable menu next to the
-  real draft board) is replaced with a plain-text, read-only Scouting
-  Summary (best-so-far/weak-spot, gold/red respectively) plus the
-  existing `FighterSilhouette` component — previously built but unused in
-  practice — now shown progressively filling gold as the draft completes
-  (fill reflects overall completion, not a fabricated attribute-to-body
-  mapping). A "Draft Board / Choose 1 fighter this round" heading and a
-  gold accent bar make the actual candidate cards the clear primary
-  surface, with a new desktop hover state on each card. The same
-  silhouette (fully filled) now also appears on the Stats tab as a small
-  visual anchor for the finished build.
+- **Draft screen — false-affordance fix**: the old boxed attribute grid
+  (looked like a second, clickable menu next to the real draft board) is
+  replaced with a plain-text, read-only Scouting Summary (best-so-far/
+  weak-spot, gold/red respectively) listing revealed attributes as they're
+  drafted, each with a one-shot gold reveal animation on the row that just
+  landed. Draft completion is shown as a slim gold progress bar (reusing
+  the existing progress-bar pattern from Camp), not a separate visual. A
+  "Draft Board / Choose 1 fighter this round" heading and a gold accent
+  bar make the actual candidate cards the clear primary surface, with a
+  new desktop hover state on each card.
+  A decorative `FighterSilhouette` component was prototyped on both the
+  Draft screen and the Stats tab during this pass but was cut after
+  review read it as clutter competing with the Scouting Summary/progress
+  bar it sat next to — it shipped nowhere in the final merged version.
+  The component (with its brass-not-red color-lerp fix) is left in the
+  tree unused, available if a future pass finds a place for it, per the
+  PR's own "known limitations."
 - Typography (Anton condensed display / Work Sans UI sans / IBM Plex Mono
   tabular) unchanged — already the right three-role system.
 
@@ -1364,8 +1380,8 @@ As of this roadmap revision:
 3. ✅ **NPC World Movement + Bout Ledger V1 — merged (PR #38)**
 4. ✅ **Universe Events V1 — merged (PR #39)**
 5. ✅ **Event Archive + Fighter Histories V1 — merged (PR #40)**
-6. 🟡 **Visual Design Audit + CageLab Design System V2 — PR #41 open, direction-corrected, not yet merged**
-7. ⏳ **Draft Strategy + Daily Challenge V2**
+6. ✅ **Visual Design Audit + CageLab Design System V2 — merged (PR #41)**
+7. 🔜 **Draft Strategy + Daily Challenge V2**
 8. ⏳ **Draft & Career Evaluation V2**
 9. ⏳ **Title Lineage + live-title-state correctness**
 10. ⏳ **Universe News + Historical Presentation**
