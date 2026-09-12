@@ -60,6 +60,20 @@ _Last updated: 2026-09-08_
 > and Draft & Career Evaluation V2 — draft strategic depth needs to be
 > established before finalizing how GOAT Score evaluates the builds it
 > produces. Planning only, not yet implemented.
+>
+> **Update log (2026-09-12, correction, roadmap only):** Replaced Daily
+> Challenge V2's earlier "rotating generic objectives" concept (Compact
+> Powerhouse, Ground Specialist, etc. — now demoted to a possible future
+> extension) with a clearer locked core identity: **"Build a fighter out
+> of everyone who competed on this card."** Each Daily is drawn from one
+> historical fight card's fighter pool, with a skill-first /
+> weight-class-late / physical-after draft ordering (weight class can no
+> longer be locked before the skill draft, since a card spans multiple
+> weight classes). Added physical-eligibility, adaptive-pick-count,
+> fighter-non-uniqueness, presentation, and historical-data-rights
+> considerations. The broader Draft Strategy investigation (highest-
+> number dominance, synergy, physical tradeoffs) is unchanged and still
+> applies to Classic and Daily alike. Planning only, not yet implemented.
 
 ## Product North Star
 
@@ -494,11 +508,12 @@ give the background more arena atmosphere (no image asset).
 ### Goal
 
 Make the best Draft pick depend on the fighter being built, not on which
-available number is largest. Placed after Design System V2 and **before**
-Draft & Career Evaluation V2, because draft strategic depth should be
-established before finalizing how GOAT Score evaluates the builds it
-produces — specialization findings here may change what a good scoring
-formula should reward.
+available number is largest, and give Daily Challenge its own identity:
+**"Build a fighter out of everyone who competed on this card."** Placed
+after Design System V2 and **before** Draft & Career Evaluation V2,
+because draft strategic depth should be established before finalizing
+how GOAT Score evaluates the builds it produces — specialization
+findings here may change what a good scoring formula should reward.
 
 ### The problem
 
@@ -572,41 +587,157 @@ grappling pick completes the fighter," never "these two cards secretly
 trigger +12." Synergies/tradeoffs must be explainable, visible, and
 connected to actual combat behavior.
 
-### Daily Challenge's identity problem
+### Daily Challenge V2 — core fantasy (locked direction)
 
-Daily Challenge currently doesn't feel different enough from Classic or
-Blind. Removing rerolls alone is not a strong mode identity — without
-strategic tradeoffs, a no-reroll Daily can actually make the optimal
-strategy *more* obvious (take the highest available values). Daily
-Challenge should become a distinct **build puzzle**: every player faces
-the same shared daily problem, and the question should be "what is the
-best fighter I can build under today's specific conditions?" rather than
-"how high can I make the numbers from today's seed?" Preserve the useful
-shared-seed/leaderboard nature of Daily — the change is giving each day a
-meaningful strategic objective or constraint.
+**This supersedes the earlier "rotating generic objectives" concept
+below.** Daily Challenge's core identity is now:
 
-**Prototype-later examples only, not locked challenges:** Compact
-Powerhouse (short-range power fighter), Ground Specialist (strongest
-grappling-oriented fighter), Five-Round Machine (durability/cardio/IQ
-matter more than explosive offense), Specialist (most effective fighter
-around one dominant phase), Giant Killer (build under a physical-profile
-constraint), Balanced Champion (completeness really does matter that
-day).
+> **"Build a fighter out of everyone who competed on this card."**
 
-**Daily scoring must be transparent.** No arbitrary hidden Daily formula
-— if a day's challenge values a certain build type, the player must
-understand the objective, the constraints, what matters, and how success
-is judged. Avoid reducing this to "today's Power is worth 2x points" as
-the entire system; where possible, evaluate using the same underlying
-combat model rather than unrelated arcade scoring. Daily should reward
-solving a visible puzzle, not reverse-engineering invisible scoring.
+Preserve this one-sentence pitch prominently — it is the current product
+north star for Daily Challenge V2. Each Daily Challenge is based on one
+fight card/event; the fighters who competed on that card become the
+source pool for that day's draft. Every player receives the same card,
+fighter pool, draft conditions, and available choices/deterministic seed
+where appropriate — preserving Daily's leaderboard/comparison value while
+giving the mode an identity Classic and Blind don't have. The card itself
+creates the daily variation (different cards naturally produce different
+strengths, weaknesses, styles, and physical profiles) — Daily should not
+need an arbitrary gimmick/modifier every day just to feel different.
 
-**Reroll question, not decided here:** do not automatically add rerolls
-to Daily — the no-reroll rule may be good if the choices themselves
-become strategic. Future implementation should compare no-rerolls +
-strategic objective, limited rerolls, a one-time wildcard/swap mechanic,
-and other constrained-resource models. Daily must remain fair and
-comparable across players.
+### Draft ordering — skill first, weight late, physical after
+
+The current architecture locks weight class before drafting, which
+conflicts with this concept: historical fight cards contain fighters from
+multiple weight classes. Daily Challenge V2 should investigate a
+different ordering:
+
+**skill draft first → weight class late → physical draft after weight is
+known.**
+
+- **Skill attributes** (Striking, Grappling, Wrestling, Cardio, Power,
+  Chin, Speed, Fight IQ — use the actual CageLab attribute
+  definitions/order when implementation begins) are drafted from
+  *everyone who competed on the card, regardless of their weight class*.
+  If a card contains elite Heavyweight Power, elite Lightweight Speed,
+  elite Welterweight Wrestling, and elite Middleweight IQ, the player can
+  potentially combine all of those into one drafted fighter — that
+  combination is the fantasy of the mode.
+- **Weight Class** is then determined as a late draft event, after the
+  skill attributes are set. The exact mechanic is not locked —
+  implementation should prototype: (A) randomly rolled from weight
+  classes represented on the card, (B) presented as a choice among weight
+  classes represented on the card, or (C) another fair/deterministic
+  Daily mechanism. Current preference is that Weight Class lands late
+  enough to create adaptation rather than defining the whole draft
+  upfront; for leaderboard fairness, all players must face equivalent
+  conditions.
+- **Physical attributes remain part of the draft** — this is an explicit
+  correction: do not bundle Height/Reach into one automatically-inherited
+  "Physical Profile." After Weight Class is known, the player drafts
+  Height and then Reach (use the actual CageLab physical-attribute
+  structure when implementation begins) from eligible fighters on that
+  day's card.
+
+### Physical eligibility (needs audit, not assumed)
+
+Once Weight Class is known, physical choices need to make sense in that
+context — implementation must not simply let a Heavyweight's raw
+measurements become available to a Lightweight body without checking how
+the current systems interpret them. Audit Height, Reach, Weight Class,
+physical normalization, combat calculations, draft scoring, and fighter
+generation before selecting the eligibility rule. The desired player
+experience is still: draft physical characteristics from fighters
+represented on the card.
+
+### Adaptive physical pick count
+
+Historical cards may not contain enough appropriate fighters to support
+the normal number of Height/Reach choices — that should not kill the
+concept. Daily may use a smaller option count for physical rounds (e.g.
+4 instead of a normal 6), with a lower emergency minimum only if data
+proves necessary; exact counts are not locked. Principle: reduce the
+number of physical choices when necessary rather than populate the round
+with fake/inappropriate fighters.
+
+### Do not require six unique fighters
+
+The game is drafting attributes, not assembling a team roster — audit
+whether the same fighter can legitimately appear as an option in multiple
+rounds (e.g. contributing Power in one round, Chin in another, and
+potentially a physical attribute later). Do not artificially require
+every attribute source to be a unique fighter unless playtesting shows
+that improves the mode.
+
+### The card is the constraint
+
+Daily should not need arbitrary restrictions just to manufacture
+difficulty. The main constraint is simply: **you can only build from the
+fighters who fought on this card.** That alone creates natural
+day-to-day variation — a stacked card may produce an extremely powerful
+build, a strange card may create difficult compromises, a
+wrestling-heavy card may naturally encourage certain builds, a
+striker-heavy card may naturally encourage others. That variation is
+desirable and does not need to be manufactured further.
+
+### Presentation
+
+Daily should lead with the fight card/event — conceptually: "DAILY
+CHALLENGE — TODAY'S CARD — [Event] — 'Build a fighter out of everyone who
+competed on this card.'" Show the fighters/bouts represented on the card
+before or during the draft so the player immediately understands *why*
+these particular fighters are appearing. As part of the broader Draft
+Strategy audit, also investigate leading picks with fighter identity
+rather than a raw number — closer to "FIGHTER NAME — Power 94" than a
+bare "94 / 88 / 82" list — to reinforce "I am taking this fighter's
+Power" rather than "I am clicking the largest integer." The rating stays
+visible either way; the player still needs transparent information, just
+attached to a name. The exact card UI is not locked.
+
+### Historical card data — content/legal dependency
+
+The gameplay concept does not depend on UFC branding specifically, but
+before production implementation, determine what historical fighter
+names, event names, promotion names, statistics, likenesses, and imagery
+CageLab can legally/commercially use. Do not assume real UFC branding,
+fighter imagery, or proprietary datasets can simply be shipped — this
+mechanic must be designed independently of any particular promotion
+license. Possible eventual sources: appropriately usable real historical
+data, licensed data, fictionalized CageLab cards, or other legally
+suitable sources. This is a content/legal research dependency, not a
+reason to change the gameplay concept.
+
+### Relationship to Classic and Blind Draft
+
+Do not automatically move Classic Draft to this skill-first/weight-late
+ordering — Classic keeps its own division-selection + reroll + existing
+draft flow, and the broader Draft Strategy "highest number usually wins"
+investigation still applies to it independently. Blind also stays
+conceptually separate (its challenge is information uncertainty, not
+fight-card assembly). Target mode identities: **Classic** = the normal
+CageLab draft structure with reroll/resource decisions; **Blind** =
+information uncertainty is the challenge; **Daily** = build a fighter
+from one shared fight card. These three should feel meaningfully
+different from each other.
+
+### Rotating objectives — demoted, not deleted
+
+The previously-discussed rotating objectives (Compact Powerhouse, Ground
+Specialist, Five-Round Machine, Specialist, Giant Killer, Balanced
+Champion) are **no longer the primary Daily Challenge V2 design.** Keep
+the idea in the roadmap as a possible future extension only — special
+Daily variants, bonus objectives, achievements, or alternate challenge
+types layered on top of the fight-card structure — not the core Daily
+identity, which is now the fight-card draft above.
+
+### The broader Draft Strategy problem still applies
+
+The fight-card concept fixes Daily's *mode identity* — it does not by
+itself solve "highest number = best pick." Classic and Daily both still
+need the build-synergy/specialization/physical-tradeoff/archetype-
+viability/diminishing-returns/combat-model-fit/pick-diversity
+investigation described above (see "Possible strategy mechanisms"). Do
+not introduce arbitrary hidden bonuses to either mode.
 
 ### Dependency: GOAT Score
 
@@ -636,11 +767,30 @@ build viability, and representative combat performance. A successful
 redesign should measurably reduce "always pick the highest number"
 without replacing it with "always follow one optimal recipe."
 
+### Daily fight-card validation
+
+Before implementation is considered complete, test a large sample of
+candidate fight cards — not just one famous stacked card, since the
+system needs to survive ordinary and unusual cards too. Measure: number
+of fighters per card, number of represented weight classes, fighters
+available per weight class, option availability for every attribute,
+frequency of reduced physical pick counts, duplicate-fighter-appearance
+frequency, attribute-value distributions, final build distributions,
+Daily leaderboard score distributions, pick diversity, frequency with
+which the highest raw number is selected, and cards that cannot support
+the intended draft format at all.
+
 ### Success principle
 
 The ideal Draft thought process becomes: "I could take the 92... but the
-84 actually fits the fighter I'm building better." Daily becomes "how do
-I solve today's build?" rather than "which card has the biggest number?"
+84 actually fits the fighter I'm building better." A Daily player should
+be able to open the mode and immediately understand "everyone today is
+building from this fight card," then think through the draft as "whose
+Wrestling do I want?", "whose Power fits what I've already built?", and
+late in the draft "what weight class am I getting?", "what Height/Reach
+options does that leave me?" The finished fighter should feel like a
+unique combination of fighters from one night of MMA history — not "which
+card has the biggest number?"
 
 ### Explicit non-goals (this phase)
 
@@ -648,10 +798,17 @@ I solve today's build?" rather than "which card has the biggest number?"
 - No combat-simulation changes (`resolveFight`, `simulateRounds`,
   `computeWinProbability`, finish math, World Movement, NPC resolver,
   matchmaking all remain untouched)
-- No locked list of Daily objectives, synergy tables, or physical-profile
-  bonus rules — all of the above are conceptual examples for the
+- No locked list of synergy tables, physical-profile bonus rules, weight-
+  class-timing mechanic, physical-pick-count thresholds, or fighter-
+  uniqueness rule — all of the above are conceptual examples for the
   implementation/audit phase to prototype and validate, not requirements
   to build as written
+- No assumption that real UFC (or any specific promotion's) branding,
+  fighter imagery, or proprietary data can be used — content/legal
+  sourcing is a separate research dependency from the gameplay concept
+- The rotating-objective concept (Compact Powerhouse, Ground Specialist,
+  etc.) is demoted to a possible future extension, not part of this
+  phase's core deliverable
 
 ---
 
