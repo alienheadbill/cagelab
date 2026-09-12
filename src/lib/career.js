@@ -3703,9 +3703,12 @@ function resolveWeightMoveOffer(state, accept) {
 // zero on whatever later fight the player does accept), so there is no
 // reward for delaying beyond the ones any real fighter has for defending
 // a belt before moving up -- more Regional bookings, more Regional-level
-// competition, not a discount on National. commitFight suppresses
-// re-offering on every subsequent win once already declined once (see
-// promotionOfferDeclined there) and re-arms it on the next Regional loss.
+// competition, not a discount on National. commitFight re-offers once
+// the player earns 2 more Regional wins after declining (title defenses
+// count), or immediately on winning the Regional title if they hadn't
+// already won it when they declined -- see promotionOfferDeclined/
+// postDeclineWins/promotionOfferDeclinedAsChampion there. No requirement
+// to lose, and no permanent suppression.
 function resolvePromotionOffer(state, accept) {
   const s = { ...state };
   const { tier } = state.pendingDecision;
@@ -3728,6 +3731,8 @@ function resolvePromotionOffer(state, accept) {
     s.streak = 0;
     s.specialTitleShotLockedUntilWin = false;
     s.promotionOfferDeclined = false;
+    s.postDeclineWins = 0;
+    s.promotionOfferDeclinedAsChampion = false;
     if (CLF_TIER_ORDER.indexOf(s.circuitTier) > CLF_TIER_ORDER.indexOf(s.peakCircuitTier)) {
       s.peakCircuitTier = s.circuitTier;
     }
@@ -3737,7 +3742,14 @@ function resolvePromotionOffer(state, accept) {
     // any other circuitMove already produces, no new UI needed for accept.
     s.timeline = [...s.timeline, { type: "circuitMove", id: `circuit-promo-${s.year}-${s.fightGlobalIndex}`, promoted: true, from: tierBefore, to: tier }];
   } else {
+    // Restart the re-offer clock on every decline (including a re-decline
+    // of a later re-offer) -- promotionOfferDeclinedAsChampion is captured
+    // fresh here, at THIS decline, not left over from an earlier one, so
+    // "was already champion when they declined" always reflects the most
+    // recent decline.
     s.promotionOfferDeclined = true;
+    s.postDeclineWins = 0;
+    s.promotionOfferDeclinedAsChampion = !!state.champion;
     s.timeline = [...s.timeline, { type: "promotionDeclined", id: `promod-${s.year}-${s.fightGlobalIndex}`, tier }];
   }
   s.pendingDecision = null;
@@ -4543,16 +4555,33 @@ function commitFight(state) {
   // this fight either way -- nothing here changes state, it only decides
   // whether to surface the offer.
   const regionalPromotionEligible = s.circuitTier === "CLF Regional" && (justWonTierTitle || regionalFastTrackReady || regionalDominanceOverride);
-  // Suppresses re-asking on literally every subsequent win once already
-  // declined once (streak>=7 alone would otherwise re-qualify every single
-  // fight) -- re-arms on the next loss, since dropping out of the current
-  // run is the simplest believable signal that "prove it again" applies.
-  // Not itself an exploit fix (see resolvePromotionOffer's own comment):
-  // nothing about staying in Regional inflates National's starting point,
-  // since rank/rankPoints/streak all still reset to zero whenever the
-  // player eventually does accept.
-  const regionalPromotionOfferJustEarned = regionalPromotionEligible && !s.promotionOfferDeclined;
-  if (!result.win && s.circuitTier === "CLF Regional") s.promotionOfferDeclined = false;
+  // Re-offer correction: a flat "re-arms only on a loss" rule created an
+  // unrealistic dead end -- decline at 4-0, keep winning, become and
+  // defend the Regional title, and never hear from National again unless
+  // you actually lose. Continued Regional success should be able to
+  // produce another call-up on its own, with no requirement to lose and
+  // no offer-spam every single fight.
+  //
+  // s.postDeclineWins counts real Regional wins (title defenses included
+  // -- a defense is still a win) since the most recent decline;
+  // s.promotionOfferDeclinedAsChampion freezes whether the player already
+  // held the belt AT THE MOMENT they declined (set in resolvePromotionOffer,
+  // not recomputed here). Re-offer fires on EITHER: 2 such wins, or --
+  // only for a player who was NOT yet champion when they declined --
+  // winning the Regional title for the first time since that decline
+  // (immediate, doesn't wait for the 2-win count). A player who was
+  // already champion at decline time has no "win the title" event left to
+  // trigger on (they already hold it), so defenses/wins are the only path
+  // back -- exactly the 2-defenses-count-as-2-wins case.
+  if (result.win && s.circuitTier === "CLF Regional" && s.promotionOfferDeclined) {
+    s.postDeclineWins = (s.postDeclineWins || 0) + 1;
+  }
+  const regionalReofferReady = s.circuitTier === "CLF Regional" && s.promotionOfferDeclined && (
+    (s.postDeclineWins || 0) >= 2
+    || (!s.promotionOfferDeclinedAsChampion && justWonTierTitle)
+  );
+  const regionalPromotionOfferJustEarned = s.circuitTier === "CLF Regional"
+    && (s.promotionOfferDeclined ? regionalReofferReady : regionalPromotionEligible);
   if (s.circuitTier === "CLF National" && (justWonTierTitle || (nationalGatePass && !nationalGateShouldDefer))) {
     s.circuitTier = "CLF Contender Series";
     // Contender Series is "just another fighter trying to get in" -- no
