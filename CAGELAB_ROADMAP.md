@@ -49,6 +49,17 @@ _Last updated: 2026-09-08_
 > slotted after Design System V2 and before Title Lineage — planning
 > only, not yet implemented. Universe News and Rankings History each move
 > one slot later in Section 10's priority order to make room for it.
+>
+> **Update log (2026-09-12, addendum, roadmap only):** Playtesting exposed
+> a deeper problem underneath Draft & Career Evaluation V2: Daily
+> Challenge's lack of rerolls makes the broader Draft strategy problem
+> especially visible — when most ratings are monotonic, selecting the
+> highest available number is often just the obvious correct choice, in
+> Daily and (to a lesser extent) Classic alike. Added **Draft Strategy +
+> Daily Challenge V2** to the roadmap, slotted between Design System V2
+> and Draft & Career Evaluation V2 — draft strategic depth needs to be
+> established before finalizing how GOAT Score evaluates the builds it
+> produces. Planning only, not yet implemented.
 
 ## Product North Star
 
@@ -478,6 +489,172 @@ give the background more arena atmosphere (no image asset).
 
 ---
 
+## ⏳ Draft Strategy + Daily Challenge V2
+
+### Goal
+
+Make the best Draft pick depend on the fighter being built, not on which
+available number is largest. Placed after Design System V2 and **before**
+Draft & Career Evaluation V2, because draft strategic depth should be
+established before finalizing how GOAT Score evaluates the builds it
+produces — specialization findings here may change what a good scoring
+formula should reward.
+
+### The problem
+
+Playtesting exposed that, too often, the rational Draft strategy is
+simply "pick the highest available number." This is most visible in
+Daily Challenge specifically because Daily has no rerolls, players see a
+fixed choice set, and higher attribute values are generally monotonic
+upgrades — so the "decision" often reduces to selecting the largest
+number. Classic Draft feels somewhat better because rerolls introduce
+risk/resource management and pools aren't always strong, but even Classic
+can fall into the same highest-number-is-correct pattern. The underlying
+problem is **Draft strategic depth**, not Daily Challenge alone.
+
+### Core design principle
+
+The goal is NOT to make low ratings secretly better. The goal is to make
+the best pick depend on the fighter being built — a player should
+sometimes rationally choose an 82 over a 91 because the 82 better
+completes the intended fighter/profile/objective. Draft should create
+**build decisions**, not merely **number comparisons**.
+
+**Illustrative example only, not a locked mechanic:** a player attempting
+to build something like a short, compact, extremely powerful pressure
+fighter today has little mechanical reason to intentionally take shorter
+Height/Reach if higher physical scores are simply better across the
+board. A future system should explore whether different physical/body
+profiles can create truthful tradeoffs — but do not roadmap a simplistic
+rule like "short fighter = automatic Power bonus." Any such interaction
+requires an audit of whether physical dimensions can meaningfully affect
+fighting style, range, pressure, speed, wrestling/entries, power, and
+defensive exposure without creating a fake or gamey relationship.
+
+### Required audit before designing anything
+
+Future implementation must measure, not guess:
+
+- how often the highest available score is currently the optimal pick
+- attribute-by-attribute pick dominance
+- reroll behavior
+- whether synergies materially change optimal choices today
+- whether archetypes influence picks
+- whether Height/Reach are effectively linear "bigger is better"
+- whether any current lower-value choice is already strategically rational
+- whether GOAT Score over-rewards raw average/balance
+- whether current Build Qualities actually influence choice, or merely
+  describe the result afterward
+
+### Possible strategy mechanisms — not locked
+
+The implementation phase should prototype alternatives, for example:
+
+- **Build synergy/fit** — an attribute's value depends partly on what's
+  already drafted (e.g. an 84 Wrestling option may improve a developing
+  ground fighter more than a numerically higher stat elsewhere).
+- **Physical profile tradeoffs** — height/reach/body profile creating
+  real strengths and weaknesses rather than a purely linear quality
+  ladder.
+- **Diminishing returns** — a fourth elite attribute in an
+  already-dominant area offering less strategic value than fixing an
+  important weakness.
+- **Style/archetype targets** — drafted attributes forming meaningful
+  combat identities whose effectiveness is more than raw average rating.
+- **Trait/profile interactions** — certain combinations producing
+  recognizable fighter qualities.
+
+Any such system must stay grounded in the actual combat engine. Do not
+add fake "+10 because synergy badge" bonuses without simulation
+justification, and avoid a hidden combo table — the player should be
+able to reason "I already have elite wrestling and cardio; this
+grappling pick completes the fighter," never "these two cards secretly
+trigger +12." Synergies/tradeoffs must be explainable, visible, and
+connected to actual combat behavior.
+
+### Daily Challenge's identity problem
+
+Daily Challenge currently doesn't feel different enough from Classic or
+Blind. Removing rerolls alone is not a strong mode identity — without
+strategic tradeoffs, a no-reroll Daily can actually make the optimal
+strategy *more* obvious (take the highest available values). Daily
+Challenge should become a distinct **build puzzle**: every player faces
+the same shared daily problem, and the question should be "what is the
+best fighter I can build under today's specific conditions?" rather than
+"how high can I make the numbers from today's seed?" Preserve the useful
+shared-seed/leaderboard nature of Daily — the change is giving each day a
+meaningful strategic objective or constraint.
+
+**Prototype-later examples only, not locked challenges:** Compact
+Powerhouse (short-range power fighter), Ground Specialist (strongest
+grappling-oriented fighter), Five-Round Machine (durability/cardio/IQ
+matter more than explosive offense), Specialist (most effective fighter
+around one dominant phase), Giant Killer (build under a physical-profile
+constraint), Balanced Champion (completeness really does matter that
+day).
+
+**Daily scoring must be transparent.** No arbitrary hidden Daily formula
+— if a day's challenge values a certain build type, the player must
+understand the objective, the constraints, what matters, and how success
+is judged. Avoid reducing this to "today's Power is worth 2x points" as
+the entire system; where possible, evaluate using the same underlying
+combat model rather than unrelated arcade scoring. Daily should reward
+solving a visible puzzle, not reverse-engineering invisible scoring.
+
+**Reroll question, not decided here:** do not automatically add rerolls
+to Daily — the no-reroll rule may be good if the choices themselves
+become strategic. Future implementation should compare no-rerolls +
+strategic objective, limited rerolls, a one-time wildcard/swap mechanic,
+and other constrained-resource models. Daily must remain fair and
+comparable across players.
+
+### Dependency: GOAT Score
+
+This phase must happen *before* Draft & Career Evaluation V2. Current
+GOAT Score strongly values average quality, elite ratings, balance, and
+avoiding weaknesses — which may unintentionally penalize a deliberately
+specialized but highly effective fighter. Draft & Career Evaluation V2
+must use findings from this phase; do not finalize a GOAT Score revision
+before this audit.
+
+### Dependency: Build Value
+
+Do not roadmap immediate deletion of Build Value's internals. Although it
+should no longer be a co-equal headline rating (see Draft & Career
+Evaluation V2), its combat-model-based analysis may be genuinely useful
+during this phase's research. The later Evaluation V2 implementation
+still decides whether to remove it, retain it internally, or repurpose it
+as deeper analysis.
+
+### Validation requirements
+
+Future implementation should quantify: % of picks where the highest
+number is selected, % where the highest number is objectively dominant,
+pick diversity, archetype diversity, final build diversity, reroll usage,
+Daily leaderboard score spread, repeated dominant strategies, specialized-
+build viability, and representative combat performance. A successful
+redesign should measurably reduce "always pick the highest number"
+without replacing it with "always follow one optimal recipe."
+
+### Success principle
+
+The ideal Draft thought process becomes: "I could take the 92... but the
+84 actually fits the fighter I'm building better." Daily becomes "how do
+I solve today's build?" rather than "which card has the biggest number?"
+
+### Explicit non-goals (this phase)
+
+- No draft/scoring/Daily code changes in this roadmap pass — planning only
+- No combat-simulation changes (`resolveFight`, `simulateRounds`,
+  `computeWinProbability`, finish math, World Movement, NPC resolver,
+  matchmaking all remain untouched)
+- No locked list of Daily objectives, synergy tables, or physical-profile
+  bonus rules — all of the above are conceptual examples for the
+  implementation/audit phase to prototype and validate, not requirements
+  to build as written
+
+---
+
 ## ⏳ Draft & Career Evaluation V2
 
 ### Goal
@@ -487,13 +664,16 @@ Make the beginning and end of a CageLab career easier to understand:
 - one clear answer for "How good is the fighter I drafted?"
 - one nuanced answer for "What kind of career did I actually have?"
 
-Placed immediately after Design System V2 and before Title Lineage: the
-Draft presentation itself now feels substantially better and is
-considered visually locked for the moment, but a new design issue was
-identified around two evaluation moments — the Draft-result score(s) and
-the end-of-Career verdict — worth fixing together before more text-heavy
-presentation work (Title Lineage, Universe News, Rankings History) builds
-on top of them.
+Placed after Draft Strategy + Daily Challenge V2 and before Title
+Lineage: the Draft presentation itself now feels substantially better
+and is considered visually locked for the moment, but a new design issue
+was identified around two evaluation moments — the Draft-result score(s)
+and the end-of-Career verdict — worth fixing together before more
+text-heavy presentation work (Title Lineage, Universe News, Rankings
+History) builds on top of them. This phase must come *after* Draft
+Strategy + Daily Challenge V2 specifically because draft specialization
+findings there may change what GOAT Score should reward (see that
+section's "Dependency: GOAT Score").
 
 ### Problem A: Draft evaluation (GOAT Score vs. Build Value)
 
@@ -1028,13 +1208,14 @@ As of this roadmap revision:
 4. ✅ **Universe Events V1 — merged (PR #39)**
 5. ✅ **Event Archive + Fighter Histories V1 — merged (PR #40)**
 6. 🟡 **Visual Design Audit + CageLab Design System V2 — PR #41 open, direction-corrected, not yet merged**
-7. ⏳ **Draft & Career Evaluation V2**
-8. ⏳ **Title Lineage + live-title-state correctness**
-9. ⏳ **Universe News + Historical Presentation**
-10. ⏳ **Rankings History / deeper universe storytelling**
-11. ⏳ **Move-by-Move Spectator Fight Simulation**
-12. 🧪 **Dedicated balance passes only where playtesting/data justify them**
-13. 🧪 **Roblox adaptation exploration later**
+7. ⏳ **Draft Strategy + Daily Challenge V2**
+8. ⏳ **Draft & Career Evaluation V2**
+9. ⏳ **Title Lineage + live-title-state correctness**
+10. ⏳ **Universe News + Historical Presentation**
+11. ⏳ **Rankings History / deeper universe storytelling**
+12. ⏳ **Move-by-Move Spectator Fight Simulation**
+13. 🧪 **Dedicated balance passes only where playtesting/data justify them**
+14. 🧪 **Roblox adaptation exploration later**
 
 The exact ordering of post-Universe presentation work can change after playtesting, but the dependency chain should remain:
 
