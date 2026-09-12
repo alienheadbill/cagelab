@@ -39,6 +39,16 @@ _Last updated: 2026-09-08_
 > component, now also reused on the Stats tab. The neutral dark
 > canvas/surface readability win from the first pass is kept. PR #41
 > updated in place, still not merged.
+>
+> **Update log (2026-09-12, roadmap only):** Playtest/review exposed two
+> evaluation problems: GOAT Score + Build Value create unnecessary
+> duplicate headline scoring right after Draft, and retirement verdicts
+> lean too heavily on accumulated Legacy Score with too little
+> résumé/context nuance (a mediocre record can still read as
+> celebratory). Added **Draft & Career Evaluation V2** to the roadmap,
+> slotted after Design System V2 and before Title Lineage — planning
+> only, not yet implemented. Universe News and Rankings History each move
+> one slot later in Section 10's priority order to make room for it.
 
 ## Product North Star
 
@@ -468,6 +478,228 @@ give the background more arena atmosphere (no image asset).
 
 ---
 
+## ⏳ Draft & Career Evaluation V2
+
+### Goal
+
+Make the beginning and end of a CageLab career easier to understand:
+
+- one clear answer for "How good is the fighter I drafted?"
+- one nuanced answer for "What kind of career did I actually have?"
+
+Placed immediately after Design System V2 and before Title Lineage: the
+Draft presentation itself now feels substantially better and is
+considered visually locked for the moment, but a new design issue was
+identified around two evaluation moments — the Draft-result score(s) and
+the end-of-Career verdict — worth fixing together before more text-heavy
+presentation work (Title Lineage, Universe News, Rankings History) builds
+on top of them.
+
+### Problem A: Draft evaluation (GOAT Score vs. Build Value)
+
+The current draft-result screen exposes two prominent abstract 0–100
+values, GOAT Score and Build Value. The underlying formulas are
+genuinely different — GOAT Score evaluates overall completeness/balance
+and weak spots; Build Value evaluates a narrower form of functional
+offensive danger — but from the player's perspective, presenting both as
+large headline ratings asks them to understand two overlapping abstract
+scores immediately after one draft. That's unnecessary cognitive load.
+
+**Locked direction:**
+
+- **Keep GOAT Score** as the ONE primary/headline draft score. It should
+  answer "how good/complete is the fighter I built?"
+- **Remove Build Value as a second co-equal headline score.** Do not
+  blend the two formulas into a new mystery composite. Possible future
+  handling: remove from the player-facing result entirely, retain
+  internally, or expose deeper in an optional Build Analysis view if it
+  proves genuinely useful — the implementation phase must audit this
+  before deleting any analytical code that might still be worth keeping.
+- **Keep the "GOAT Score" name.** It has established CageLab identity and
+  personality; do not roadmap a rename to "Build Score." The
+  implementation/audit phase may verify whether playtesters actually
+  misunderstand the label, but a rename is not planned unless future
+  feedback justifies it.
+
+### Problem B: End-of-Career evaluation (Legacy Score + retirement verdict)
+
+The current final verdict system does not provide enough nuance.
+Observed product problem: careers with mediocre-looking records — e.g.
+something around 12–11 — can still receive presentation/copy that makes
+the career feel unusually successful or emotionally celebrated. Part of
+this comes from the current architecture: Legacy accumulates throughout
+the career, wins can add substantial Legacy, losses subtract less in many
+situations, running Legacy is floored at zero, retirement adds further
+bonuses, and the final verdict primarily keys off Legacy thresholds, then
+applies a cap based on highest circuit reached. That can be mathematically
+reasonable in some cases — record alone shouldn't determine career
+quality — but the verdict currently lacks enough résumé/context awareness
+to explain *why* a middling record might still represent a respectable
+career, and lower-level careers are often written too generously.
+
+**Product principle — mediocre careers must exist:** CageLab must be
+willing to tell the player a career was disappointing, ordinary,
+journeyman-level, respectable but unspectacular, good but not great,
+excellent, or legendary. Not every completed career should feel heroic —
+ordinary careers make genuinely great careers feel special. The
+retirement presentation should not automatically congratulate every
+fighter as though they left a major legacy.
+
+### Score separation (do not merge these)
+
+- **GOAT Score** = quality of the drafted fighter/build ("how good is
+  what I built?")
+- **Legacy Score** = numerical résumé strength, what the player
+  accomplished during the career ("what did I do with it?") — **Legacy
+  Score is not being removed.** The change is that Legacy Score should
+  not, by itself, determine the entire emotional/categorical retirement
+  verdict.
+
+### Preferred future architecture: two-layer career evaluation
+
+**A. Career Standing / Career Level** — what competitive level did the
+fighter actually establish themselves at? Conceptually (exact labels not
+locked): Regional Fighter, Regional Standout, National Mainstay, Premier
+Veteran, Ranked Contender, Elite Contender, Champion, Dominant Champion.
+Reflects circuit reached, rankings reached, championships, sustained
+competitive level.
+
+**B. Legacy Verdict** — how historically meaningful was the career?
+Conceptually (exact labels not locked, terminology needs
+research/tuning): Never Broke Through, Journeyman, Respected Veteran,
+Contender, Fan Favorite, Champion, Hall of Fame, All-Time Great.
+
+**Why two layers help** (illustrative examples only, not implementation
+requirements or locked copy):
+
+- 12–11, Premier, peak #9, no title → could reasonably read as **Premier
+  Veteran**: "You reached the highest level and proved you belonged, but
+  never separated yourself from the pack."
+- 12–11, Premier Champion, 0 defenses → could reasonably read as
+  **Former CLF Champion**: "An uneven career with one unforgettable peak.
+  You reached the summit, but couldn't stay there."
+
+Two very different careers despite identical records.
+
+### Résumé-gating requirement
+
+High-end verdicts should likely require actual accomplishment conditions
+in addition to Legacy points, not Legacy points alone. Conceptually
+investigate gates such as: Legitimate Contender (credible ranked/top-level
+success), Fringe HOF (meaningful Premier résumé / elite longevity /
+serious title contention), Hall of Fame (Premier championship OR a truly
+exceptional non-champion résumé), First-Ballot HOF (Premier title success
+plus defenses/reigns/outstanding résumé), Generational (sustained Premier
+title dominance + elite accomplishments). Do not lock exact thresholds
+before simulation testing.
+
+### Record-context requirement
+
+Future evaluation should account for record quality, but must not reduce
+career quality to win percentage alone. Relevant context: overall record,
+win percentage, Premier record, ranked-fight record, Top-15/Top-10/Top-5
+performance, title-fight record, championships, title defenses, quality
+of opposition, peak rank, statement wins, major losing stretches,
+late-career decline, career longevity. Example principle: 12–11 in
+Premier against elite competition is not equivalent to 12–11 in Regional;
+12–11 with a meaningful championship run is not equivalent to 12–11 while
+repeatedly losing ranked fights.
+
+### Losses / negative-context audit (answer later, not now)
+
+Implementation should audit whether current Legacy accumulation
+structurally over-rewards activity: are wins worth too much relative to
+losses; does flooring `runningLegacy` at zero create score inflation; do
+retirement bonuses accumulate too easily; does ranked-fight count reward
+merely participating too much; do losses at elite level need better
+contextual handling; are title shots rewarded too heavily relative to
+title success. This roadmap entry does not decide the answers — it
+requires simulation/data before tuning.
+
+### Retirement copy V2
+
+Retirement narrative should be driven by actual career context and have
+real tonal range — poor/failed (never established at higher levels,
+failed prospect, losing career, brief run), journeyman/respectable (tough
+veteran, credible professional, belonged but never contended), good
+(ranked contender, title challenger, high-level veteran), great (champion,
+successful defenses, Hall of Fame), elite (dominant champion, multiple
+reigns, generational career). Avoid universal sentimental language like
+"the career mattered, win or lose" when the actual career was
+unsuccessful.
+
+### End-screen presentation goal
+
+The final Career screen should eventually answer at a glance: what was my
+record, how far did I get, what did I win, how good was my résumé, what
+is my legacy, and why did the game give me this verdict — the verdict
+should feel explainable, not arbitrary.
+
+### Explainability
+
+Expose enough supporting context that a player understands the verdict.
+Possible retirement-summary fields: Record, Peak Circuit, Peak Rank,
+Ranked Record, Premier Record, Championships, Defenses, Title Fight
+Record, Best Win, Legacy Score, Career Standing, Final Verdict. Not every
+field is required if the final screen becomes too dense — the
+implementation pass should find the smallest clear set.
+
+### Validation requirement
+
+This phase must NOT be tuned from a handful of manual careers. Requires
+distribution testing across thousands of careers, measuring: verdict
+distribution by cohort, average record per verdict, Premier reach per
+verdict, championship frequency per verdict, defenses per verdict,
+losing-record frequency by verdict, near-.500 record frequency by
+verdict, non-champion Hall of Fame frequency, champion-failing-HOF
+frequency, Generational frequency — plus inspection of real representative
+careers from every verdict tier. Specific sanity cases to test: (A) 12–11
+Premier veteran, peak #9, no belt; (B) 12–11 brief Premier champion, 0
+defenses; (C) 18–6 Top-5 contender, never champion; (D) 16–8 Premier
+champion, 3 defenses; (E) 9–10 National career; (F) 24–4 dominant Premier
+champion; (G) an elite lower-tier career that never reaches Premier. The
+system should distinguish these based on résumé, not just one score
+threshold.
+
+### Existing-save compatibility
+
+Requires an explicit policy: do not silently rewrite old completed
+careers unless a migration policy is intentionally chosen. Active careers
+completed after the new system should use V2 verdict logic; completed
+historic entries may preserve their original verdict unless a
+display-time reinterpretation is deliberately added. Implementation must
+audit before choosing.
+
+### Meta/achievement compatibility
+
+Because some meta achievements currently inspect career verdict
+text/categories, implementation must audit Hall of Fame achievements,
+Career History, Collection/My Legacy, saved career summaries,
+export/import compatibility, any regex/string matching against verdict
+labels, and leaderboards if applicable. Do not casually rename verdict
+strings without migration/compatibility planning.
+
+### UI relationship to Design System V2
+
+Use the now-established CageLab visual direction: Draft gets one dominant
+GOAT Score; Retirement gets strong hierarchy between Career Standing,
+Legacy Score, and Final Verdict. Avoid adding another pile of competing
+abstract 0–100 numbers.
+
+### Explicit non-goals (this phase)
+
+- No Title Lineage, Universe News, or Rankings History implementation
+- No move-by-move spectator simulation
+- No new combat or draft mechanics
+- No fighter portraits
+- No combat-simulation changes of any kind — `resolveFight`,
+  `simulateRounds`, `computeWinProbability`, finish math, World Movement,
+  the NPC resolver, and matchmaking are explicitly frozen for this phase.
+  This is draft evaluation + career résumé evaluation + retirement
+  presentation, not a combat balance pass.
+
+---
+
 ## ⏳ Universe News + Historical Presentation
 
 ### Goal
@@ -796,11 +1028,13 @@ As of this roadmap revision:
 4. ✅ **Universe Events V1 — merged (PR #39)**
 5. ✅ **Event Archive + Fighter Histories V1 — merged (PR #40)**
 6. 🟡 **Visual Design Audit + CageLab Design System V2 — PR #41 open, direction-corrected, not yet merged**
-7. ⏳ **Title Lineage + live-title-state correctness**
-8. ⏳ **Universe News + Historical Presentation**
-9. ⏳ **Move-by-Move Spectator Fight Simulation**
-10. 🧪 **Dedicated balance passes only where playtesting/data justify them**
-11. 🧪 **Roblox adaptation exploration later**
+7. ⏳ **Draft & Career Evaluation V2**
+8. ⏳ **Title Lineage + live-title-state correctness**
+9. ⏳ **Universe News + Historical Presentation**
+10. ⏳ **Rankings History / deeper universe storytelling**
+11. ⏳ **Move-by-Move Spectator Fight Simulation**
+12. 🧪 **Dedicated balance passes only where playtesting/data justify them**
+13. 🧪 **Roblox adaptation exploration later**
 
 The exact ordering of post-Universe presentation work can change after playtesting, but the dependency chain should remain:
 
