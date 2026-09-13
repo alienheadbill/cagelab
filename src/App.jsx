@@ -32,7 +32,7 @@ import {
 import {
   DIVISION_SIZE, CLF_TIERS, CONTRACT_TYPES, rankLabel, rankBadge, clfTier, hasCalloutAccess, generateCalloutTargets, applyAging, resolveFight, initCareer,
   resolveCampPlanning, resolveTrainingEvent, resolveMediaEvent, resolveOffCycleEvent,
-  resolveContractNegotiation, resolveWeightMoveOffer, resolveMilestone, prepareFight, commitFight,
+  resolveContractNegotiation, resolveWeightMoveOffer, resolvePromotionOffer, resolveMilestone, prepareFight, commitFight,
   advanceCareer, fastForwardCareer, playSfxForTransition, computePlayerProfile,
   computeAchievements, ARCHETYPE_TAGLINES,
   CAMP_FOCUSES, setFightStance, buildGameplanInsight, TRAIT_DEFS,
@@ -1143,6 +1143,10 @@ export default function CageLab() {
     sfx("select");
     setCareerState(resolveWeightMoveOffer(careerState, accept));
   }
+  function handlePromotionOffer(accept) {
+    sfx("select");
+    setCareerState(resolvePromotionOffer(careerState, accept));
+  }
   function handleContractNegotiation(contractId) {
     sfx("select");
     setCareerState(resolveContractNegotiation(careerState, contractId));
@@ -2227,6 +2231,26 @@ export default function CageLab() {
               </div>
             </div>
           )}
+          {careerState.pendingDecision && careerState.pendingDecision.type === "promotionOffer" && (() => {
+            const t = clfTier(careerState.pendingDecision.tier);
+            return (
+              <div className="decision-panel">
+                <div className="decision-title"><TrendingUp size={15} /> {t.short} Offer</div>
+                <div className="decision-sub">
+                  You've earned a shot at {t.short}. Televised cards, bigger crowds, tougher competition — but it's your call when to make the jump.
+                </div>
+                <div className="choice-row">
+                  <button className="choice-btn danger" onClick={() => handlePromotionOffer(true)}>
+                    Sign with {t.short}<span>New division standing, fresh Top 15, back to Unranked there</span>
+                  </button>
+                  <button className="choice-btn" onClick={() => handlePromotionOffer(false)}>
+                    Stay in {careerState.pendingDecision.fromTier === "CLF Regional" ? "Regional" : clfTier(careerState.pendingDecision.fromTier).short}
+                    <span>Keep fighting here — the offer can come back around later</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
           {careerState.pendingDecision && careerState.pendingDecision.type === "contractNegotiation" && (
             <div className="decision-panel contract-panel">
               <div className="decision-title"><FileSignature size={15} /> You've Made Premier</div>
@@ -2669,6 +2693,14 @@ export default function CageLab() {
                 <div className="event-card" key={e.id}>
                   <Megaphone size={15} />
                   Stayed in {e.division} -- the team's suggestion to change weight classes went nowhere.
+                </div>
+              );
+            }
+            if (e.type === "promotionDeclined") {
+              return (
+                <div className="event-card" key={e.id}>
+                  <Megaphone size={15} />
+                  Turned down the call up to {clfTier(e.tier).short} -- staying put for now.
                 </div>
               );
             }
