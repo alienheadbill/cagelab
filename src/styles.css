@@ -1163,6 +1163,10 @@
         .promotion-card.milestone-live .promotion-tier { font-size: 34px; }
         .milestone-subtitle { font-size: 11px; letter-spacing: 0.1em; color: var(--slate); font-weight: 600; margin-top: 2px; }
         .milestone-cta { margin-top: 16px; }
+        /* National Offer moment: Sign is the primary milestone-cta button;
+           Stay is legitimately available but visually secondary -- plain
+           text, no border/fill, never hidden or hard to find. */
+        .offer-decline-btn { display: block; margin: 10px auto 0; }
         /* Premier title win only -- fighter/record/division line under the
            blurb, per decision 5 ("Include fighter name, record, division,
            circuit" for the biggest active-career moment). */
