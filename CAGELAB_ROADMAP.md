@@ -123,6 +123,15 @@ _Last updated: 2026-09-13_
 > required. Physical-eligibility minimums/fallback remain provisional,
 > pending real card-shape evidence. No Fight Card Daily production code
 > exists; no roadmap priority order changed.
+>
+> **Update log (2026-09-13, post-merge status correction):** PR #46
+> (Career Promotion Offer Presentation Correction) is **merged** into
+> `main` (merge commit `f9e7031d`) — the entry above was written just
+> before the merge landed and still read 🟡 open/in review; corrected to
+> ✅ merged. No content/decision changes, status only. Fight Card Daily
+> Phase 2/2B findings (also recorded above) are unaffected. Section 10's
+> priority order remains unchanged — Draft Strategy + Daily Challenge V2
+> is still the next active major phase.
 
 ## Product North Star
 
@@ -557,7 +566,7 @@ give the background more arena atmosphere (no image asset).
 
 ---
 
-## 🟡 Career Promotion Offer Presentation Correction — PR #46
+## ✅ Career Promotion Offer Presentation Correction — merged (PR #46)
 
 ### Purpose
 
@@ -602,7 +611,7 @@ Reinforces the existing Career presentation principle (see Section 6,
 they happen; Career History is the historical record, not the primary
 discovery surface.
 
-**Status: PR #46 open, in review, not yet merged.**
+**Status: merged into `main` via PR #46 (merge commit `f9e7031d`).**
 
 ---
 
