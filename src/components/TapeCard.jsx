@@ -136,7 +136,17 @@ function TapeCard({ name, picks, blind, modeChip, lastPick, newestSlotKey, compa
                   keeping, per review: watching real picks accumulate here). */}
               {revealed.map((r) => (
                 <div className={`scouting-attr-row reveal-in ${r.key === newestSlotKey ? "newest" : ""}`} key={r.key}>
-                  <span className="scouting-attr-label">{r.label}</span>
+                  <span className="scouting-attr-id">
+                    <span className="scouting-attr-label">{r.label}</span>
+                    {/* Source-fighter provenance (Draft UX pass): stays on the
+                        SAME line as the label -- not a second row -- so
+                        "I built this using pieces of these fighters" is
+                        visible on every pick without growing row height,
+                        the exact thing the mobile space problem can't
+                        afford. Truncates via CSS on a long name rather than
+                        wrapping, same reasoning. */}
+                    <span className="scouting-attr-via mono">{r.fighter}</span>
+                  </span>
                   <span className="scouting-attr-value mono">{r.display}</span>
                 </div>
               ))}

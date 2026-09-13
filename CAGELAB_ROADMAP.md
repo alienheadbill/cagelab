@@ -85,6 +85,21 @@ _Last updated: 2026-09-12_
 > in the merged version; the component itself stays in the tree unused.
 > Draft Strategy + Daily Challenge V2 moves to 🔜 Next in Section 10 — it
 > remains planning-only, not implemented.
+>
+> **Update log (2026-09-12, follow-up):** Draft Strategy + Daily Challenge
+> V2 heading corrected from ⏳ to 🔜 to match Section 10 (typo only, no
+> section rewrite). Recorded implementation-ready decisions from the
+> Phase 1 audit evidence: current lean is a deterministic late weight-
+> class roll from divisions represented on the card, and chosen-division-
+> plus-adjacent-normalized as the physical-eligibility recommendation —
+> neither implemented yet, both still gated on the card→fighters data
+> model. Added a follow-up recommendation for a dedicated physical-stat
+> (Height/Reach) mechanics pass, since the audit found Height combat-inert
+> and Reach purely monotonic with no tradeoff today. Added a Daily
+> Challenge Fairness Backlog entry (Section 5) for the date-boundary/
+> attempt-lock/score-validation/cross-deploy-determinism gaps the audit
+> identified, kept separate from the core Fight Card Daily mechanic.
+> Planning only, no code/scoring/Daily changes.
 
 ## Product North Star
 
@@ -519,7 +534,7 @@ give the background more arena atmosphere (no image asset).
 
 ---
 
-## ⏳ Draft Strategy + Daily Challenge V2
+## 🔜 Draft Strategy + Daily Challenge V2
 
 ### Goal
 
@@ -648,6 +663,18 @@ known.**
   enough to create adaptation rather than defining the whole draft
   upfront; for leaderboard fairness, all players must face equivalent
   conditions.
+  **Current product lean (still not implemented): option (A),
+  deterministic late roll from the divisions represented on the card.**
+  Every player faces the same rolled result, leaderboard comparability
+  stays simple, the core skill draft stays genuinely cross-division, and
+  a roll (vs. a choice) avoids creating a second optimization problem
+  where players just learn which represented division is statistically
+  easiest and always pick it. The Draft Strategy audit found no
+  technical reason this should not be the preferred option — the
+  existing `mulberry32`/date-seed infrastructure already used for
+  Daily's board rolls extends to this cleanly. Still gated on the
+  card→fighters data model existing (see "Historical card data" below);
+  not to be implemented on its own ahead of that.
 - **Physical attributes remain part of the draft** — this is an explicit
   correction: do not bundle Height/Reach into one automatically-inherited
   "Physical Profile." After Weight Class is known, the player drafts
@@ -664,7 +691,52 @@ the current systems interpret them. Audit Height, Reach, Weight Class,
 physical normalization, combat calculations, draft scoring, and fighter
 generation before selecting the eligibility rule. The desired player
 experience is still: draft physical characteristics from fighters
-represented on the card.
+represented on the card, never generated numbers, and never bundled into
+one inherited "Physical Profile" — Height and Reach stay separate draft
+rounds.
+
+**Recommendation (not yet locked — needs real card data to validate
+against): option (B), chosen division + adjacent divisions, normalized
+to the target class.** Evaluated against the audit's evidence:
+- (A) exact chosen division only is the most realistic but a real fight
+  card typically has very few fighters per individual division (often
+  1-2) — almost certainly too thin on its own, and the adaptive pick
+  count (below) would trigger on nearly every Daily.
+- (B) chosen + adjacent divisions is mechanically free today —
+  `relativeHeightScore`/`relativeReachScore` already accept an arbitrary
+  target division to normalize against, independent of a fighter's own
+  native class — and stays believable (a Welterweight's frame
+  re-rated against Middleweight reads as plausible; a Flyweight's frame
+  re-rated against Heavyweight does not).
+- (C) all-card eligibility with a "plausible range" filter was judged
+  the highest absurdity risk (a Heavyweight's raw reach reinterpreted as
+  an outlier Flyweight pick) and needs a defined plausible-range rule
+  that doesn't exist yet — not preferred unless (B) proves too thin in
+  practice against real card data.
+This must be re-validated once real card fixtures exist (see
+"Historical card data" below) — the wc×era grid used as this audit's
+only available proxy is far deeper (20-40 fighters/cell) than any real
+fight card will be, so pool-thinness risk is currently unmeasured
+against real data.
+
+### Follow-up recommendation: dedicated physical-stat mechanics pass (not this phase)
+
+The Draft Strategy audit confirmed HEIGHT is currently combat-inert
+(never read by any combat function) and REACH is purely monotonic
+positive with no tradeoff, diminishing return, or downside of any kind.
+There is currently no mechanical basis for a "compact powerhouse"
+fantasy — a shorter/longer build is not secretly better OR worse today,
+it simply doesn't matter beyond a small, always-positive GOAT Score
+contribution. **Do not fake a tradeoff in Draft UI or copy** (no implying
+shorter Height has a combat advantage it doesn't have) until this is
+addressed at the combat-model level. A future dedicated pass should
+explore authentic MMA-grounded tradeoffs for physical dimensions
+(range/reach advantage in striking exchanges, a durability/target-size
+consideration, wrestling entry distance, and similar real effects) —
+explicitly without an arbitrary "short fighter = bonus" rule. This
+belongs either late in Draft Strategy V2 implementation or as its own
+explicitly scoped combat-model pass; no combat changes are made as part
+of this roadmap entry.
 
 ### Adaptive physical pick count
 
@@ -1189,6 +1261,35 @@ Do not retune casually.
 ## 🧊 Championship Difficulty
 
 Quality gradient is currently healthy enough that championship difficulty should not be casually reduced.
+
+---
+
+## 🧪 Daily Challenge Fairness Backlog
+
+Identified during the Draft Strategy + Daily Challenge V2 audit. Separate
+from the core Fight Card Daily mechanic (see Section 3) — these are
+pre-existing integrity gaps in today's Daily/Challenge implementation,
+not blockers for designing the mechanic itself:
+
+- **Client-local date boundary**: `todayStr()` uses the browser's local
+  clock, not UTC or a server clock — players in different timezones can
+  receive different days' boards near midnight.
+- **Attempt lock is localStorage-only**: `LS_DAILY_STATS.attemptedDate`
+  has no server-side enforcement — clearing storage or switching browser/
+  device grants unlimited retries at the same board.
+- **Unvalidated score submission**: `submitDailyScore`/`submitChallengeScore`
+  are unauthenticated client POSTs — a submitted leaderboard score isn't
+  checked against real picks or replayed server-side.
+- **Cross-deploy determinism**: Daily's seeded board depends on
+  `MASTER_FIGHTERS` staying identical across the day — a mid-day
+  redeploy that touches fighter data could split one day's board between
+  players who loaded before vs. after.
+
+Low priority unless Daily's leaderboard/competitive integrity becomes
+more central to the product. Not in scope for the core Fight Card Daily
+mechanic design — that mechanic should extend the existing
+`mulberry32`/date-seed infrastructure rather than wait on these being
+fixed.
 
 ---
 
