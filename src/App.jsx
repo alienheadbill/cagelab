@@ -235,6 +235,20 @@ const MILESTONE_COPY = {
   },
 };
 
+// Presentation correction: the dedicated pre-decision "an offer just
+// landed" moment, keyed the same way as MILESTONE_COPY (from->to) for the
+// same reason -- an unexpected pairing just falls back to the generic
+// copy below rather than mismatching. Only Regional->National is a real
+// offer today (see resolvePromotionOffer's own comment on why National->
+// Contender Series and Contender Series->Premier/National stay as
+// automatic single-fight consequences, not standing offers).
+const PROMOTION_OFFER_COPY = {
+  "CLF Regional->CLF National": {
+    eyebrow: "THE CALL CAME IN",
+    blurb: "Televised cards. Bigger crowds. Tougher competition.",
+  },
+};
+
 // Live presentation copy for a titleWin milestone's blurb line -- keyed by
 // the tier the title was actually won at (m.tier). Only Premier reads
 // "WORLD CHAMPION" (see the champion-line build below) -- these are just
@@ -1229,7 +1243,7 @@ export default function CageLab() {
   // item 2. One function, two presentations (this Rankings-tab "NEXT" line
   // and the Career hub's own compact block below both call it).
   function circuitNextRequirement(tierName, isChampion, playerRank) {
-    if (tierName === "CLF Regional") return "Win the Regional title, or win 4 straight, to move up to National.";
+    if (tierName === "CLF Regional") return "Win the Regional title, or win 4 straight, to earn a National offer.";
     if (tierName === "CLF National") return "Win the National title, or string together a serious win streak on its own, to earn a shot in the Contender Series.";
     if (tierName === "CLF Contender Series") return "One showcase fight decides it -- win it and the Premier contract is waiting. Lose it and it's back to National, standing untouched.";
     if (isChampion) return "Defend the championship.";
@@ -2053,6 +2067,37 @@ export default function CageLab() {
               </div>
             );
           })()}
+          {/* Presentation correction: the National Offer used to live as a
+              small .decision-panel buried in the ordinary Career dashboard
+              feed -- a major career opportunity reading like a settings
+              toggle instead of something that just happened. Promoted to
+              the same dedicated, blocking milestone-live treatment as
+              every other career-defining moment (title win, circuitMove,
+              defense) -- this IS that moment, just one that asks a
+              question instead of only acknowledging one. Mutually
+              exclusive with pendingMilestone in practice (accepting clears
+              pendingDecision and sets pendingMilestone in the same step,
+              see resolvePromotionOffer), so there's never a stacked/
+              competing decision surface. This is the ONLY place a
+              promotionOffer decision renders now -- the old inline
+              decision-panel version is removed, not duplicated. */}
+          {!spotlightFightId && !careerState.pendingMilestone && careerState.pendingDecision && careerState.pendingDecision.type === "promotionOffer" && (() => {
+            const d = careerState.pendingDecision;
+            const t = clfTier(d.tier);
+            const fromShort = clfTier(d.fromTier).short;
+            const copy = PROMOTION_OFFER_COPY[`${d.fromTier}->${d.tier}`] || { eyebrow: "THE CALL CAME IN", blurb: "A new circuit is calling." };
+            return (
+              <div className="promotion-card milestone-live up offer-milestone-card">
+                <div className="promotion-eyebrow mono"><TrendingUp size={13} /> {copy.eyebrow}</div>
+                <div className="milestone-subtitle">{t.short} OFFER</div>
+                <div className={`promotion-tier display ${tierRampCls(d.tier)}`}>{t.short}</div>
+                <div className="promotion-blurb">{copy.blurb}</div>
+                <div className="promotion-from mono">{fromShort} &rarr; {t.short}</div>
+                <button className="btn btn-championship full-span milestone-cta" onClick={() => handlePromotionOffer(true)}>SIGN WITH {t.short.toUpperCase()}</button>
+                <button className="text-btn offer-decline-btn" onClick={() => handlePromotionOffer(false)}>Stay in {fromShort}</button>
+              </div>
+            );
+          })()}
           {!spotlightFightId && !careerState.pendingMilestone && (
           <>
           {careerState.pendingDecision && careerState.pendingDecision.type === "fightChoice" && (() => {
@@ -2231,26 +2276,6 @@ export default function CageLab() {
               </div>
             </div>
           )}
-          {careerState.pendingDecision && careerState.pendingDecision.type === "promotionOffer" && (() => {
-            const t = clfTier(careerState.pendingDecision.tier);
-            return (
-              <div className="decision-panel">
-                <div className="decision-title"><TrendingUp size={15} /> {t.short} Offer</div>
-                <div className="decision-sub">
-                  You've earned a shot at {t.short}. Televised cards, bigger crowds, tougher competition — but it's your call when to make the jump.
-                </div>
-                <div className="choice-row">
-                  <button className="choice-btn danger" onClick={() => handlePromotionOffer(true)}>
-                    Sign with {t.short}<span>New division standing, fresh Top 15, back to Unranked there</span>
-                  </button>
-                  <button className="choice-btn" onClick={() => handlePromotionOffer(false)}>
-                    Stay in {careerState.pendingDecision.fromTier === "CLF Regional" ? "Regional" : clfTier(careerState.pendingDecision.fromTier).short}
-                    <span>Keep fighting here — the offer can come back around later</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })()}
           {careerState.pendingDecision && careerState.pendingDecision.type === "contractNegotiation" && (
             <div className="decision-panel contract-panel">
               <div className="decision-title"><FileSignature size={15} /> You've Made Premier</div>

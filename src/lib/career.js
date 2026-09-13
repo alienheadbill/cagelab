@@ -3756,6 +3756,21 @@ function resolvePromotionOffer(state, accept) {
     // so it gets the exact same "SIGNED — MOVING UP" Career History card
     // any other circuitMove already produces, no new UI needed for accept.
     s.timeline = [...s.timeline, { type: "circuitMove", id: `circuit-promo-${s.year}-${s.fightGlobalIndex}`, promoted: true, from: tierBefore, to: tier }];
+    // Presentation correction: this is the one line that went missing when
+    // the transition moved out of commitFight and into this function --
+    // commitFight used to set pendingMilestone in the SAME step it flipped
+    // circuitTier, so accepting always paid off with the dedicated "SIGNED
+    // — MOVING UP" reveal. This function took over the transition but never
+    // reconnected it to that reveal, so accepting silently dropped straight
+    // into the National dashboard with no payoff moment at all. Setting it
+    // here reuses the EXACT existing circuitMove milestone (same
+    // MILESTONE_COPY entry, same rendering branch in App.jsx) -- no new
+    // presentation component, just restoring the wire that got dropped.
+    // fastForwardCareer's own loop already calls resolveMilestone on
+    // whatever's pending before its next step, so the accept-by-default
+    // fast-forward path consumes this the same way it consumes any other
+    // milestone -- no fastForwardCareer change needed.
+    s.pendingMilestone = { type: "circuitMove", promoted: true, from: tierBefore, to: tier };
   } else {
     // Restart the re-offer clock on every decline (including a re-decline
     // of a later re-offer) -- promotionOfferDeclinedAsChampion is captured
