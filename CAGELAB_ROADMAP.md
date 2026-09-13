@@ -1,6 +1,6 @@
 # CageLab Development Roadmap
 
-_Last updated: 2026-09-12_
+_Last updated: 2026-09-13_
 
 > **Update log (2026-09-08, post-upload):** Two sections below were corrected
 > against actual repo state before this doc was committed:
@@ -100,6 +100,29 @@ _Last updated: 2026-09-12_
 > attempt-lock/score-validation/cross-deploy-determinism gaps the audit
 > identified, kept separate from the core Fight Card Daily mechanic.
 > Planning only, no code/scoring/Daily changes.
+>
+> **Update log (2026-09-13, roadmap bookkeeping):** Two updates. (1)
+> Added the Career Promotion Offer Presentation Correction (PR #46,
+> open/in review) — restores the National offer as a dedicated live
+> Career moment and the "SIGNED — MOVING UP" reveal on acceptance,
+> corrects stale "move up to National" copy to "earn a National offer,"
+> with no change to PR #45's promotion-agency mechanics. (2) Recorded
+> Fight Card Daily Phase 2/Phase 2B architecture findings under Draft
+> Strategy + Daily Challenge V2: immutable revisioned fixture identity
+> (schemaVersion vs. fixture revision, kept separate), fixtures snapshot
+> their own fighter data rather than referencing live MASTER_FIGHTERS,
+> explicit human-curated fighter mapping (no runtime fuzzy matching),
+> strict V1 card eligibility, UTC Daily boundary, and a Supabase-backed
+> UTC-date → immutable-fixture-ID assignment direction (replacing the
+> earlier, insufficient "first browser to open a date resolves it
+> locally" idea). CageLab's existing fighter-data source
+> (github.com/komaksym/UFC-DataLab) is confirmed MIT-licensed and its
+> source data does contain usable event/bout fields, but the underlying
+> UFC-sourced data's own redistribution status is unresolved — real-card
+> fixtures remain engineering-feasible, legal/provenance review still
+> required. Physical-eligibility minimums/fallback remain provisional,
+> pending real card-shape evidence. No Fight Card Daily production code
+> exists; no roadmap priority order changed.
 
 ## Product North Star
 
@@ -534,6 +557,55 @@ give the background more arena atmosphere (no image asset).
 
 ---
 
+## 🟡 Career Promotion Offer Presentation Correction — PR #46
+
+### Purpose
+
+Restore the National promotion offer as a major live Career moment,
+without changing any of the promotion-agency mechanics introduced in
+PR #45. A playtest pass found that PR #45's mechanically-correct offer
+flow had lost its presentation weight — the offer read as a dashboard
+setting rather than something that just happened in the fighter's
+career, and accepting no longer paid off with any reveal at all.
+
+### What PR #46 does (presentation only)
+
+- Preserves Regional → National eligibility logic exactly as PR #45
+  built it.
+- Preserves the full decline/re-offer lifecycle exactly as PR #45 built
+  it (two-post-decline-win threshold, immediate re-offer on a title win
+  for a player who wasn't yet champion at decline, no requirement to
+  lose, no permanent suppression).
+- Surfaces the National offer as a dedicated career moment — the same
+  blocking `.promotion-card.milestone-live` treatment every other
+  career-defining moment already uses — instead of a small panel buried
+  in the ordinary Career dashboard feed.
+- Presents the choice plainly: **Sign with National** (primary) or
+  **Stay in Regional** (clearly available, never hidden).
+- Restores the existing **SIGNED — MOVING UP / NATIONAL** reveal after
+  acceptance — the same milestone component/copy that shipped before
+  PR #45, reconnected rather than rebuilt.
+- Returns directly to the Regional Career dashboard after declining —
+  no celebration or failure screen.
+- Preserves exactly one truthful Career History entry per decision
+  (accept and decline each produce their own existing entry type; nothing
+  is duplicated by the new reveal layer).
+- Preserves save/resume behavior for an unresolved offer and for an
+  accepted-but-unacknowledged milestone reveal.
+- Corrects Career progression copy: "...to move up to National" →
+  "...to earn a National offer."
+- Does not change matchmaking, combat, rankings, scoring, promotion
+  eligibility thresholds, or re-offer thresholds.
+
+Reinforces the existing Career presentation principle (see Section 6,
+"Major events happen live"): major career decisions should surface when
+they happen; Career History is the historical record, not the primary
+discovery surface.
+
+**Status: PR #46 open, in review, not yet merged.**
+
+---
+
 ## 🔜 Draft Strategy + Daily Challenge V2
 
 ### Goal
@@ -782,6 +854,95 @@ Power" rather than "I am clicking the largest integer." The rating stays
 visible either way; the player still needs transparent information, just
 attached to a name. The exact card UI is not locked.
 
+### Fight Card Daily — Phase 2/2B architecture findings
+
+Two architecture/research passes (Phase 2, Phase 2B) resolved the major
+open design questions below. These are current source-of-truth planning
+decisions, not implementation — no Fight Card Daily production code
+exists yet.
+
+**Locked / strong direction:**
+- Core Daily fantasy remains: **"Build a fighter out of everyone who
+  competed on this card."**
+- Skill rounds use the full card across divisions (unchanged from above).
+- Weight class is determined late and must be globally deterministic —
+  not a per-player/per-device outcome.
+- Height and Reach remain separate draft picks (unchanged from above).
+- Fight Card data is its own model, separate from Career's
+  `universe.events` (that structure is fictional NPC-bout data with no
+  connection to real fighters).
+- Card fighters use explicit, human-curated mappings to CageLab's
+  fighter data — never runtime fuzzy/name matching (name uniqueness in
+  the current roster is a data accident, not a guaranteed invariant).
+- Published card fixtures behave as **immutable historical artifacts**
+  once live. Fixture identity uses immutable revisioned IDs
+  (conceptually `card-YYYY-NNN-r1`, distinct from `schemaVersion`, which
+  is the object *format*, not the card's *content*). A correction
+  creates `r2` and keeps `r1` permanently — a historical Daily
+  assignment retains whichever exact revision it originally used,
+  forever.
+- Each published fixture **snapshots** the exact CageLab rating/Height/
+  Reach data used for that card at authoring time, rather than
+  referencing live `MASTER_FIGHTERS` — a later data correction can never
+  silently change what an already-published fixture offers.
+- Mapping workflow is explicit and human-reviewed: source fighter
+  identity → curated CageLab appearance mapping → frozen snapshot →
+  validation → published immutable fixture.
+- Strict V1 eligibility: every fighter in the finalized Daily pool needs
+  a valid mapping and complete required data (ratings, Height, Reach) —
+  no silently dropping an unmapped fighter while still claiming
+  "everyone who competed." Fix the mapping or exclude the card.
+- Use fighters who **actually competed** on the finalized card —
+  cancelled bookings excluded, late replacements included, no-contest
+  participants included (they did compete).
+- Daily should use a **UTC calendar boundary**, not client-local time,
+  since it drives a shared global leaderboard/puzzle.
+- A historical date-to-fixture assignment must be globally authoritative
+  and device-independent — **not** "whichever browser first opens that
+  date pins it in localStorage." Current leading V1 design: a minimal
+  Supabase-backed daily-assignment record (UTC date → immutable fixture
+  ID), written once and protected from duplicate/racing assignment —
+  exact schema/backend not designed yet.
+- Historical reproducibility target for V2 is **identification-level**:
+  enough metadata to know which fixture/rules/data generation a given
+  Daily used. Exact replay of an old Daily's boards is **not** a
+  required V2 promise.
+- Leaderboard/result records should minimally pin: date, fixture ID,
+  rules version.
+- Draft picks should eventually carry a stable `sourceCardFighterId`
+  alongside the existing source-fighter display name (PR #43's
+  provenance work) — additive, not a rewrite.
+
+**Source / licensing status (verified, not overstated):**
+CageLab's current fighter ratings already cite
+`github.com/komaksym/UFC-DataLab` as their source. That repository is
+confirmed **MIT licensed**, and its underlying source CSV was directly
+inspected and does contain usable event-level/bout-level fields
+(event name, event date, event location, bout/division type, fighter
+names, result/method/round/time) — enough structurally to build real
+card fixtures. **However**, the data itself is documented as scraped
+from official UFC properties, and an MIT license on the scraper/
+repository does not by itself resolve the legal/redistribution status of
+that underlying UFC-sourced data. Real historical Fight Card fixtures
+are therefore: **engineering-feasible, but legal/provenance review is
+still required** before any real UFC-derived card data ships. Neutral
+presentation (real fighters, real finalized card membership, real date/
+location where appropriate, no UFC logos/artwork, no dependency on a
+branded event title) remains the preferred product direction if and
+when real-card use is cleared.
+
+**Physical eligibility status (provisional, not locked):**
+Current leading primary rule: target division + adjacent divisions, raw
+Height/Reach normalized to the final target division (unchanged from
+above). Still explicitly provisional: the minimum physical-choice count,
+the exact fallback rule, and whole-card eligibility thresholds. Evidence
+so far (synthetic card shapes only — no real card data used) found
+exact-division-only pools often too thin, target+adjacent performing
+much better, and a "plausible raw physical range" fallback not reliably
+better than target+adjacent (sometimes worse). Wider adjacency (±2
+divisions) is a plausible next fallback candidate but is **not**
+evidenced strongly enough to lock.
+
 ### Historical card data — content/legal dependency
 
 The gameplay concept does not depend on UFC branding specifically, but
@@ -793,7 +954,9 @@ mechanic must be designed independently of any particular promotion
 license. Possible eventual sources: appropriately usable real historical
 data, licensed data, fictionalized CageLab cards, or other legally
 suitable sources. This is a content/legal research dependency, not a
-reason to change the gameplay concept.
+reason to change the gameplay concept. (See "Fight Card Daily — Phase
+2/2B architecture findings" above for the specific source verified so
+far and its unresolved status.)
 
 ### Relationship to Classic and Blind Draft
 
