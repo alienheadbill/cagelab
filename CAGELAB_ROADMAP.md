@@ -952,6 +952,74 @@ better than target+adjacent (sometimes worse). Wider adjacency (±2
 divisions) is a plausible next fallback candidate but is **not**
 evidenced strongly enough to lock.
 
+### Fight Card Daily — Phase A: Fixture Foundation
+
+Following the Phase 2/2B architecture findings above, Phase A implements
+the first concrete piece of Fight Card Daily: an isolated fixture data
+foundation, with no gameplay wiring. **Status: implemented, open in PR
+(not yet merged), not wired into any screen.**
+
+- New module `src/data/fightCards.js`: an independent `FightCard`/
+  `CardFighter`/`Bout` data shape, unrelated to Career's `universe.events`,
+  the Daily leaderboard, Draft state, or Supabase.
+- Immutable revisioned fixture IDs (`card-YYYY-NNN-r1`), with
+  `schemaVersion` (currently `1`) kept strictly separate from the
+  revision suffix, per the locked direction above.
+- Three **development-only** fixtures (`source: "development"`), built
+  from existing `MASTER_FIGHTERS` entries purely as synthetic test data —
+  they are not claims about any real historical UFC event, card, or date.
+  One is a single-division depth card, one spans five divisions, and one
+  deliberately has a thin (2-fighter) exact-division pool alongside a
+  deep one, to give later target+adjacent physical-eligibility work a
+  realistic case to test against.
+- Every card-fighter is a fully self-contained, frozen, **literal**
+  snapshot committed directly into `fightCards.js` — the module has no
+  import of and no dependency on `MASTER_FIGHTERS`/`fighters.js` at all,
+  so there is no runtime lookup, fuzzy matching, or fallback of any kind,
+  and a later `MASTER_FIGHTERS` rating change cannot alter an
+  already-published fixture revision. `MASTER_FIGHTERS` served only as
+  the **authoring source** used to originally assemble these three
+  fixtures' values by hand; that authoring step is not part of the
+  shipped module. Each snapshot preserves the source's existing
+  (appearance-scoped) id as `appearanceId`, kept as provenance metadata
+  only (not a live reference); a true cross-appearance `personId` is
+  reserved but intentionally not implemented. Correcting a fixture's
+  content means authoring a new revision (`-r2`), never editing an
+  existing one in place and never regenerating it from the roster.
+  *(Corrected post-merge-review from an initial version that rebuilt
+  snapshots from `MASTER_FIGHTERS` at module-evaluation time — that
+  approach kept fixture objects frozen in memory but did not keep a
+  revision's data independent of future roster changes on rebuild; see
+  the immutability-correction commit on this same PR.)*
+- Strict validator (`validateFightCardFixture`) fails loudly — no repair,
+  no silent omission — on a missing/duplicate fixture or card-fighter id,
+  invalid `schemaVersion`, a bout referencing a nonexistent fighter,
+  missing skill/Height/Reach data, an invalid division, invalid/duplicate
+  bout order, or an unsupported `source` (which also catches a
+  development fixture being mislabeled as production/historical).
+- Minimal read-only lookup API only: `getFightCardFixture`,
+  `listFightCardFixtures`, `getRepresentedDivisions`,
+  `getCardFightersForDivision`. Deliberately **no**
+  `getDailyFixtureForDate`, no date/UTC logic, and no Supabase reference
+  in this phase.
+- **Zero changes** to `App.jsx`, Career, Draft, Supabase, or any existing
+  Classic/Blind/Daily behavior — this phase ships isolated data only.
+- **UNRESOLVED FOR LATER PHASE (unchanged from Phase 2B, restated, not
+  re-locked):** how authoritative UTC-date → fixture assignment is
+  generated without letting whichever client/deployment happens to run
+  first define the day's fixture. A client-driven insert protected only
+  by a `UNIQUE(date)` constraint is **not** sufficient on its own — it
+  guarantees a single stored row, not that the row reflects a
+  server-authoritative choice. Candidate mechanisms (pre-populated
+  assignments, a server/RPC-side assignment, or deterministic assignment
+  against an explicitly versioned immutable published fixture pool) are
+  deferred to a later phase; none is chosen or implemented here.
+- Real historical fixtures remain gated behind the unresolved legal/
+  provenance question above — Phase A ships development fixtures only.
+- This is one implementation phase of Fight Card Daily V2, not its
+  completion — Section 10's priority order and "Draft & Career
+  Evaluation V2" as the following phase are unchanged.
+
 ### Historical card data — content/legal dependency
 
 The gameplay concept does not depend on UFC branding specifically, but
