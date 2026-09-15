@@ -972,13 +972,25 @@ foundation, with no gameplay wiring. **Status: implemented, open in PR
   deliberately has a thin (2-fighter) exact-division pool alongside a
   deep one, to give later target+adjacent physical-eligibility work a
   realistic case to test against.
-- Every card-fighter is a fully self-contained, frozen snapshot taken
-  from `MASTER_FIGHTERS` at authoring time only — no runtime fuzzy
-  matching, no runtime fallback lookup back into the live roster.
-  `MASTER_FIGHTERS` itself is untouched. Each snapshot preserves the
-  source's existing (appearance-scoped) id as `appearanceId`; a true
-  cross-appearance `personId` is reserved but intentionally not
-  implemented.
+- Every card-fighter is a fully self-contained, frozen, **literal**
+  snapshot committed directly into `fightCards.js` — the module has no
+  import of and no dependency on `MASTER_FIGHTERS`/`fighters.js` at all,
+  so there is no runtime lookup, fuzzy matching, or fallback of any kind,
+  and a later `MASTER_FIGHTERS` rating change cannot alter an
+  already-published fixture revision. `MASTER_FIGHTERS` served only as
+  the **authoring source** used to originally assemble these three
+  fixtures' values by hand; that authoring step is not part of the
+  shipped module. Each snapshot preserves the source's existing
+  (appearance-scoped) id as `appearanceId`, kept as provenance metadata
+  only (not a live reference); a true cross-appearance `personId` is
+  reserved but intentionally not implemented. Correcting a fixture's
+  content means authoring a new revision (`-r2`), never editing an
+  existing one in place and never regenerating it from the roster.
+  *(Corrected post-merge-review from an initial version that rebuilt
+  snapshots from `MASTER_FIGHTERS` at module-evaluation time — that
+  approach kept fixture objects frozen in memory but did not keep a
+  revision's data independent of future roster changes on rebuild; see
+  the immutability-correction commit on this same PR.)*
 - Strict validator (`validateFightCardFixture`) fails loudly — no repair,
   no silent omission — on a missing/duplicate fixture or card-fighter id,
   invalid `schemaVersion`, a bout referencing a nonexistent fighter,

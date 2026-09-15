@@ -13,12 +13,10 @@
 //  - `schemaVersion` is a separate concept from the revision suffix: it
 //    describes the shape of the fixture record itself, not which cut of
 //    the card this is. Do not conflate the two.
-//  - Every fixture below is a frozen, fully self-contained snapshot.
-//    CardFighter records copy the relevant fields off MASTER_FIGHTERS at
-//    authoring time (see snapshotCardFighter below); nothing exported from
-//    this file reads MASTER_FIGHTERS at query time, and there is no
-//    runtime fuzzy-matching or fallback lookup. MASTER_FIGHTERS itself is
-//    never modified by this module.
+//  - Every fixture below is a frozen, fully self-contained, literal
+//    snapshot (see "AUTHORING vs RUNTIME" below) -- this file has no
+//    import of and no dependency on MASTER_FIGHTERS at all, so there is
+//    no runtime lookup, fuzzy-matching, or fallback of any kind.
 //
 //  Provenance (Phase A): the three fixtures below are marked
 //  `source: "development"` -- they are synthetic development fixtures
@@ -42,8 +40,28 @@
 //  published fixture pool) are deferred to a later phase. Nothing in this
 //  file assumes or implements any of them -- there is no date logic, no
 //  Supabase reference, and no `getDailyFixtureForDate`-style lookup here.
+//
+//  AUTHORING vs RUNTIME (fixture-immutability correction):
+//  This module has NO import of and NO dependency on MASTER_FIGHTERS or
+//  fighters.js. Every CardFighter below is a literal, hand-committed
+//  snapshot -- displayName, appearanceId, division, and all 10 ratings
+//  are typed directly into this file, not derived by looking anything up
+//  at module-load time. MASTER_FIGHTERS was used only as an AUTHORING
+//  SOURCE when these three development fixtures were originally put
+//  together (see CAGELAB_ROADMAP.md's Phase A entry for the flow); that
+//  authoring step is not, and must not become, part of this file. The
+//  flow for a new or corrected fixture is:
+//    MASTER_FIGHTERS (authoring source, mutable)
+//      -> a human picks/copies the exact field values (authoring time)
+//      -> literal CardFighter/Bout data committed to this file
+//      -> frozen at runtime, read-only from here on
+//  A future MASTER_FIGHTERS rating change can NEVER alter an already-
+//  committed fixture revision (e.g. `card-2024-001-r1`) -- this file
+//  simply has no path back to that data anymore. A correction to a
+//  fixture's content is authored as a new revision (`-r2`, keeping `-r1`
+//  byte-for-byte as committed), never an edit in place and never an
+//  automatic regeneration.
 // =========================================================================
-import { MASTER_FIGHTERS } from "./fighters.js";
 import { SKILL_KEYS, WEIGHT_CLASSES } from "./attrs.js";
 
 export const FIGHT_CARD_SCHEMA_VERSION = 1;
@@ -53,44 +71,24 @@ export const FIGHT_CARD_SCHEMA_VERSION = 1;
 // this list casually.
 export const FIGHT_CARD_SOURCES = ["development"];
 
-// ---- authoring-time-only snapshot builders ------------------------------
-// findMasterFighter/snapshotCardFighter run ONLY while the fixture literals
-// below are being constructed, at module-evaluation time. Nothing exported
-// from this file calls back into MASTER_FIGHTERS at query time -- every
-// fixture is a frozen, fully self-contained snapshot by the time it's
-// exported. Do not repurpose these as a runtime/fuzzy lookup path.
-function findMasterFighter(name, wc, era) {
-  const f = MASTER_FIGHTERS.find((m) => m.n === name && m.wc === wc && m.era === era);
-  if (!f) {
-    throw new Error(`fightCards fixture authoring: no MASTER_FIGHTERS entry for "${name}" (${wc}, ${era})`);
-  }
-  return f;
-}
-
-function snapshotCardFighter(cardFighterId, name, wc, era) {
-  const src = findMasterFighter(name, wc, era);
+// ---- literal CardFighter constructor -------------------------------
+// Takes every field as a literal argument -- no lookup, no derivation, no
+// dependency on any other fighter-data module. `attributes` is the exact
+// committed snapshot for this fixture revision.
+function cardFighter(id, displayName, appearanceId, division, attributes) {
   return Object.freeze({
-    id: cardFighterId,
-    displayName: src.n,
-    // MASTER_FIGHTERS' own (appearance-scoped, not person-scoped) id,
-    // preserved verbatim for future cross-referencing.
-    appearanceId: src.id,
+    id,
+    displayName,
+    // The appearance id of the MASTER_FIGHTERS record this snapshot was
+    // authored from, preserved as provenance metadata only. It is NOT a
+    // live reference -- nothing reads MASTER_FIGHTERS by this id at
+    // runtime, and it has no bearing on validation or gameplay.
+    appearanceId,
     // Reserved for a future true cross-appearance/person identity.
     // Intentionally unimplemented in Phase A.
     personId: null,
-    division: src.wc,
-    attributes: Object.freeze({
-      STRIKING: src.STRIKING,
-      GRAPPLING: src.GRAPPLING,
-      WRESTLING: src.WRESTLING,
-      CARDIO: src.CARDIO,
-      POWER: src.POWER,
-      CHIN: src.CHIN,
-      SPEED: src.SPEED,
-      IQ: src.IQ,
-      HEIGHT: src.ht,
-      REACH: src.rc,
-    }),
+    division,
+    attributes: Object.freeze({ ...attributes }),
   });
 }
 
@@ -117,14 +115,14 @@ const FIXTURE_LIGHTWEIGHT_DEPTH = fixture({
   source: "development",
   label: "Development Fixture -- Lightweight Depth Card",
   cardFighters: [
-    snapshotCardFighter("cf-2024-001-01", "Dustin Poirier", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-02", "James Krause", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-03", "Dan Hooker", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-04", "Donald Cerrone", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-05", "Rashid Magomedov", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-06", "Tony Ferguson", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-07", "Khabib Nurmagomedov", "Lightweight", "2010s"),
-    snapshotCardFighter("cf-2024-001-08", "Gregor Gillespie", "Lightweight", "2010s"),
+    cardFighter("cf-2024-001-01", "Dustin Poirier", "dustin-poirier-lightweight-2010s", "Lightweight", { STRIKING: 92, GRAPPLING: 84, WRESTLING: 74, CARDIO: 83, POWER: 86, CHIN: 71, SPEED: 71, IQ: 65, HEIGHT: 69, REACH: 72 }),
+    cardFighter("cf-2024-001-02", "James Krause", "james-krause-lightweight-2010s", "Lightweight", { STRIKING: 92, GRAPPLING: 84, WRESTLING: 66, CARDIO: 90, POWER: 74, CHIN: 72, SPEED: 73, IQ: 69, HEIGHT: 74, REACH: 73 }),
+    cardFighter("cf-2024-001-03", "Dan Hooker", "dan-hooker-lightweight-2010s", "Lightweight", { STRIKING: 89, GRAPPLING: 77, WRESTLING: 72, CARDIO: 82, POWER: 85, CHIN: 73, SPEED: 69, IQ: 71, HEIGHT: 72, REACH: 75 }),
+    cardFighter("cf-2024-001-04", "Donald Cerrone", "donald-cerrone-lightweight-2010s", "Lightweight", { STRIKING: 88, GRAPPLING: 70, WRESTLING: 76, CARDIO: 79, POWER: 87, CHIN: 62, SPEED: 67, IQ: 72, HEIGHT: 73, REACH: 73 }),
+    cardFighter("cf-2024-001-05", "Rashid Magomedov", "rashid-magomedov-lightweight-2010s", "Lightweight", { STRIKING: 87, GRAPPLING: 62, WRESTLING: 81, CARDIO: 94, POWER: 77, CHIN: 85, SPEED: 82, IQ: 90, HEIGHT: 69, REACH: 70 }),
+    cardFighter("cf-2024-001-06", "Tony Ferguson", "tony-ferguson-lightweight-2010s", "Lightweight", { STRIKING: 86, GRAPPLING: 71, WRESTLING: 66, CARDIO: 79, POWER: 70, CHIN: 66, SPEED: 67, IQ: 66, HEIGHT: 71, REACH: 76 }),
+    cardFighter("cf-2024-001-07", "Khabib Nurmagomedov", "khabib-nurmagomedov-lightweight-2010s", "Lightweight", { STRIKING: 85, GRAPPLING: 91, WRESTLING: 95, CARDIO: 87, POWER: 65, CHIN: 93, SPEED: 90, IQ: 89, HEIGHT: 70, REACH: 70 }),
+    cardFighter("cf-2024-001-08", "Gregor Gillespie", "gregor-gillespie-lightweight-2010s", "Lightweight", { STRIKING: 85, GRAPPLING: 91, WRESTLING: 95, CARDIO: 61, POWER: 87, CHIN: 83, SPEED: 92, IQ: 84, HEIGHT: 67, REACH: 71 }),
   ],
   bouts: [
     bout(1, "Lightweight", "cf-2024-001-07", "cf-2024-001-08"),
@@ -142,16 +140,16 @@ const FIXTURE_CROSS_DIVISION = fixture({
   source: "development",
   label: "Development Fixture -- Cross-Division Card",
   cardFighters: [
-    snapshotCardFighter("cf-2024-002-01", "Tom Aspinall", "Heavyweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-02", "Ciryl Gane", "Heavyweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-03", "Sean O'Malley", "Bantamweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-04", "Petr Yan", "Bantamweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-05", "Uros Medic", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-06", "Daniel Rodriguez", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-07", "Shara Magomedov", "Middleweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-08", "Paulo Costa", "Middleweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-09", "Alexander Volkanovski", "Featherweight", "2020s"),
-    snapshotCardFighter("cf-2024-002-10", "Billy Quarantillo", "Featherweight", "2020s"),
+    cardFighter("cf-2024-002-01", "Tom Aspinall", "tom-aspinall-heavyweight-2020s", "Heavyweight", { STRIKING: 99, GRAPPLING: 87, WRESTLING: 94, CARDIO: 64, POWER: 96, CHIN: 80, SPEED: 84, IQ: 73, HEIGHT: 77, REACH: 78 }),
+    cardFighter("cf-2024-002-02", "Ciryl Gane", "ciryl-gane-heavyweight-2020s", "Heavyweight", { STRIKING: 97, GRAPPLING: 70, WRESTLING: 61, CARDIO: 85, POWER: 80, CHIN: 90, SPEED: 94, IQ: 74, HEIGHT: 76, REACH: 81 }),
+    cardFighter("cf-2024-002-03", "Sean O'Malley", "sean-o-malley-bantamweight-2020s", "Bantamweight", { STRIKING: 98, GRAPPLING: 60, WRESTLING: 66, CARDIO: 87, POWER: 89, CHIN: 82, SPEED: 86, IQ: 72, HEIGHT: 71, REACH: 72 }),
+    cardFighter("cf-2024-002-04", "Petr Yan", "petr-yan-bantamweight-2020s", "Bantamweight", { STRIKING: 95, GRAPPLING: 65, WRESTLING: 87, CARDIO: 95, POWER: 79, CHIN: 76, SPEED: 77, IQ: 80, HEIGHT: 67, REACH: 67 }),
+    cardFighter("cf-2024-002-05", "Uros Medic", "uros-medic-welterweight-2020s", "Welterweight", { STRIKING: 95, GRAPPLING: 51, WRESTLING: 67, CARDIO: 76, POWER: 97, CHIN: 60, SPEED: 83, IQ: 63, HEIGHT: 73, REACH: 71 }),
+    cardFighter("cf-2024-002-06", "Daniel Rodriguez", "daniel-rodriguez-welterweight-2020s", "Welterweight", { STRIKING: 93, GRAPPLING: 58, WRESTLING: 62, CARDIO: 94, POWER: 80, CHIN: 65, SPEED: 69, IQ: 70, HEIGHT: 73, REACH: 74 }),
+    cardFighter("cf-2024-002-07", "Shara Magomedov", "shara-magomedov-middleweight-2020s", "Middleweight", { STRIKING: 98, GRAPPLING: 51, WRESTLING: 61, CARDIO: 96, POWER: 74, CHIN: 77, SPEED: 84, IQ: 80, HEIGHT: 74, REACH: 73 }),
+    cardFighter("cf-2024-002-08", "Paulo Costa", "paulo-costa-middleweight-2020s", "Middleweight", { STRIKING: 98, GRAPPLING: 52, WRESTLING: 72, CARDIO: 88, POWER: 90, CHIN: 68, SPEED: 74, IQ: 70, HEIGHT: 73, REACH: 72 }),
+    cardFighter("cf-2024-002-09", "Alexander Volkanovski", "alexander-volkanovski-featherweight-2020s", "Featherweight", { STRIKING: 97, GRAPPLING: 71, WRESTLING: 78, CARDIO: 94, POWER: 74, CHIN: 78, SPEED: 84, IQ: 80, HEIGHT: 66, REACH: 71 }),
+    cardFighter("cf-2024-002-10", "Billy Quarantillo", "billy-quarantillo-featherweight-2020s", "Featherweight", { STRIKING: 96, GRAPPLING: 88, WRESTLING: 72, CARDIO: 91, POWER: 78, CHIN: 61, SPEED: 71, IQ: 63, HEIGHT: 70, REACH: 70 }),
   ],
   bouts: [
     bout(1, "Heavyweight", "cf-2024-002-01", "cf-2024-002-02"),
@@ -173,14 +171,14 @@ const FIXTURE_THIN_POOL = fixture({
   source: "development",
   label: "Development Fixture -- Thin Pool Card",
   cardFighters: [
-    snapshotCardFighter("cf-2024-003-01", "Jack Della Maddalena", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-02", "Rinat Fakhretdinov", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-03", "Geoff Neal", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-04", "Carlos Prates", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-05", "Sean Brady", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-06", "Gabriel Bonfim", "Welterweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-07", "Alexander Volkov", "Heavyweight", "2020s"),
-    snapshotCardFighter("cf-2024-003-08", "Parker Porter", "Heavyweight", "2020s"),
+    cardFighter("cf-2024-003-01", "Jack Della Maddalena", "jack-della-maddalena-welterweight-2020s", "Welterweight", { STRIKING: 93, GRAPPLING: 58, WRESTLING: 63, CARDIO: 85, POWER: 87, CHIN: 64, SPEED: 76, IQ: 68, HEIGHT: 71, REACH: 73 }),
+    cardFighter("cf-2024-003-02", "Rinat Fakhretdinov", "rinat-fakhretdinov-welterweight-2020s", "Welterweight", { STRIKING: 93, GRAPPLING: 80, WRESTLING: 90, CARDIO: 90, POWER: 74, CHIN: 81, SPEED: 80, IQ: 84, HEIGHT: 72, REACH: 72 }),
+    cardFighter("cf-2024-003-03", "Geoff Neal", "geoff-neal-welterweight-2020s", "Welterweight", { STRIKING: 92, GRAPPLING: 65, WRESTLING: 77, CARDIO: 81, POWER: 92, CHIN: 63, SPEED: 70, IQ: 71, HEIGHT: 71, REACH: 75 }),
+    cardFighter("cf-2024-003-04", "Carlos Prates", "carlos-prates-welterweight-2020s", "Welterweight", { STRIKING: 91, GRAPPLING: 52, WRESTLING: 76, CARDIO: 74, POWER: 97, CHIN: 76, SPEED: 76, IQ: 67, HEIGHT: 73, REACH: 78 }),
+    cardFighter("cf-2024-003-05", "Sean Brady", "sean-brady-welterweight-2020s", "Welterweight", { STRIKING: 88, GRAPPLING: 90, WRESTLING: 94, CARDIO: 87, POWER: 55, CHIN: 86, SPEED: 88, IQ: 88, HEIGHT: 70, REACH: 72 }),
+    cardFighter("cf-2024-003-06", "Gabriel Bonfim", "gabriel-bonfim-welterweight-2020s", "Welterweight", { STRIKING: 88, GRAPPLING: 79, WRESTLING: 90, CARDIO: 79, POWER: 65, CHIN: 77, SPEED: 75, IQ: 78, HEIGHT: 73, REACH: 72 }),
+    cardFighter("cf-2024-003-07", "Alexander Volkov", "alexander-volkov-heavyweight-2020s", "Heavyweight", { STRIKING: 95, GRAPPLING: 62, WRESTLING: 76, CARDIO: 89, POWER: 77, CHIN: 83, SPEED: 88, IQ: 78, HEIGHT: 79, REACH: 80 }),
+    cardFighter("cf-2024-003-08", "Parker Porter", "parker-porter-heavyweight-2020s", "Heavyweight", { STRIKING: 94, GRAPPLING: 74, WRESTLING: 71, CARDIO: 81, POWER: 61, CHIN: 52, SPEED: 70, IQ: 72, HEIGHT: 72, REACH: 75 }),
   ],
   bouts: [
     bout(1, "Welterweight", "cf-2024-003-01", "cf-2024-003-02"),
