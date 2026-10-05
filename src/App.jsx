@@ -9,8 +9,13 @@ import {
 
 import "./styles.css";
 
-import { ATTRS, ATTR_BY_KEY, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
+import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
 import { BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
+import { listFightCardFixtures, getRepresentedDivisions } from "./data/fightCards.js";
+import {
+  selectDevelopmentFixture, boardForFightCard, resolveLateWeight,
+  resolvePhysicalPool, boardForPhysicalPool,
+} from "./lib/fightCardDraft.js";
 import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
@@ -316,6 +321,24 @@ export default function CageLab() {
   const [pair, setPair] = useState(() => pickCompatiblePair());
   const [board, setBoard] = useState([]);
   const [lockedDivision, setLockedDivision] = useState(null);
+  // Fight Card Daily V2 Phase B. The fixture this Daily run drew (see
+  // selectDevelopmentFixture) -- null outside Daily, or before a Daily
+  // draft has started. Plain component state like `pair`/`board`: a
+  // reload mid-draft already restarts the draft from Home for every mode
+  // (no mode persists an in-progress draft), so this isn't a new gap.
+  const [dailyFixture, setDailyFixture] = useState(null);
+  // True for the one transition between skill pick #8 and Height -- the
+  // late weight-class roll's reveal. Mirrors `isRolling`'s existing
+  // "replace the board with an interstitial" pattern, kept as its own flag
+  // (rather than reusing isRolling itself) since it renders a different
+  // panel (DivisionRollPanel, reused) for a deliberately more meaningful
+  // beat than the per-round flicker.
+  const [isWeightRolling, setIsWeightRolling] = useState(false);
+  // The deterministically-resolved target division for the in-progress
+  // weight reveal, computed once by resolveLateWeight and handed to
+  // DivisionRollPanel to animate toward -- the component's own cosmetic
+  // cycling never re-derives or re-rolls this value.
+  const [pendingWeightTarget, setPendingWeightTarget] = useState(null);
   const [respinsUsed, setRespinsUsed] = useState({ era: false, stat: false });
   const [picks, setPicks] = useState({});
   const [careerState, setCareerState] = useState(() => (initialActiveCareer ? initialActiveCareer.careerState : null));
@@ -657,14 +680,25 @@ export default function CageLab() {
     setRollPreview(null);
     setLastPick(null);
     setNewestSlotKey(null);
+    setIsWeightRolling(false);
+    setPendingWeightTarget(null);
     let seededDivision = null;
+    let skipDivisionSelect = false;
     if (selectedMode === "daily") {
+      // Fight Card Daily V2 Phase B: skill-first, division determined
+      // late -- see fightCardDraft.js. Division is deliberately left
+      // unresolved here (seededDivision stays null); it's rolled once,
+      // deterministically, right after skill pick #8 (startWeightReveal).
       dailyRngRef.current = mulberry32(seedFromDateStr(todayStr()));
-      setAttributeOrder(shuffle(ATTRS.map((a) => a.key), dailyRngRef.current));
-      // Seeded modes roll the division from the seed so everyone gets the
-      // same division as well as the same boards.
-      seededDivision = WEIGHT_CLASSES[Math.floor(dailyRngRef.current() * WEIGHT_CLASSES.length)];
-      applyPair(pickEraWithinClass(seededDivision, dailyRngRef.current), dailyRngRef.current);
+      const fixture = selectDevelopmentFixture(listFightCardFixtures(), dailyRngRef.current);
+      setDailyFixture(fixture);
+      // Only the 8 skills are shuffled/drafted first -- HEIGHT/REACH are
+      // appended fixed, not part of that shuffle, but still fill out the
+      // same 10-slot order every other mode uses, so round-counting
+      // (ATTRS.length, isFinalRound, etc.) stays completely unchanged.
+      const shuffledSkills = shuffle(SKILL_KEYS, dailyRngRef.current);
+      setAttributeOrder([...shuffledSkills, "HEIGHT", "REACH"]);
+      setBoard(boardForFightCard(fixture, dailyRngRef.current));
       setChallengeSeed(null);
       // Consume the daily attempt the moment the draft STARTS, not when it
       // finishes. Previously the lock was only written on completion, so
@@ -673,14 +707,21 @@ export default function CageLab() {
       // still only updates on a real finish, so streaks stay honest.
       const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
       saveJSON(LS_DAILY_STATS, { ...stats, attemptedDate: todayStr() });
+      skipDivisionSelect = true;
     } else if (selectedMode === "challenge") {
+      // Challenge keeps its pre-Phase-B behavior exactly: seeded division
+      // rolled upfront, boardFor(wc, era), all 10 attributes shuffled
+      // together. Being seeded does not make Challenge a Fight Card mode.
+      setDailyFixture(null);
       const seed = explicitSeed != null ? explicitSeed : Math.floor(Math.random() * 1e9);
       dailyRngRef.current = mulberry32(seed);
       setChallengeSeed(seed);
       setAttributeOrder(shuffle(ATTRS.map((a) => a.key), dailyRngRef.current));
       seededDivision = WEIGHT_CLASSES[Math.floor(dailyRngRef.current() * WEIGHT_CLASSES.length)];
       applyPair(pickEraWithinClass(seededDivision, dailyRngRef.current), dailyRngRef.current);
+      skipDivisionSelect = true;
     } else {
+      setDailyFixture(null);
       dailyRngRef.current = null;
       setChallengeSeed(null);
       setAttributeOrder(shuffle(ATTRS.map((a) => a.key)));
@@ -697,7 +738,7 @@ export default function CageLab() {
     setBuildSaved(false);
     setShowShareBlock(false);
     setWhatIf(null);
-    setPhase(seededDivision ? "draft" : "divisionSelect");
+    setPhase(skipDivisionSelect ? "draft" : "divisionSelect");
   }
 
   // Free play only -- locks the chosen division and begins the draft.
@@ -706,6 +747,19 @@ export default function CageLab() {
     setLockedDivision(wc);
     applyPair(pickEraWithinClass(wc));
     setPhase("draft");
+  }
+
+  // Fight Card Daily V2 Phase B: the next round's board for rounds 2-8
+  // (skill -\> skill, whole-card pool) and round 10 (Reach, drawn fresh
+  // from the already-resolved physical pool -- round 9/Height's own draw
+  // happens in handleWeightSettled, not here). Round 8 -\> 9 never calls
+  // this -- that transition is the weight reveal (startWeightReveal).
+  function setDailyRoundBoard(nextRound, rng) {
+    if (nextRound <= SKILL_KEYS.length) {
+      setBoard(boardForFightCard(dailyFixture, rng));
+    } else {
+      setBoard(boardForPhysicalPool(resolvePhysicalPool(dailyFixture, lockedDivision), rng));
+    }
   }
 
   // Cycles the attribute/era/weight badges through random values a handful of
@@ -718,6 +772,41 @@ export default function CageLab() {
     // won't have flushed yet when this runs -- reading lockedDivision here
     // would use the previous round's (null) value on the round 1 -> 2 transition.
     const lock = division !== undefined ? division : lockedDivision;
+
+    // Fight Card Daily V2 Phase B: never goes through applyPair/boardFor --
+    // see setDailyRoundBoard. Only reached for skill-\>skill transitions and
+    // Height-\>Reach; the skill-\>Height transition is startWeightReveal.
+    if (mode === "daily" && dailyFixture) {
+      const rng = dailyRngRef.current;
+      if (reducedMotion) {
+        setDailyRoundBoard(nextRound, rng);
+        setRound(nextRound);
+        return;
+      }
+      setIsRolling(true);
+      const delays = [55, 60, 70, 85, 100, 125, 155, 195, 245, 300];
+      let i = 0;
+      const tick = () => {
+        setRollPreview({
+          attrKey: ATTRS[Math.floor(Math.random() * ATTRS.length)].key,
+          wc: lock || WEIGHT_CLASSES[Math.floor(Math.random() * WEIGHT_CLASSES.length)],
+          era: ["2000s", "2010s", "2020s"][Math.floor(Math.random() * 3)],
+        });
+        if (i < delays.length - 1) {
+          i += 1;
+          rollTimeoutRef.current = setTimeout(tick, delays[i]);
+        } else {
+          setDailyRoundBoard(nextRound, rng);
+          setRound(nextRound);
+          setIsRolling(false);
+          setRollPreview(null);
+          sfx("whoosh");
+        }
+      };
+      tick();
+      return;
+    }
+
     const nextPair = (rng) => (lock ? pickEraWithinClass(lock, rng) : pickCompatiblePair(undefined, rng));
 
     if (reducedMotion) {
@@ -752,18 +841,52 @@ export default function CageLab() {
     tick();
   }
 
-  function valueFor(fighter, attrKey) {
+  // Fight Card Daily V2 Phase B: the one late weight-class roll, triggered
+  // right after skill pick #8 commits, before Height. resolveLateWeight is
+  // the ONLY rng consumption here -- it runs synchronously, once, the
+  // instant this is called; DivisionRollPanel's own cosmetic cycling (reused
+  // below) only animates TOWARD the already-resolved value, it never
+  // re-derives or re-rolls it. handleWeightSettled (passed as onSettled)
+  // does the actual board/round advance once the reveal finishes.
+  function startWeightReveal() {
+    const target = resolveLateWeight(dailyFixture, dailyRngRef.current);
+    setPendingWeightTarget(target);
+    setIsWeightRolling(true);
+  }
+
+  function handleWeightSettled(target) {
+    setLockedDivision(target);
+    setIsWeightRolling(false);
+    setPendingWeightTarget(null);
+    const pool = resolvePhysicalPool(dailyFixture, target);
+    setBoard(boardForPhysicalPool(pool, dailyRngRef.current));
+    setRound(SKILL_KEYS.length + 1);
+  }
+
+  // `normalizeDivision` overrides which division Height/Reach are scored
+  // against -- defaults to the fighter's own `wc`, which is exactly what
+  // every pre-Phase-B caller already got (Classic/Blind/Challenge only
+  // ever board same-division fighters, so fighter.wc === lockedDivision
+  // there anyway). Fight Card Daily's physical rounds can offer an
+  // adjacent-division fighter (see resolvePhysicalPool), so those callers
+  // pass the locked TARGET division explicitly -- the fighter's own
+  // provenance (fighter.wc, shown elsewhere) is never rewritten to match.
+  // `sourceCardFighterId` carries Fight Card Daily provenance through to
+  // picks/saved builds (see fightCardDraft.js's board adapter); undefined
+  // for every other mode's fighters, so this is purely additive.
+  function valueFor(fighter, attrKey, normalizeDivision) {
     const attr = ATTR_BY_KEY[attrKey];
+    const divisionForScoring = normalizeDivision || fighter.wc;
     if (attr.kind === "height") {
-      const scoreValue = relativeHeightScore(fighter.ht, fighter.wc);
-      return { fighter: fighter.n, raw: fighter.ht, display: formatHeight(fighter.ht), scoreValue, relativeNote: relativeNoteFor("height", scoreValue) };
+      const scoreValue = relativeHeightScore(fighter.ht, divisionForScoring);
+      return { fighter: fighter.n, raw: fighter.ht, display: formatHeight(fighter.ht), scoreValue, relativeNote: relativeNoteFor("height", scoreValue), sourceCardFighterId: fighter.sourceCardFighterId };
     }
     if (attr.kind === "reach") {
-      const scoreValue = relativeReachScore(fighter.rc, fighter.wc);
-      return { fighter: fighter.n, raw: fighter.rc, display: formatReach(fighter.rc), scoreValue, relativeNote: relativeNoteFor("reach", scoreValue) };
+      const scoreValue = relativeReachScore(fighter.rc, divisionForScoring);
+      return { fighter: fighter.n, raw: fighter.rc, display: formatReach(fighter.rc), scoreValue, relativeNote: relativeNoteFor("reach", scoreValue), sourceCardFighterId: fighter.sourceCardFighterId };
     }
     const rating = fighter[attrKey];
-    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating, relativeNote: relativeNoteFor("skill", rating) };
+    return { fighter: fighter.n, raw: rating, display: String(rating), scoreValue: rating, relativeNote: relativeNoteFor("skill", rating), sourceCardFighterId: fighter.sourceCardFighterId };
   }
 
   function recordDailyCompletion(score) {
@@ -782,7 +905,7 @@ export default function CageLab() {
 
   function handlePick(fighter) {
     if (pickedFighterId || isRolling) return; // ignore taps mid-animation
-    const value = valueFor(fighter, currentAttrKey);
+    const value = valueFor(fighter, currentAttrKey, lockedDivision);
     // A 96+ pick is the one moment GOAT Score itself calls special (the
     // full elite bonus, see computeGoatScoreBreakdown) -- give it a
     // distinct chime instead of the same tone every pick gets. Gated on
@@ -831,6 +954,10 @@ export default function CageLab() {
         // render is held back a moment.
         setRevealPending(true);
         setPhase("draftDone");
+      } else if (mode === "daily" && dailyFixture && round === SKILL_KEYS.length) {
+        // Skill pick #8 just committed -- the late weight-class roll,
+        // not a normal round transition. See startWeightReveal.
+        startWeightReveal();
       } else {
         startRoundRoll(round + 1, lockedDivision);
       }
@@ -872,6 +999,11 @@ export default function CageLab() {
     return ATTRS.map((a) => ({
       key: a.key, label: a.label, fighter: picksObj[a.key].fighter,
       display: picksObj[a.key].display, scoreValue: picksObj[a.key].scoreValue, raw: picksObj[a.key].raw,
+      // Fight Card Daily V2 Phase B: additive provenance, undefined for
+      // every pick that didn't come from a Fight Card fixture. Old saved
+      // builds/history entries simply don't have this key -- never
+      // required by any reader.
+      sourceCardFighterId: picksObj[a.key].sourceCardFighterId,
     }));
   }
 
@@ -902,7 +1034,7 @@ export default function CageLab() {
     sfx("select");
     const restoredPicks = {};
     (build.picks || []).forEach((p) => {
-      restoredPicks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw };
+      restoredPicks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw, sourceCardFighterId: p.sourceCardFighterId };
     });
     setPicks(restoredPicks);
     setFighterName(build.fighterName || "");
@@ -1455,6 +1587,29 @@ export default function CageLab() {
           </div>
 
           <div className="draft-right">
+            {/* Fight Card Daily V2 Phase B: the late weight-class reveal
+                replaces the round panel for this one beat, right after
+                skill pick #8 -- reuses DivisionRollPanel (see its own
+                comment) rather than a new reveal subsystem. The real
+                division was already resolved deterministically in
+                startWeightReveal; this only animates toward it. */}
+            {isWeightRolling ? (
+              <DivisionRollPanel
+                onSettled={handleWeightSettled}
+                reducedMotion={reducedMotion}
+                finalOverride={pendingWeightTarget}
+                candidatesOverride={dailyFixture ? getRepresentedDivisions(dailyFixture) : undefined}
+                eyebrow="YOUR SKILLS ARE LOCKED"
+                settledLabel="Height and Reach now draft from this division -- adjacent weight classes on the card are eligible too."
+                metaNode={
+                  <div className="division-roll-meta mono">
+                    {pendingWeightTarget && dailyFixture
+                      ? `${resolvePhysicalPool(dailyFixture, pendingWeightTarget).length} fighters on this card eligible for Height/Reach`
+                      : "Resolving eligible fighters…"}
+                  </div>
+                }
+              />
+            ) : (
             <div className="panel draft-round-panel">
               <div className="round-attr-row">
                 <div className={`attr-badge ${isRolling ? "rolling" : ""}`}>
@@ -1464,13 +1619,23 @@ export default function CageLab() {
                 <div className="round-lbl">{isRolling ? "Rolling…" : `Round ${round}/${ATTRS.length}`}</div>
               </div>
 
-              <div className="context-row">
-                <div className={`context-chip ${isRolling ? "rolling" : ""}`}><MapPin size={12} /> {isRolling && rollPreview ? rollPreview.era : pair.era}</div>
-                <div className={`context-chip ${isRolling ? "rolling" : ""} ${lockedDivision ? "locked" : ""}`}>
-                  {lockedDivision ? <Lock size={12} /> : <Users size={12} />}
-                  {isRolling && rollPreview ? rollPreview.wc : pair.wc}
+              {mode === "daily" && dailyFixture ? (
+                <div className="context-row">
+                  <div className="context-chip"><Swords size={12} /> {dailyFixture.label}</div>
+                  <div className={`context-chip ${lockedDivision ? "locked" : ""}`}>
+                    {lockedDivision ? <Lock size={12} /> : <Users size={12} />}
+                    {lockedDivision || "Weight TBD"}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="context-row">
+                  <div className={`context-chip ${isRolling ? "rolling" : ""}`}><MapPin size={12} /> {isRolling && rollPreview ? rollPreview.era : pair.era}</div>
+                  <div className={`context-chip ${isRolling ? "rolling" : ""} ${lockedDivision ? "locked" : ""}`}>
+                    {lockedDivision ? <Lock size={12} /> : <Users size={12} />}
+                    {isRolling && rollPreview ? rollPreview.wc : pair.wc}
+                  </div>
+                </div>
+              )}
 
               {/* Shown once, in place, the first time a player actually
                   hits round 1 -- not front-loaded into a tutorial wall
@@ -1495,7 +1660,17 @@ export default function CageLab() {
                   </button>
                 </div>
               )}
-              {!isRolling && lockedDivision && (
+              {mode === "daily" && dailyFixture && !isRolling && round <= SKILL_KEYS.length && (
+                <div className="daily-note">
+                  <Swords size={12} /> Fight Card Daily — 8 skills drafted from everyone on this card, any division. Weight is determined after round 8.
+                </div>
+              )}
+              {mode === "daily" && dailyFixture && !isRolling && round > SKILL_KEYS.length && lockedDivision && (
+                <div className="daily-note division-note">
+                  <Lock size={12} /> <b>{lockedDivision}</b> — Height and Reach draft from this division and its adjacent weight classes on the card.
+                </div>
+              )}
+              {!(mode === "daily" && dailyFixture) && !isRolling && lockedDivision && (
                 <div className="daily-note division-note">
                   <Lock size={12} /> <b>{lockedDivision}</b> — every round drafts from this division. Era rotates each round.
                 </div>
@@ -1553,7 +1728,8 @@ export default function CageLab() {
                       index={i}
                       currentAttrKey={currentAttrKey}
                       blind={blind}
-                      value={valueFor(f, currentAttrKey)}
+                      value={valueFor(f, currentAttrKey, lockedDivision)}
+                      normalizeDivision={lockedDivision}
                       selected={pickedFighterId === f.id}
                       disabled={pickedFighterId != null}
                       onPick={() => handlePick(f)}
@@ -1563,6 +1739,7 @@ export default function CageLab() {
               )}
 
             </div>
+            )}
           </div>
         </div>
       )}

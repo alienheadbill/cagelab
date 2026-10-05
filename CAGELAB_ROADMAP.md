@@ -956,8 +956,9 @@ evidenced strongly enough to lock.
 
 Following the Phase 2/2B architecture findings above, Phase A implements
 the first concrete piece of Fight Card Daily: an isolated fixture data
-foundation, with no gameplay wiring. **Status: implemented, open in PR
-(not yet merged), not wired into any screen.**
+foundation, with no gameplay wiring. **Status: merged into `main` via
+PR #48 (merge commit `f96d71fc`).** Phase B (below) now wires it into the
+actual Daily draft flow.
 
 - New module `src/data/fightCards.js`: an independent `FightCard`/
   `CardFighter`/`Bout` data shape, unrelated to Career's `universe.events`,
@@ -1016,6 +1017,67 @@ foundation, with no gameplay wiring. **Status: implemented, open in PR
   deferred to a later phase; none is chosen or implemented here.
 - Real historical fixtures remain gated behind the unresolved legal/
   provenance question above — Phase A ships development fixtures only.
+- This is one implementation phase of Fight Card Daily V2, not its
+  completion — Section 10's priority order and "Draft & Career
+  Evaluation V2" as the following phase are unchanged.
+
+### Fight Card Daily — Phase B: Card-Scoped Draft Sequencing
+
+Wires Phase A's fixtures into an actual playable Daily draft: card-scoped
+skill offers, a late weight-class roll, and a physical (Height/Reach)
+pool resolver. **Status: implemented, open in PR (not yet merged).**
+
+- New module `src/lib/fightCardDraft.js`: `selectDevelopmentFixture`,
+  `boardForFightCard`, `resolveLateWeight`, `resolvePhysicalPool`,
+  `boardForPhysicalPool` — pure functions over Phase A fixture data and a
+  seeded rng, no React, no Supabase, no `MASTER_FIGHTERS` dependency.
+- Daily-only sequencing: the 8 skill attributes (STRIKING, GRAPPLING,
+  WRESTLING, CARDIO, POWER, CHIN, SPEED, IQ) are shuffled and drafted
+  first, offered from the *entire* selected fixture regardless of
+  division (never `boardFor(wc, era)`); weight class is then rolled once,
+  deterministically, equal probability per the fixture's represented
+  supported divisions; Height and Reach follow, drafted from a
+  target+immediately-adjacent-division physical pool. The same source
+  fighter can supply more than one attribute by design — no
+  one-appearance-per-draft restriction.
+- Fixture selection for this vertical slice is a single deterministic rng
+  draw over Phase A's development fixtures (`selectDevelopmentFixture`),
+  isolated behind that one function specifically so Phase C can swap in
+  authoritative date→fixture assignment without touching the Draft engine.
+  **This is explicitly not that assignment mechanism** — see the
+  UNRESOLVED note above, restated unchanged.
+- Physical eligibility (target + adjacent supported divisions, via
+  CageLab's existing `WEIGHT_CLASSES` order) is the current **development**
+  rule only, carried over from the Phase 2/2B findings — still
+  provisional, no minimum-count fallback, no fabricated offers; a
+  too-small pool is shown exactly as found, never padded.
+- Height/Reach are normalized against the **final rolled target
+  division**, not a physical-round fighter's own (possibly adjacent)
+  division — `relativeHeightScore`/`relativeReachScore` and their
+  formulas are unchanged; only which division gets passed in is new.
+- Additive `sourceCardFighterId` on Fight Card Daily picks (provenance,
+  not a restructure) — undefined on every other mode's picks, carried
+  through saved builds and Career History entries; pre-Phase-B saved
+  data has no such field and still loads unmodified.
+- The late weight-class reveal reuses the existing `DivisionRollPanel`
+  component (four small additive props) rather than a new transition
+  subsystem, for the same "drawn, not chosen" moment already established
+  for Classic/Blind's pre-draft division roll.
+- Classic, Blind, and Challenge are byte-for-byte unchanged — verified by
+  browser regression: Classic's division-roll-then-draft flow, respins,
+  and 10-attribute shuffle; Blind's hidden ratings and zero Fight Card
+  provenance leakage; Challenge's pre-rolled-division seeded flow (being
+  seeded does not make it a Fight Card mode). No `App.jsx` changes outside
+  Daily-gated branches; no changes to `career.js`, `scoring.js` (GOAT
+  Score/Build Value/combat formulas untouched), `fighters.js`,
+  `fightCards.js`, or Supabase.
+- **Zero Supabase/global-assignment work** — no `daily_assignments`
+  table, no RPC, no UTC day-boundary change, no leaderboard schema
+  change. The UNRESOLVED authoritative date→fixture assignment question
+  (restated above, not re-locked) remains exactly as open as Phase A left
+  it.
+- Real historical fixtures remain out of scope, gated behind the same
+  unresolved legal/provenance question.
 - This is one implementation phase of Fight Card Daily V2, not its
   completion — Section 10's priority order and "Draft & Career
   Evaluation V2" as the following phase are unchanged.
