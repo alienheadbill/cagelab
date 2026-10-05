@@ -81,16 +81,23 @@ function adaptCardFighterToBoardItem(cf) {
 
 // ---- Card-scoped skill-round offers --------------------------------
 // The whole card, any division, every skill round -- never boardFor(wc,
-// era). Same draw-pattern as boardFor itself: shuffle+slice only when the
-// pool exceeds BOARD_SIZE, otherwise return the whole (already-small)
-// pool in its fixture-authored order -- so a thin fixture behaves exactly
-// like boardFor's own "pool.length <= BOARD_SIZE" case, not a special one.
-// Every CardFighter on the card is eligible every skill round regardless
-// of division; the same fighter can be offered (and picked) in more than
-// one round by design -- no one-appearance-per-draft restriction.
+// era). Every CardFighter on the card is eligible every skill round
+// regardless of division; the same fighter can be offered (and picked) in
+// more than one round by design -- no one-appearance-per-draft restriction.
+//
+// Always seeded-shuffles before truncating to BOARD_SIZE -- including when
+// the pool is already <= BOARD_SIZE. Unlike boardFor(wc, era) (whose
+// MASTER_FIGHTERS pools are always 20+, so its own "skip the shuffle when
+// the pool already fits" branch is effectively dead in practice), a Fight
+// Card fixture's pools are frequently small by design (that's exactly what
+// the thin-pool fixture exists to exercise) -- skipping the shuffle there
+// would let fixture-authored array order silently become meaningful,
+// seed-invariant gameplay presentation order. slice(0, Math.min(...))
+// rather than a length check keeps the oversized/exact/thin cases as one
+// rule, not three.
 function boardForFightCard(fixture, rng = Math.random) {
   const pool = fixture.cardFighters;
-  const chosen = pool.length <= BOARD_SIZE ? pool : shuffle(pool, rng).slice(0, BOARD_SIZE);
+  const chosen = shuffle(pool, rng).slice(0, Math.min(BOARD_SIZE, pool.length));
   return chosen.map(adaptCardFighterToBoardItem);
 }
 
@@ -125,12 +132,16 @@ function resolvePhysicalPool(fixture, targetDivision) {
 }
 
 // Draws a board from an already-resolved physical pool (see
-// resolvePhysicalPool) -- same shuffle-only-when-oversized pattern as
-// boardForFightCard/boardFor. Call once per physical round (Height, then
-// Reach) for an independent draw each time, matching every other round's
-// own independent re-roll.
+// resolvePhysicalPool) -- same always-shuffle-then-truncate rule as
+// boardForFightCard (see its own comment for why this differs from
+// boardFor's skip-when-already-small shortcut). Call once per physical
+// round (Height, then Reach) for an independent draw each time, matching
+// every other round's own independent re-roll. Never pads/duplicates: a
+// pool smaller than BOARD_SIZE is shuffled and shown in full, exactly as
+// found (e.g. the thin card-2024-003-r1/Heavyweight case: 2 candidates
+// in, 2 shown, order seeded).
 function boardForPhysicalPool(pool, rng = Math.random) {
-  const chosen = pool.length <= BOARD_SIZE ? pool : shuffle(pool, rng).slice(0, BOARD_SIZE);
+  const chosen = shuffle(pool, rng).slice(0, Math.min(BOARD_SIZE, pool.length));
   return chosen.map(adaptCardFighterToBoardItem);
 }
 
