@@ -17,7 +17,7 @@ import { restoreSavedBuildDraftState } from "../lib/builds.js";
 // rounds), and debut era is gone outright -- there's no era-specific rules
 // or real-fighter pool behind it, so it was a choice with nothing riding
 // on it. What's left is the one real decision: fighting style.
-function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivision, currentMode, onLaunch, onBack }) {
+function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivision, currentMode, currentDailyMeta, onLaunch, onBack }) {
   const [selectedId, setSelectedId] = useState(currentPicks ? "__current__" : (savedBuilds[0] && savedBuilds[0].id) || null);
 
   // Resolve whichever build is selected into a { picks, name, division } shape.
@@ -29,7 +29,13 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
       // draft left lying around (see App.jsx's goHome for the other half
       // of this fix). "Just drafted" is the one case where the live mode
       // genuinely IS this build's own origin.
-      return { picks: currentPicks, name: currentName, division: currentDivision || null, originMode: currentMode || "classic" };
+      return {
+        picks: currentPicks,
+        name: currentName,
+        division: currentDivision || null,
+        originMode: currentMode || "classic",
+        dailyMeta: currentDailyMeta || null,
+      };
     }
     const b = savedBuilds.find((x) => x.id === selectedId);
     if (!b) return null;
@@ -40,6 +46,7 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
       goatScore: restored.goatScore,
       division: restored.division,
       originMode: restored.mode,
+      dailyMeta: restored.dailyMeta,
     };
   })();
 
@@ -172,6 +179,7 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
           careerStyle: style || "Balanced",
           actualHeight: heightIn, actualReach: reachIn,
           originMode: resolved.originMode,
+          dailyMeta: resolved.dailyMeta || null,
         })}
       >
         <Trophy size={16} /> Begin Career
