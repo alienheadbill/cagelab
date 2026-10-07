@@ -81,3 +81,45 @@ test("validator rejects unsupported sources and dangling bout references", () =>
   assert.equal(boutResult.valid, false);
   assert.ok(boutResult.errors.some((error) => error.includes("not found in cardFighters")));
 });
+
+
+test("validator rejects bout/fighter division mismatches", () => {
+  const base = FIGHT_CARD_FIXTURES[0];
+  const firstBout = base.bouts[0];
+
+  const fighterAMismatch = {
+    ...base,
+    cardFighters: base.cardFighters.map((fighter) =>
+      fighter.id === firstBout.fighterAId
+        ? { ...fighter, division: "Heavyweight" }
+        : fighter
+    ),
+  };
+  const aResult = validateFightCardFixture(fighterAMismatch);
+  assert.equal(aResult.valid, false);
+  assert.ok(
+    aResult.errors.some(
+      (error) =>
+        error.includes(`fighterAId "${firstBout.fighterAId}"`) &&
+        error.includes("does not match bout division")
+    )
+  );
+
+  const fighterBMismatch = {
+    ...base,
+    cardFighters: base.cardFighters.map((fighter) =>
+      fighter.id === firstBout.fighterBId
+        ? { ...fighter, division: "Heavyweight" }
+        : fighter
+    ),
+  };
+  const bResult = validateFightCardFixture(fighterBMismatch);
+  assert.equal(bResult.valid, false);
+  assert.ok(
+    bResult.errors.some(
+      (error) =>
+        error.includes(`fighterBId "${firstBout.fighterBId}"`) &&
+        error.includes("does not match bout division")
+    )
+  );
+});

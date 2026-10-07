@@ -212,6 +212,7 @@ function validateFightCardFixture(fx) {
   if (!fx.label || typeof fx.label !== "string") errors.push(`${label}: missing/invalid label`);
 
   const fighterIds = new Set();
+  const fightersById = new Map();
   if (!Array.isArray(fx.cardFighters) || fx.cardFighters.length === 0) {
     errors.push(`${label}: cardFighters must be a non-empty array`);
   } else {
@@ -220,6 +221,7 @@ function validateFightCardFixture(fx) {
       if (!cf || !cf.id || typeof cf.id !== "string") { errors.push(`${tag}: missing/invalid id`); return; }
       if (fighterIds.has(cf.id)) errors.push(`${label}: duplicate cardFighter id "${cf.id}"`);
       fighterIds.add(cf.id);
+      fightersById.set(cf.id, cf);
       if (!cf.displayName) errors.push(`${tag} (${cf.id}): missing displayName`);
       if (!WEIGHT_CLASSES.includes(cf.division)) errors.push(`${tag} (${cf.id}): invalid division "${cf.division}"`);
       if (!cf.attributes || typeof cf.attributes !== "object") {
@@ -249,8 +251,22 @@ function validateFightCardFixture(fx) {
       }
       if (!b || !WEIGHT_CLASSES.includes(b.division)) errors.push(`${tag}: invalid division "${b && b.division}"`);
       if (!b || !VALID_BOUT_STATUSES.includes(b.status)) errors.push(`${tag}: invalid status "${b && b.status}"`);
-      if (!b || !fighterIds.has(b.fighterAId)) errors.push(`${tag}: fighterAId "${b && b.fighterAId}" not found in cardFighters`);
-      if (!b || !fighterIds.has(b.fighterBId)) errors.push(`${tag}: fighterBId "${b && b.fighterBId}" not found in cardFighters`);
+      if (!b || !fighterIds.has(b.fighterAId)) {
+        errors.push(`${tag}: fighterAId "${b && b.fighterAId}" not found in cardFighters`);
+      } else {
+        const fighterA = fightersById.get(b.fighterAId);
+        if (fighterA.division !== b.division) {
+          errors.push(`${tag}: fighterAId "${b.fighterAId}" division "${fighterA.division}" does not match bout division "${b.division}"`);
+        }
+      }
+      if (!b || !fighterIds.has(b.fighterBId)) {
+        errors.push(`${tag}: fighterBId "${b && b.fighterBId}" not found in cardFighters`);
+      } else {
+        const fighterB = fightersById.get(b.fighterBId);
+        if (fighterB.division !== b.division) {
+          errors.push(`${tag}: fighterBId "${b.fighterBId}" division "${fighterB.division}" does not match bout division "${b.division}"`);
+        }
+      }
       if (b && b.fighterAId === b.fighterBId) errors.push(`${tag}: fighterAId and fighterBId are the same fighter`);
     });
   }
