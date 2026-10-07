@@ -1689,7 +1689,7 @@ export default function CageLab() {
                 </div>
               )}
               {mode === "daily" && !isRolling && (
-                <div className="daily-note"><Calendar size={12} /> Daily Challenge — same board for everyone, no respins.</div>
+                <div className="daily-note"><Calendar size={12} /> Daily Challenge — one seeded board, no respins.</div>
               )}
               {mode === "challenge" && !isRolling && (
                 <div className="daily-note">
