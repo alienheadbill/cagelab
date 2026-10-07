@@ -15,13 +15,16 @@ import {
   eraFromAppearanceId,
   resolveLateWeight,
   resolvePhysicalPool,
-  selectDevelopmentFixture,
 } from "../src/lib/fightCardDraft.js";
 import { mulberry32, shuffle } from "../src/lib/rng.js";
 
-function simulateDailySequence(seed) {
+function simulateDailySequence(seed, fixtureId = "card-2024-001-r1") {
   const rng = mulberry32(seed);
-  const fixture = selectDevelopmentFixture(listFightCardFixtures(), rng);
+  const fixture = getFightCardFixture(fixtureId);
+  assert.ok(fixture, `missing fixture ${fixtureId}`);
+
+  // fight-card-v1 starts gameplay RNG HERE. Fixture identity is supplied by
+  // the authoritative server assignment and consumes no client RNG draw.
   const skillOrder = shuffle(SKILL_KEYS, rng);
 
   const skillBoards = Array.from({ length: SKILL_KEYS.length }, () =>
@@ -43,7 +46,7 @@ function simulateDailySequence(seed) {
   };
 }
 
-test("same seed produces the exact same Phase B gameplay sequence", () => {
+test("same authoritative fixture + seed produces the exact same fight-card-v1 gameplay sequence", () => {
   for (const seed of [1, 42, 20261007, 8675309, 2147483647]) {
     assert.deepEqual(simulateDailySequence(seed), simulateDailySequence(seed));
   }
@@ -174,7 +177,45 @@ test("appearance-era parsing is presentation-only and degrades safely", () => {
   assert.equal(eraFromAppearanceId(null), "");
 });
 
-test("development fixture selection handles an empty fixture list safely", () => {
-  assert.equal(selectDevelopmentFixture([], mulberry32(1)), null);
-  assert.equal(selectDevelopmentFixture(null, mulberry32(1)), null);
+test("live C2 assignment pins the fight-card-v1 RNG sequence", () => {
+  const sequence = simulateDailySequence(1210255544, "card-2024-001-r1");
+
+  assert.deepEqual(sequence, {
+    fixtureId: "card-2024-001-r1",
+    skillOrder: [
+      "IQ",
+      "STRIKING",
+      "SPEED",
+      "WRESTLING",
+      "CARDIO",
+      "CHIN",
+      "GRAPPLING",
+      "POWER",
+    ],
+    skillBoards: [
+      ["cf-2024-001-04", "cf-2024-001-08", "cf-2024-001-06", "cf-2024-001-05", "cf-2024-001-07"],
+      ["cf-2024-001-04", "cf-2024-001-08", "cf-2024-001-05", "cf-2024-001-01", "cf-2024-001-02"],
+      ["cf-2024-001-06", "cf-2024-001-02", "cf-2024-001-08", "cf-2024-001-05", "cf-2024-001-04"],
+      ["cf-2024-001-03", "cf-2024-001-05", "cf-2024-001-04", "cf-2024-001-08", "cf-2024-001-01"],
+      ["cf-2024-001-02", "cf-2024-001-03", "cf-2024-001-04", "cf-2024-001-06", "cf-2024-001-01"],
+      ["cf-2024-001-07", "cf-2024-001-06", "cf-2024-001-04", "cf-2024-001-05", "cf-2024-001-01"],
+      ["cf-2024-001-02", "cf-2024-001-01", "cf-2024-001-06", "cf-2024-001-08", "cf-2024-001-03"],
+      ["cf-2024-001-04", "cf-2024-001-03", "cf-2024-001-06", "cf-2024-001-02", "cf-2024-001-01"],
+    ],
+    targetDivision: "Lightweight",
+    heightBoard: [
+      "cf-2024-001-07",
+      "cf-2024-001-01",
+      "cf-2024-001-02",
+      "cf-2024-001-04",
+      "cf-2024-001-08",
+    ],
+    reachBoard: [
+      "cf-2024-001-01",
+      "cf-2024-001-02",
+      "cf-2024-001-07",
+      "cf-2024-001-03",
+      "cf-2024-001-06",
+    ],
+  });
 });
