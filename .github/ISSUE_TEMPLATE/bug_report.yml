@@ -1,0 +1,60 @@
+name: Bug report
+description: Report incorrect behavior or a regression.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start...
+        2. Select...
+        3. Reload...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Draft — Classic
+        - Draft — Blind
+        - Draft — Daily
+        - Draft — Challenge
+        - Saved Builds / Trophy Case
+        - Career
+        - Universe / History
+        - GOAT Lab
+        - Leaderboard / Backend
+        - Visual / Responsive
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: data
+    attributes:
+      label: Save/data context
+      description: Mention whether this involved an existing saved build, active career, imported data, or a fresh session.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Screenshots, console errors, affected build/branch, or anything else that helps reproduce it.
