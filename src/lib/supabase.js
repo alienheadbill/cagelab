@@ -42,27 +42,58 @@ async function fetchTodayDailyAssignment() {
   }
 }
 
-async function submitDailyScore(date, score, displayName) {
+function dailyIdentityParams(dailyMeta) {
+  if (
+    !dailyMeta
+    || typeof dailyMeta.challengeDate !== "string"
+    || typeof dailyMeta.fixtureId !== "string"
+    || typeof dailyMeta.rulesVersion !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    p_challenge_date: dailyMeta.challengeDate,
+    p_fixture_id: dailyMeta.fixtureId,
+    p_rules_version: dailyMeta.rulesVersion,
+  };
+}
+
+async function submitDailyScore(dailyMeta, score, displayName) {
   if (!SUPABASE_ENABLED) return { ok: false, reason: "disabled" };
+  const identity = dailyIdentityParams(dailyMeta);
+  if (!identity) return { ok: false, reason: "missing-assignment" };
+
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/daily_scores`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/submit_daily_score`, {
       method: "POST",
-      headers: supabaseHeaders({ "Content-Type": "application/json", Prefer: "return=minimal" }),
-      body: JSON.stringify({ date, score, display_name: (displayName || "Anonymous").slice(0, 24) }),
+      headers: supabaseHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        ...identity,
+        p_score: score,
+        p_display_name: (displayName || "").slice(0, 24),
+      }),
     });
-    return { ok: res.ok };
+    return { ok: res.ok, ...(res.ok ? {} : { status: res.status }) };
   } catch (e) {
     return { ok: false, reason: "network" };
   }
 }
 
-async function fetchDailyLeaderboard(date, limit) {
+async function fetchDailyLeaderboard(dailyMeta, limit) {
   if (!SUPABASE_ENABLED) return [];
+  const identity = dailyIdentityParams(dailyMeta);
+  if (!identity) return [];
+
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/daily_scores?date=eq.${date}&select=display_name,score,created_at&order=score.desc,created_at.asc&limit=${limit || 20}`,
-      { headers: supabaseHeaders() }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_daily_leaderboard`, {
+      method: "POST",
+      headers: supabaseHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        ...identity,
+        p_limit: limit || 20,
+      }),
+    });
     if (!res.ok) return [];
     return await res.json();
   } catch (e) {
