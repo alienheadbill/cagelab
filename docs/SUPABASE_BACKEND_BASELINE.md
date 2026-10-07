@@ -1,6 +1,6 @@
 # Supabase Backend Baseline — 2026-10-07
 
-Status: C1 baseline for Fight Card Daily Phase C.
+Status: historical C1 baseline for Fight Card Daily Phase C. C2 has since created the first CageLab-owned backend objects; this document intentionally preserves the pre-C2 audit state.
 
 This document records the live database state inspected through the connected Supabase project before CageLab introduces its first application-owned database schema.
 
