@@ -1085,8 +1085,9 @@ pool resolver. **Status: merged into `main` via PR #49 (merge commit `68f2a208`)
 ### Fight Card Daily — Phase C: Authoritative Daily Contract
 
 Phase C owns the production identity/authority layer for Fight Card Daily.
-**Architecture decision recorded in `docs/DAILY_PHASE_C_ARCHITECTURE.md`;
-backend/client implementation is not yet complete.**
+**Architecture is recorded in `docs/DAILY_PHASE_C_ARCHITECTURE.md`. C1
+backend baseline and C2 assignment authority are merged; C3 client cutover
+is implemented in PR #61. C4 leaderboard storage/submission/read remains.**
 
 Locked implementation direction:
 
@@ -1109,13 +1110,17 @@ Locked implementation direction:
 - This provides assignment integrity, **not full anti-cheat**. Client-side
   scoring and anonymous players mean a stronger competitive-integrity
   system would require a later authenticated/server-verifiable run design.
-- Before any production database migration, the existing remote Supabase
-  schema and RLS policies must be pulled into version control. The current
-  repo has no database baseline, so Phase C will not guess the shape or
-  security of the live `daily_scores`/`challenge_scores` tables.
+- C1's live audit found no pre-existing CageLab application schema or
+  migration history in the connected Supabase project. C2 therefore
+  established the first version-controlled backend from a clean baseline:
+  private authority tables + the parameterless assignment RPC.
+- C3 removes device-local date/fixture/seed authority from the client and
+  fails closed on unavailable, stale-rules, or unknown-fixture assignments.
+- C4 still needs to create the actual Daily score storage and validating
+  submission/read RPCs. Until then, the shared leaderboard is not a
+  functional competitive backend.
 
-Current implementation order: backend baseline → assignment schema/RPC →
-client UTC/assignment cutover → leaderboard metadata/submission cutover.
+Implementation status: C1 ✅ → C2 ✅ → C3 PR #61 → C4 ⏳.
 
 ### Historical card data — content/legal dependency
 
@@ -1603,30 +1608,31 @@ Quality gradient is currently healthy enough that championship difficulty should
 
 ## 🧪 Daily Challenge Fairness Backlog
 
-Identified during the Draft Strategy + Daily Challenge V2 audit. Separate
-from the core Fight Card Daily mechanic (see Section 3) — these are
-pre-existing integrity gaps in today's Daily/Challenge implementation,
-not blockers for designing the mechanic itself:
+Phase C resolves several integrity gaps identified during the original
+Draft Strategy + Daily Challenge V2 audit:
 
-- **Client-local date boundary**: `todayStr()` uses the browser's local
-  clock, not UTC or a server clock — players in different timezones can
-  receive different days' boards near midnight.
-- **Attempt lock is localStorage-only**: `LS_DAILY_STATS.attemptedDate`
-  has no server-side enforcement — clearing storage or switching browser/
-  device grants unlimited retries at the same board.
-- **Unvalidated score submission**: `submitDailyScore`/`submitChallengeScore`
-  are unauthenticated client POSTs — a submitted leaderboard score isn't
-  checked against real picks or replayed server-side.
-- **Cross-deploy determinism**: Daily's seeded board depends on
-  `MASTER_FIGHTERS` staying identical across the day — a mid-day
-  redeploy that touches fighter data could split one day's board between
-  players who loaded before vs. after.
+- ✅ **Client-local date boundary** — C2/C3 use a server-authoritative UTC
+  assignment date.
+- ✅ **Cross-deploy Daily identity** — C2 persists immutable
+  date/fixture/rules/seed assignments; C3 resolves the exact committed
+  fixture revision and rejects stale/unknown authority.
+- ⏳ **Attempt lock is still localStorage-only** —
+  `LS_DAILY_STATS.attemptedDate` prevents ordinary repeat play in one
+  browser, but clearing storage or switching browser/device still grants a
+  retry. Server-enforced attempt identity would require authentication or
+  another durable player identity and is not part of anonymous V1.
+- ⏳ **Score integrity / leaderboard backend** — C4 still needs actual score
+  storage and validating RPC submission/read paths. Even after that,
+  client-computed anonymous scores are casual/community competition, not
+  cheat-proof results; true anti-cheat would require authenticated or
+  server-verifiable runs.
+- ⏳ **Challenge Code leaderboard** — the current frontend still assumes a
+  `challenge_scores` resource that did not exist in the C1 backend audit.
+  This is separate from Fight Card Daily authority and should get its own
+  backend pass rather than piggyback on C4.
 
-Low priority unless Daily's leaderboard/competitive integrity becomes
-more central to the product. Not in scope for the core Fight Card Daily
-mechanic design — that mechanic should extend the existing
-`mulberry32`/date-seed infrastructure rather than wait on these being
-fixed.
+Do not describe anonymous V1 Daily as fully cheat-proof. Assignment
+integrity and score/run integrity are different problems.
 
 ---
 
