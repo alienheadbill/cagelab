@@ -15,6 +15,13 @@ The connected production project is documented in `docs/SUPABASE_BACKEND_BASELIN
 
 ## Current state
 
-As of the C1 audit on 2026-10-07, the live project's `public` schema contains no CageLab application tables or functions and Supabase reports no application migration history.
+C1 established that the project had no pre-existing CageLab application schema.
 
-The first migration created after this baseline will therefore establish CageLab's initial application backend rather than modify a legacy schema.
+C2 then deployed and recorded:
+
+- `20261007193201_create_daily_authority_v1.sql`
+- `20261007193341_index_daily_assignment_ruleset_fixture.sql`
+
+Authority state lives under the non-exposed `private` schema. The intentionally public API surface is `public.get_today_daily_assignment()`, which accepts no client authority fields.
+
+Database contract checks live under `supabase/tests/`.
