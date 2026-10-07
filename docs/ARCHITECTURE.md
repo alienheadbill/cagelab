@@ -107,6 +107,12 @@ The rule is incremental containment:
 3. lock behavior with tests;
 4. refactor only when it reduces risk for an actual upcoming feature.
 
+## Data authoring references
+
+Historical one-off source snapshots that are useful for provenance live under `data/source/`. They are not runtime modules and must not be treated as current gameplay truth.
+
+In particular, the former root `roater` file now lives there as a documented roster-authoring snapshot. The application must continue to read fighter data from `src/data/fighters.js`.
+
 ## Sources of truth
 
 Use the following hierarchy:
