@@ -116,7 +116,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
           ) : (
             <>
               <div className="daily-hero-cta">PLAY NOW</div>
-              <div className="daily-hero-status">The exact same board as everyone, worldwide</div>
+              <div className="daily-hero-status">One seeded board for today’s Daily Challenge</div>
             </>
           )}
         </div>
