@@ -1,0 +1,61 @@
+name: Product idea
+description: Capture a gameplay, product, UX, or universe idea before engineering scope.
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the player fantasy, not the implementation. Engineering will triage feasibility, dependencies, and tradeoffs.
+
+  - type: textarea
+    id: fantasy
+    attributes:
+      label: One-sentence player fantasy
+      description: What should the player be able to feel, do, or understand?
+      placeholder: "I want the player to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this would improve CageLab
+      description: What problem does it solve or what new value does it create?
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References or inspiration
+      description: Games, screenshots, links, mechanics, or rough comparisons. They can be imperfect.
+
+  - type: textarea
+    id: must_have
+    attributes:
+      label: Must-have parts
+      description: What would make the idea no longer worth doing if removed?
+
+  - type: textarea
+    id: flexible
+    attributes:
+      label: Flexible parts
+      description: What can engineering change, simplify, or reinterpret?
+
+  - type: textarea
+    id: concerns
+    attributes:
+      label: Known concerns or weird parts
+      description: Anything that might be unrealistic, expensive, legally awkward, or contradictory.
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Owner urgency
+      options:
+        - "Just an idea — backlog is fine"
+        - "Worth exploring soon"
+        - "I think this should be next"
+        - "This blocks how I want the product to work"
+    validations:
+      required: true
