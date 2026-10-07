@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles, FlaskConical } from "lucide-react";
 import { todayStr, decodeSeed } from "../lib/rng.js";
+import { dailyAttemptState } from "../lib/daily.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
@@ -15,9 +16,9 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
   const [boardLoading, setBoardLoading] = useState(true);
   // An abandoned attempt still counts as today's attempt -- otherwise quitting
   // mid-draft and returning would give unlimited retries at the same board.
-  const playedToday = dailyStats.lastCompletedDate === todayStr()
-    || dailyStats.attemptedDate === todayStr();
-  const completedToday = dailyStats.lastCompletedDate === todayStr();
+  const attemptState = dailyAttemptState(dailyStats, todayStr());
+  const playedToday = attemptState !== "available";
+  const completedToday = attemptState === "completed";
 
   // The Daily leaderboard preview is the hero's payoff -- load it up front
   // instead of hiding it behind a tap, same as scores/streak.
@@ -115,7 +116,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
           ) : (
             <>
               <div className="daily-hero-cta">PLAY NOW</div>
-              <div className="daily-hero-status">The exact same board as everyone, worldwide</div>
+              <div className="daily-hero-status">One seeded board for today’s Daily Challenge</div>
             </>
           )}
         </div>

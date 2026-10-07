@@ -6,6 +6,7 @@ import { archetypeFor } from "../lib/scoring.js";
 import { generateOpponentNames } from "../data/fighters.js";
 import { formatHeight, formatReach } from "../lib/utils.js";
 import { sfx } from "../lib/audio.js";
+import { restoreSavedBuildDraftState } from "../lib/builds.js";
 
 // ---------- Career Setup: configure the career, not the build ----------
 // Division, actual height/reach, and debut era used to all be re-picked
@@ -32,9 +33,14 @@ function CareerSetupPanel({ savedBuilds, currentPicks, currentName, currentDivis
     }
     const b = savedBuilds.find((x) => x.id === selectedId);
     if (!b) return null;
-    const picks = {};
-    (b.picks || []).forEach((p) => { picks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw }; });
-    return { picks, name: b.fighterName, goatScore: b.goatScore, division: b.division || null, originMode: b.mode || "classic" };
+    const restored = restoreSavedBuildDraftState(b);
+    return {
+      picks: restored.picks,
+      name: restored.fighterName,
+      goatScore: restored.goatScore,
+      division: restored.division,
+      originMode: restored.mode,
+    };
   })();
 
   const base = resolved ? (() => {

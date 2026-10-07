@@ -5,7 +5,7 @@ import { formatHeight, formatReach } from "../lib/utils.js";
 import TierIcon from "./TierIcon.jsx";
 
 // ---------- Restyled fighter pick card (colored header band, tier icon, related-stat mini bars) ----------
-function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selected, disabled, onPick }) {
+function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selected, disabled, onPick, normalizeDivision }) {
   const attr = ATTR_BY_KEY[currentAttrKey];
   const tier = tierOf(value.scoreValue);
   // Header color is driven by the actual rating tier -- bronze/silver/gold/legendary --
@@ -19,10 +19,16 @@ function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selecte
   // would visually announce it the instant the number itself is hidden.
   const eliteSelect = selected && !blind && value.scoreValue >= 96;
 
+  // Defaults to the fighter's own division -- matches valueFor's own
+  // default (App.jsx), so Classic/Blind/Challenge get the exact same
+  // number as before. Fight Card Daily's physical rounds pass the locked
+  // target division explicitly so this mini-bar never disagrees with the
+  // pick's own (correctly target-normalized) main score.
   function relatedValue(key) {
     const relAttr = ATTR_BY_KEY[key];
-    if (relAttr.kind === "height") return relativeHeightScore(fighter.ht, fighter.wc);
-    if (relAttr.kind === "reach") return relativeReachScore(fighter.rc, fighter.wc);
+    const divisionForScoring = normalizeDivision || fighter.wc;
+    if (relAttr.kind === "height") return relativeHeightScore(fighter.ht, divisionForScoring);
+    if (relAttr.kind === "reach") return relativeReachScore(fighter.rc, divisionForScoring);
     return fighter[key];
   }
 
