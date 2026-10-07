@@ -16,7 +16,7 @@ import {
   selectDevelopmentFixture, boardForFightCard, resolveLateWeight,
   resolvePhysicalPool, boardForPhysicalPool,
 } from "./lib/fightCardDraft.js";
-import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";
+import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";\nimport { restoreSavedBuildDraftState } from "./lib/builds.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -1032,14 +1032,15 @@ export default function CageLab() {
   // scorecard, re-save, or immediately Start Career with that exact build.
   function loadSavedBuild(build) {
     sfx("select");
-    const restoredPicks = {};
-    (build.picks || []).forEach((p) => {
-      restoredPicks[p.key] = { fighter: p.fighter, display: p.display, scoreValue: p.scoreValue, raw: p.raw, sourceCardFighterId: p.sourceCardFighterId };
-    });
-    setPicks(restoredPicks);
-    setFighterName(build.fighterName || "");
-    setMode(build.mode || "classic");
-    setGoatScore(build.goatScore);
+    const restored = restoreSavedBuildDraftState(build);
+    setPicks(restored.picks);
+    setFighterName(restored.fighterName);
+    setMode(restored.mode);
+    setGoatScore(restored.goatScore);
+    // The saved build owns its division. This also keeps Phase B's
+    // sourceCardFighterId provenance because the shared restoration helper
+    // preserves that optional field when reconstructing picks.
+    setLockedDivision(restored.division);
     setBuildSaved(true);
     setShowShareBlock(false);
     setChallengeSeed(null);
