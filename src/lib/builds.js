@@ -32,6 +32,9 @@ function restoreSavedBuildDraftState(build) {
     mode: build?.mode || "classic",
     goatScore: build?.goatScore ?? null,
     division: build?.division || null,
+    // Phase C identification provenance. Older builds predate this field and
+    // legitimately restore null; never fabricate assignment metadata.
+    dailyMeta: build?.dailyMeta || null,
   };
 }
 
