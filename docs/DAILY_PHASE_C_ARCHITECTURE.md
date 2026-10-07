@@ -1,6 +1,6 @@
 # Fight Card Daily Phase C — Authoritative Daily Contract
 
-Status: architecture decision for implementation.
+Status: C0 architecture locked; C1 backend baseline and C2 assignment backend implemented. C3 client cutover and C4 leaderboard cutover remain.
 
 Phase A created immutable Fight Card fixtures. Phase B made those fixtures playable. Phase C makes a Daily challenge globally identifiable and server-authoritative enough that two clients are not allowed to invent different definitions of "today."
 
@@ -54,14 +54,16 @@ Conceptual record:
       seed: int32
     }
 
-Recommended database table:
+Implemented database table:
 
-    public.daily_assignments
+    private.daily_assignments
       challenge_date date primary key
-      fixture_id text not null
       rules_version text not null
+      fixture_id text not null
       seed integer not null
       created_at timestamptz not null default now()
+
+The authority tables live in a non-exposed `private` schema. Clients cannot read or write them directly; the public RPC is the API boundary.
 
 Once inserted, an assignment is immutable.
 
@@ -78,24 +80,26 @@ Historical identification depends on the stored row staying unchanged.
 
 The database needs an explicit, immutable description of which fixture revisions a rules version may assign.
 
-Recommended conceptual table:
+Implemented normalized model:
 
-    public.daily_rulesets
+    private.daily_rulesets
       rules_version text primary key
-      active_from date not null
-      active_through date null
-      fixture_ids text[] not null
+      active_from date not null unique
       rotation_salt bigint not null
       created_at timestamptz not null default now()
 
-Example:
+    private.daily_ruleset_fixtures
+      rules_version text references daily_rulesets
+      fixture_id text
+      position smallint
+      primary key (rules_version, fixture_id)
+      unique (rules_version, position)
 
-    rules_version = "fight-card-v1"
-    fixture_ids = [
-      "card-2024-001-r1",
-      "card-2024-002-r1",
-      "card-2024-003-r1"
-    ]
+The active rules version is the newest `active_from` not later than the authoritative UTC date. A new version is activated by inserting a later `active_from`; the old ruleset does not need to be edited.
+
+The normalized fixture table lets Postgres enforce that every persisted assignment's `(rules_version, fixture_id)` belongs to the published pool with a real foreign key.
+
+The first published development ruleset is `fight-card-v1` with the three immutable Phase A development fixture revisions.
 
 Rulesets are append-only in normal operation.
 
@@ -307,54 +311,58 @@ Do not smuggle that larger project into Phase C.
 
 ## 14. Supabase security model
 
-All new public-schema tables must use explicit grants and RLS.
+C2 uses a smaller API surface than public tables + RLS:
 
-Recommended stance:
+### Authority tables
 
-### daily_rulesets
+`daily_rulesets`, `daily_ruleset_fixtures`, and `daily_assignments` live in the non-exposed `private` schema.
 
-- RLS enabled;
-- no direct anonymous writes;
-- preferably no direct anonymous reads;
-- authoritative RPC reads it through controlled server-side logic.
+- `anon` and `authenticated` have no `USAGE` on the schema;
+- they have no direct table privileges;
+- RLS is enabled as defense in depth with no allow policies;
+- assignment creation/read occurs only through the reviewed RPC.
 
-### daily_assignments
+The Supabase advisor reports "RLS enabled with no policy" as informational for these three tables. That is intentional: direct non-owner access should be denied.
 
-- RLS enabled;
-- no anonymous INSERT/UPDATE/DELETE;
-- assignment RPC is the write path;
-- public read can be RPC-only.
+### Public assignment RPC
 
-### daily_scores
+`public.get_today_daily_assignment()` is intentionally callable by both `anon` and `authenticated`.
 
-- RLS enabled;
-- revoke direct anonymous INSERT once RPC submission is live;
-- no anonymous UPDATE/DELETE;
-- leaderboard reads can use a constrained read RPC or explicit SELECT policy.
+It is `SECURITY DEFINER` because callers must not receive direct authority-table privileges. The function:
 
-Any `security definer` database function must:
+- accepts **no arguments**;
+- derives UTC date server-side;
+- derives fixture/rules/seed only from server-owned rows;
+- has a pinned empty `search_path`;
+- schema-qualifies authority objects;
+- uses no dynamic SQL;
+- has `EXECUTE` revoked from `PUBLIC`;
+- grants `EXECUTE` only to `anon`, `authenticated`, and `service_role`.
 
-- set an empty/pinned `search_path`;
-- schema-qualify referenced objects;
-- have EXECUTE revoked from `public` by default;
-- grant EXECUTE only to the app roles that actually need it.
+Supabase's advisor therefore reports the anonymous/authenticated `SECURITY DEFINER` execution as a warning. This is an explicit reviewed exception, not an accidental privilege leak: the function is the intended public Daily authority API and exposes only deterministic public challenge metadata.
 
-## 15. Database source control prerequisite
+### Future daily_scores
 
-The current repository contains no Supabase migrations, schema baseline, or RLS tests.
+- use explicit grants and RLS if stored in an exposed schema, or prefer the same private-table + narrow-RPC pattern;
+- no anonymous UPDATE or DELETE;
+- score submission must validate the current assignment;
+- leaderboard reads must partition by assignment identity.
 
-Do **not** write a migration that guesses the existing production schema.
+## 15. Database source control
 
-Before Phase C database changes:
+C1 completed the live audit before any CageLab DDL was added. The connected project had no application-owned public tables/functions and no migration history; in particular, the frontend's assumed `daily_scores` and `challenge_scores` tables did not exist.
 
-1. connect the Supabase project;
-2. initialize/pull the existing remote schema into `supabase/migrations`;
-3. review the current `daily_scores` and `challenge_scores` tables;
-4. review all grants/RLS policies;
-5. commit that remote baseline;
-6. add new changes as forward migrations.
+The baseline is recorded in `docs/SUPABASE_BACKEND_BASELINE.md`.
 
-Database policy tests should live under `supabase/tests/` and assert allowed/denied behavior for anonymous/authenticated roles where applicable.
+C2 then established the first two production migrations, mirrored under `supabase/migrations/`, plus the authority contract checks under `supabase/tests/`.
+
+From this point forward:
+
+1. every permanent database change gets a migration;
+2. deployed migrations are forward-only;
+3. grants/security ship with the object they protect;
+4. live schema and Supabase advisors are verified after DDL;
+5. database contract checks live under `supabase/tests/`.
 
 ## 16. Rollout plan
 
@@ -362,18 +370,21 @@ Database policy tests should live under `supabase/tests/` and assert allowed/den
 
 This document. No production behavior change.
 
-### C1 — remote backend baseline
+### C1 — remote backend baseline — complete
 
-- bring the live Supabase schema/migrations into Git;
-- audit current score-table grants/RLS;
-- document any unsafe legacy access.
+- live project inspected after restore;
+- no CageLab application schema or migration history existed;
+- missing assumed score tables documented;
+- repository database source-control boundary established.
 
-### C2 — assignment backend
+### C2 — assignment backend — complete
 
-- create ruleset + assignment schema;
-- add authoritative assignment RPC;
-- add database tests;
-- seed the first development ruleset.
+- non-exposed ruleset/fixture/assignment schema created;
+- authoritative UTC assignment RPC deployed;
+- first `fight-card-v1` development ruleset seeded;
+- assignment/fixture relationship enforced with foreign keys;
+- database contract checks committed;
+- live grants, RLS, function ACL/search path, and advisors verified.
 
 ### C3 — client cutover
 
