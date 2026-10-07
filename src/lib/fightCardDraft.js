@@ -1,47 +1,20 @@
 // =========================================================================
-//  FIGHT CARD DAILY V2 -- Phase B: Card-Scoped Draft Sequencing
-//  Pure gameplay logic for drafting against a Phase A FightCard fixture:
-//  which fixture a Daily run uses, how its CardFighters become board
-//  offers, the late weight-class roll, and the post-roll physical pool.
-//  No React, no App.jsx state, no Supabase -- this module only consumes
-//  immutable fixture data (src/data/fightCards.js) and a seeded rng
-//  function, and returns plain data. App.jsx wires it into the existing
-//  Draft state machine; it never needs to know how a board was produced.
+//  FIGHT CARD DAILY — Card-Scoped Draft Gameplay
+//  Pure gameplay logic for drafting against an already-resolved immutable
+//  FightCard fixture: CardFighter board offers, late weight-class roll, and
+//  post-roll physical eligibility/boards.
 //
-//  Scope boundary: this is the DEVELOPMENT-fixture vertical slice only.
-//  - selectDevelopmentFixture() is the "smallest clean mechanism" asked
-//    for in Phase B -- NOT the production date-\>fixture assignment
-//    architecture. It is isolated behind this one function specifically
-//    so Phase C can replace it with authoritative assignment (Supabase,
-//    an RPC, a pre-populated pool, whatever that phase decides) without
-//    touching anything below it or in App.jsx's Draft engine.
-//  - resolvePhysicalPool()'s target+adjacent rule is the current
-//    DEVELOPMENT policy carried over from the Phase 2/2B findings, not a
-//    locked production rule. No fallback, no minimum-count guarantee, no
-//    fabricated offers -- see its own comment.
+//  Phase C owns fixture identity outside this module. App receives an
+//  authoritative server assignment, resolves its exact fixture revision,
+//  initializes the seeded RNG from assignment.seed, and only then calls the
+//  functions below. Fixture selection deliberately does NOT live here, so a
+//  browser cannot quietly reintroduce client-side Daily authority.
+//
+//  No React, App state, date logic, or Supabase lives here.
 // =========================================================================
 import { WEIGHT_CLASSES } from "../data/attrs.js";
 import { BOARD_SIZE } from "../data/fighters.js";
 import { shuffle } from "./rng.js";
-
-// ---- Fixture selection (development-only mechanism) ---------------------
-// Smallest clean seam for "which fixture does today's Daily use": one
-// deterministic rng draw over the supplied fixture list. Callers pass
-// whatever fixture list they like (Phase A's listFightCardFixtures() in
-// production use) so this function never hard-codes a dependency on
-// fightCards.js's exact export shape beyond "array of fixtures".
-//
-// UNRESOLVED FOR LATER PHASE (unchanged from Phase A/2B): this is NOT the
-// authoritative UTC-date-\>fixture assignment mechanism. It has no notion
-// of "today," no Supabase reference, and does not guarantee the same
-// fixture is chosen across independently-deployed clients for the same
-// calendar date -- it only guarantees the same fixture for the same
-// (fixtures list, rng) pair, which is all a development vertical slice
-// needs. Phase C replaces the call site, not this function's contract.
-function selectDevelopmentFixture(fixtures, rng = Math.random) {
-  if (!fixtures || fixtures.length === 0) return null;
-  return fixtures[Math.floor(rng() * fixtures.length)];
-}
 
 // ---- CardFighter -\> Draft board-item adapter ----------------------------
 // Shapes a CardFighter snapshot exactly like a MASTER_FIGHTERS record (the
@@ -152,5 +125,4 @@ export {
   eraFromAppearanceId,
   resolveLateWeight,
   resolvePhysicalPool,
-  selectDevelopmentFixture,
 };
