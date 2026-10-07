@@ -5,7 +5,8 @@ import { ARCHETYPES, bestFitArchetypeFlat, STYLE_DESCRIPTIONS } from "../lib/car
 import { archetypeFor } from "../lib/scoring.js";
 import { generateOpponentNames } from "../data/fighters.js";
 import { formatHeight, formatReach } from "../lib/utils.js";
-import { sfx } from "../lib/audio.js";\nimport { restoreSavedBuildDraftState } from "../lib/builds.js";
+import { sfx } from "../lib/audio.js";
+import { restoreSavedBuildDraftState } from "../lib/builds.js";
 
 // ---------- Career Setup: configure the career, not the build ----------
 // Division, actual height/reach, and debut era used to all be re-picked
