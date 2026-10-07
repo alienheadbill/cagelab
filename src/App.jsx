@@ -632,20 +632,51 @@ export default function CageLab() {
   useEffect(() => {
     if (phase !== "home") return undefined;
     let cancelled = false;
-    setDailyAuthorityStatus("loading");
+    let resetTimeout = null;
 
-    requestValidatedDailyAuthority().then((result) => {
+    async function refreshDailyAuthority(showLoading) {
+      if (showLoading) setDailyAuthorityStatus("loading");
+      const result = await requestValidatedDailyAuthority();
       if (cancelled) return;
+
+      clearTimeout(resetTimeout);
+
       if (!result.ok) {
         setDailyAssignment(null);
         setDailyAuthorityStatus("unavailable");
         return;
       }
+
       setDailyAssignment(result.assignment);
       setDailyAuthorityStatus("ready");
-    });
 
-    return () => { cancelled = true; };
+      // Home can stay mounted across UTC midnight. Refresh just after the
+      // cached assignment's next UTC boundary so yesterday's "USED" state
+      // cannot block the new Daily from ever reaching startDailyDraft().
+      // The browser clock only schedules the re-check; the server still owns
+      // the authoritative date returned by the next RPC.
+      const nextReset = Date.parse(`${result.assignment.challengeDate}T00:00:00Z`) + 86400000;
+      const delay = Math.max(1000, nextReset - Date.now() + 1000);
+      resetTimeout = setTimeout(() => { void refreshDailyAuthority(false); }, delay);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        // Tabs/background timers can be heavily throttled. A fresh RPC on
+        // return catches a UTC rollover even if the scheduled reset did not
+        // fire while the page was hidden.
+        void refreshDailyAuthority(false);
+      }
+    }
+
+    void refreshDailyAuthority(true);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(resetTimeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [phase]);
 
   useEffect(() => {
