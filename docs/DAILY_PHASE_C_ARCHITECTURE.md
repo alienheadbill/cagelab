@@ -1,10 +1,10 @@
 # Fight Card Daily Phase C — Authoritative Daily Contract
 
-Status: C0 architecture locked; C1 backend baseline and C2 assignment backend implemented. C3 client cutover and C4 leaderboard cutover remain.
+Status: C0 architecture, C1 backend baseline, C2 assignment backend, and C3 client cutover are implemented. C4 leaderboard cutover remains.
 
 Phase A created immutable Fight Card fixtures. Phase B made those fixtures playable. Phase C makes a Daily challenge globally identifiable and server-authoritative enough that two clients are not allowed to invent different definitions of "today."
 
-This document defines the V1 contract before database/client implementation.
+This document records the V1 contract and its implementation status.
 
 ## 1. Problem
 
@@ -166,7 +166,7 @@ Because the resulting assignment is stored, future changes to the selection impl
 
 Store the gameplay seed in the assignment instead of asking future clients to reconstruct it from an implicit hash algorithm.
 
-Phase B currently seeds from a date string. Phase C should replace that input with:
+C3 replaces the old date-derived input with:
 
     assignment.seed
 
@@ -386,14 +386,19 @@ This document. No production behavior change.
 - database contract checks committed;
 - live grants, RLS, function ACL/search path, and advisors verified.
 
-### C3 — client cutover
+### C3 — client cutover — implemented in PR #61
 
-- fetch assignment before Daily starts;
-- use assignment UTC date;
-- use assignment fixture ID;
-- use assignment seed;
-- attach `dailyMeta`;
-- fail closed if assignment cannot be validated.
+- every actual Daily start fetches a fresh server assignment;
+- device-local date no longer defines attempt state, streak arithmetic, seed, fixture, or Daily leaderboard date;
+- the assignment UTC date controls local attempt/completion records;
+- the assignment fixture revision is resolved exactly; unknown fixtures fail closed;
+- only supported `rulesVersion` values are accepted;
+- gameplay RNG initializes from `assignment.seed`;
+- `fight-card-v1` begins RNG consumption at skill-order shuffle — fixture selection consumes no client RNG;
+- finished/saved builds carry identification-level `dailyMeta`;
+- authority loading is cancellable and other Draft modes remain synchronous;
+- modern Supabase publishable keys are sent as `apikey`, not treated as bearer JWTs;
+- the obsolete client fixture selector is removed and the live C2 assignment is pinned as an exact deterministic regression case.
 
 ### C4 — leaderboard cutover
 

@@ -3,9 +3,10 @@
 //  Uses the public REST endpoint directly with fetch -- no SDK, no build
 //  step. The anon/publishable key is safe to ship client-side; it's scoped
 //  by the Row Level Security policies on the Supabase project, not secrecy.
-//  Every call is wrapped so a missing table, no network, or a misconfigured
-//  key just silently falls back to local-only play -- it never breaks the
-//  offline experience.
+//  Leaderboard calls remain failure-tolerant, but Daily authority is
+//  deliberately different: fetchTodayDailyAssignment returns an explicit
+//  failure so App can fail CLOSED instead of inventing a local competitive
+//  Daily when the authoritative RPC is unavailable.
 // =========================================================================
 const SUPABASE_URL = "https://inceyzopygadykbllkza.supabase.co";
 
@@ -15,10 +16,30 @@ const SUPABASE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 function supabaseHeaders(extra) {
   return {
+    // The project uses Supabase's modern sb_publishable_* key format. Those
+    // keys are opaque API keys, not JWTs, so they belong on `apikey`, not
+    // Authorization: Bearer.
     apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     ...extra,
   };
+}
+
+async function fetchTodayDailyAssignment() {
+  if (!SUPABASE_ENABLED) return { ok: false, reason: "disabled" };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_today_daily_assignment`, {
+      method: "POST",
+      headers: supabaseHeaders({ "Content-Type": "application/json" }),
+      body: "{}",
+    });
+    if (!res.ok) return { ok: false, reason: "http", status: res.status };
+    const payload = await res.json();
+    const row = Array.isArray(payload) ? payload[0] : payload;
+    if (!row) return { ok: false, reason: "empty" };
+    return { ok: true, assignment: row };
+  } catch (e) {
+    return { ok: false, reason: "network" };
+  }
 }
 
 async function submitDailyScore(date, score, displayName) {
@@ -81,6 +102,7 @@ export {
   SUPABASE_ENABLED,
   fetchChallengeLeaderboard,
   fetchDailyLeaderboard,
+  fetchTodayDailyAssignment,
   submitChallengeScore,
   submitDailyScore,
 };

@@ -11,14 +11,14 @@ import "./styles.css";
 
 import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./data/attrs.js";
 import { BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
-import { listFightCardFixtures, getRepresentedDivisions } from "./data/fightCards.js";
+import { getFightCardFixture, getRepresentedDivisions } from "./data/fightCards.js";
 import {
-  selectDevelopmentFixture, boardForFightCard, resolveLateWeight,
+  boardForFightCard, resolveLateWeight,
   resolvePhysicalPool, boardForPhysicalPool,
 } from "./lib/fightCardDraft.js";
-import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";
+import { mulberry32, encodeSeed, shuffle } from "./lib/rng.js";
 import { restoreSavedBuildDraftState } from "./lib/builds.js";
-import { canStartDaily, dailyAttemptState } from "./lib/daily.js";
+import { canStartDaily, dailyAttemptState, normalizeDailyAssignment, previousIsoDate } from "./lib/daily.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -26,7 +26,7 @@ import {
   loadJSON, saveJSON, defaultDailyStats, clearActiveCareer,
 } from "./lib/storage.js";
 import {
-  SUPABASE_ENABLED, submitDailyScore, fetchDailyLeaderboard,
+  SUPABASE_ENABLED, submitDailyScore, fetchDailyLeaderboard, fetchTodayDailyAssignment,
   submitChallengeScore, fetchChallengeLeaderboard,
 } from "./lib/supabase.js";
 import { sfx } from "./lib/audio.js";
@@ -70,6 +70,25 @@ import HelpScreen from "./components/HelpScreen.jsx";
 import CollectionScreen from "./components/CollectionScreen.jsx";
 import EventArchivePanel from "./components/EventArchivePanel.jsx";
 import LabScreen from "./components/LabScreen.jsx";
+
+async function requestValidatedDailyAuthority() {
+  const response = await fetchTodayDailyAssignment();
+  if (!response.ok) return response;
+
+  const normalized = normalizeDailyAssignment(response.assignment);
+  if (!normalized.ok) return normalized;
+
+  const fixture = getFightCardFixture(normalized.assignment.fixtureId);
+  if (!fixture) {
+    return {
+      ok: false,
+      reason: "unknown-fixture",
+      fixtureId: normalized.assignment.fixtureId,
+    };
+  }
+
+  return { ok: true, assignment: normalized.assignment, fixture };
+}
 
 // Career History used to render strictly oldest-first, so on anything but a
 // brand-new career the most recent fight or event -- the thing you'd
@@ -323,12 +342,21 @@ export default function CageLab() {
   const [pair, setPair] = useState(() => pickCompatiblePair());
   const [board, setBoard] = useState([]);
   const [lockedDivision, setLockedDivision] = useState(null);
-  // Fight Card Daily V2 Phase B. The fixture this Daily run drew (see
-  // selectDevelopmentFixture) -- null outside Daily, or before a Daily
-  // draft has started. Plain component state like `pair`/`board`: a
-  // reload mid-draft already restarts the draft from Home for every mode
-  // (no mode persists an in-progress draft), so this isn't a new gap.
+  // The immutable Fight Card fixture resolved from the authoritative Phase C
+  // assignment. null outside Daily, or before authority has been validated.
+  // Reloading mid-draft still restarts from Home for every Draft mode.
   const [dailyFixture, setDailyFixture] = useState(null);
+  // Phase C authority preview/current assignment. Home uses this to key the
+  // one-attempt state to the server's UTC date; every actual Daily start
+  // fetches a fresh assignment again so a tab left open across UTC midnight
+  // cannot start yesterday's challenge.
+  const [dailyAssignment, setDailyAssignment] = useState(null);
+  const [dailyAuthorityStatus, setDailyAuthorityStatus] = useState("loading");
+  // Identification provenance attached to the active/finished Daily build.
+  // Deliberately excludes the gameplay seed from saved build metadata: date +
+  // immutable fixture revision + rules version are the historical identity;
+  // the seed remains server assignment state.
+  const [dailyMeta, setDailyMeta] = useState(null);
   // True for the one transition between skill pick #8 and Height -- the
   // late weight-class roll's reveal. Mirrors `isRolling`'s existing
   // "replace the board with an interstitial" pattern, kept as its own flag
@@ -456,6 +484,7 @@ export default function CageLab() {
   const pickTimeoutRef = useRef(null);
   const revealTimeoutRef = useRef(null);
   const dailyRngRef = useRef(null);
+  const dailyAuthorityRequestRef = useRef(0);
 
   useEffect(() => {
     if (!revealPending) return undefined;
@@ -601,6 +630,56 @@ export default function CageLab() {
   }, [careerState, fighterName, spotlightFightId, micTimeStep, campResultAck]);
 
   useEffect(() => {
+    if (phase !== "home") return undefined;
+    let cancelled = false;
+    let resetTimeout = null;
+
+    async function refreshDailyAuthority(showLoading) {
+      if (showLoading) setDailyAuthorityStatus("loading");
+      const result = await requestValidatedDailyAuthority();
+      if (cancelled) return;
+
+      clearTimeout(resetTimeout);
+
+      if (!result.ok) {
+        setDailyAssignment(null);
+        setDailyAuthorityStatus("unavailable");
+        return;
+      }
+
+      setDailyAssignment(result.assignment);
+      setDailyAuthorityStatus("ready");
+
+      // Home can stay mounted across UTC midnight. Refresh just after the
+      // cached assignment's next UTC boundary so yesterday's "USED" state
+      // cannot block the new Daily from ever reaching startDailyDraft().
+      // The browser clock only schedules the re-check; the server still owns
+      // the authoritative date returned by the next RPC.
+      const nextReset = Date.parse(`${result.assignment.challengeDate}T00:00:00Z`) + 86400000;
+      const delay = Math.max(1000, nextReset - Date.now() + 1000);
+      resetTimeout = setTimeout(() => { void refreshDailyAuthority(false); }, delay);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        // Tabs/background timers can be heavily throttled. A fresh RPC on
+        // return catches a UTC rollover even if the scheduled reset did not
+        // fire while the page was hidden.
+        void refreshDailyAuthority(false);
+      }
+    }
+
+    void refreshDailyAuthority(true);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(resetTimeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [phase]);
+
+  useEffect(() => {
     if (phase === "draftDone" && mode === "challenge" && challengeSeed != null) {
       let cancelled = false;
       setChallengeBoardLoading(true);
@@ -612,17 +691,22 @@ export default function CageLab() {
   }, [phase, mode, challengeSeed]);
 
   useEffect(() => {
-    if (phase === "draftDone" && mode === "daily") {
+    if (phase === "draftDone" && mode === "daily" && dailyMeta?.challengeDate) {
       let cancelled = false;
       setDailyResultLoading(true);
-      // Pull the full day's field (up to 200) so rank/average are computed
-      // from real data, not just the top-20 shown in the leaderboard widget.
-      fetchDailyLeaderboard(todayStr(), 200).then((rows) => {
+      // C4 will replace the score transport itself. C3's responsibility is
+      // making sure even this legacy read is keyed by authoritative UTC date.
+      fetchDailyLeaderboard(dailyMeta.challengeDate, 200).then((rows) => {
         if (!cancelled) { setDailyResultBoard(rows); setDailyResultLoading(false); }
       });
       return () => { cancelled = true; };
     }
-  }, [phase, mode]);
+    if (phase === "draftDone" && mode === "daily") {
+      setDailyResultBoard([]);
+      setDailyResultLoading(false);
+    }
+    return undefined;
+  }, [phase, mode, dailyMeta?.challengeDate]);
 
   // Auto-switch to whichever tab a newly-pending decision actually lives on,
   // so it's never missed just because the player was parked on Rankings or
@@ -645,19 +729,23 @@ export default function CageLab() {
   const blind = mode === "blind";
   const isSeeded = mode === "daily" || mode === "challenge";
   const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
-  const dailyAttemptToday = dailyAttemptState(dailyStats, todayStr());
+  const dailyAttemptToday = dailyAttemptState(dailyStats, dailyAssignment?.challengeDate || null);
   const preferredMode = loadJSON(LS_PREF_MODE, "classic");
 
   function goHome() {
+    // Invalidate a Daily RPC that is still in flight. Without this guard,
+    // backing out of the loading screen could be followed by the completed
+    // network response unexpectedly starting a draft from behind Home.
+    dailyAuthorityRequestRef.current += 1;
     // Abandoning a draft before it produced a real GOAT score shouldn't
-    // leave its `mode` tag hanging around in state for whatever happens
-    // next -- e.g. an accidental tap on the Daily card, backed out of
-    // immediately via this exact button, used to silently carry "daily"
-    // into an unrelated Career started right after (nothing else ever
-    // resets `mode` on its own). A draft that actually finished (goatScore
-    // set) is a real result, so its mode is left alone -- the player might
-    // still come back and start a Career from it correctly tagged.
-    if (goatScore === null) setMode("classic");
+    // leave its origin/provenance hanging around in state for whatever
+    // happens next. A finished build keeps both so it can still be saved or
+    // taken into Career with its real origin.
+    if (goatScore === null) {
+      setMode("classic");
+      setDailyFixture(null);
+      setDailyMeta(null);
+    }
     setPhase("home");
   }
   function toggleDark() { setDarkMode((v) => { const n = !v; saveJSON(LS_DARK_MODE, n); return n; }); }
@@ -672,7 +760,7 @@ export default function CageLab() {
     setBoard(boardFor(nextPair.wc, nextPair.era, rng));
   }
 
-  function startDraft(selectedMode, explicitSeed) {
+  function resetDraftStartUi() {
     clearTimeout(pickTimeoutRef.current);
     clearTimeout(rollTimeoutRef.current);
     clearTimeout(revealTimeoutRef.current);
@@ -685,60 +773,9 @@ export default function CageLab() {
     setNewestSlotKey(null);
     setIsWeightRolling(false);
     setPendingWeightTarget(null);
-    let seededDivision = null;
-    let skipDivisionSelect = false;
-    if (selectedMode === "daily") {
-      // Enforce the one-attempt rule at the command boundary, not only in
-      // HomeScreen presentation. This closes alternate entry paths such as
-      // the result-screen CTA and protects the rule from future UI changes.
-      const today = todayStr();
-      const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
-      if (!canStartDaily(stats, today)) {
-        setPhase("home");
-        return;
-      }
+  }
 
-      // Fight Card Daily V2 Phase B: skill-first, division determined
-      // late -- see fightCardDraft.js. Division is deliberately left
-      // unresolved here (seededDivision stays null); it's rolled once,
-      // deterministically, right after skill pick #8 (startWeightReveal).
-      dailyRngRef.current = mulberry32(seedFromDateStr(todayStr()));
-      const fixture = selectDevelopmentFixture(listFightCardFixtures(), dailyRngRef.current);
-      setDailyFixture(fixture);
-      // Only the 8 skills are shuffled/drafted first -- HEIGHT/REACH are
-      // appended fixed, not part of that shuffle, but still fill out the
-      // same 10-slot order every other mode uses, so round-counting
-      // (ATTRS.length, isFinalRound, etc.) stays completely unchanged.
-      const shuffledSkills = shuffle(SKILL_KEYS, dailyRngRef.current);
-      setAttributeOrder([...shuffledSkills, "HEIGHT", "REACH"]);
-      setBoard(boardForFightCard(fixture, dailyRngRef.current));
-      setChallengeSeed(null);
-      // Consume the daily attempt the moment the draft STARTS, not when it
-      // finishes. Previously the lock was only written on completion, so
-      // quitting mid-draft and returning gave you unlimited retries at the
-      // same board. `attemptedDate` marks the attempt; `lastCompletedDate`
-      // still only updates on a real finish, so streaks stay honest.
-      saveJSON(LS_DAILY_STATS, { ...stats, attemptedDate: today });
-      skipDivisionSelect = true;
-    } else if (selectedMode === "challenge") {
-      // Challenge keeps its pre-Phase-B behavior exactly: seeded division
-      // rolled upfront, boardFor(wc, era), all 10 attributes shuffled
-      // together. Being seeded does not make Challenge a Fight Card mode.
-      setDailyFixture(null);
-      const seed = explicitSeed != null ? explicitSeed : Math.floor(Math.random() * 1e9);
-      dailyRngRef.current = mulberry32(seed);
-      setChallengeSeed(seed);
-      setAttributeOrder(shuffle(ATTRS.map((a) => a.key), dailyRngRef.current));
-      seededDivision = WEIGHT_CLASSES[Math.floor(dailyRngRef.current() * WEIGHT_CLASSES.length)];
-      applyPair(pickEraWithinClass(seededDivision, dailyRngRef.current), dailyRngRef.current);
-      skipDivisionSelect = true;
-    } else {
-      setDailyFixture(null);
-      dailyRngRef.current = null;
-      setChallengeSeed(null);
-      setAttributeOrder(shuffle(ATTRS.map((a) => a.key)));
-      saveJSON(LS_PREF_MODE, selectedMode);
-    }
+  function finishDraftStart(selectedMode, seededDivision, skipDivisionSelect) {
     setMode(selectedMode);
     setRound(1);
     setPicks({});
@@ -751,6 +788,101 @@ export default function CageLab() {
     setShowShareBlock(false);
     setWhatIf(null);
     setPhase(skipDivisionSelect ? "draft" : "divisionSelect");
+  }
+
+  function startDraft(selectedMode, explicitSeed) {
+    if (selectedMode === "daily") {
+      void startDailyDraft();
+      return;
+    }
+
+    // Any ordinary draft selection wins over an in-flight Daily authority
+    // request that may have been started a moment earlier.
+    dailyAuthorityRequestRef.current += 1;
+    resetDraftStartUi();
+
+    let seededDivision = null;
+    let skipDivisionSelect = false;
+    setDailyFixture(null);
+    setDailyMeta(null);
+
+    if (selectedMode === "challenge") {
+      // Challenge keeps its pre-Phase-C behavior exactly: seeded division
+      // rolled upfront, boardFor(wc, era), all 10 attributes shuffled
+      // together. Its explicit share code is its own authority boundary.
+      const seed = explicitSeed != null ? explicitSeed : Math.floor(Math.random() * 1e9);
+      dailyRngRef.current = mulberry32(seed);
+      setChallengeSeed(seed);
+      setAttributeOrder(shuffle(ATTRS.map((a) => a.key), dailyRngRef.current));
+      seededDivision = WEIGHT_CLASSES[Math.floor(dailyRngRef.current() * WEIGHT_CLASSES.length)];
+      applyPair(pickEraWithinClass(seededDivision, dailyRngRef.current), dailyRngRef.current);
+      skipDivisionSelect = true;
+    } else {
+      dailyRngRef.current = null;
+      setChallengeSeed(null);
+      setAttributeOrder(shuffle(ATTRS.map((a) => a.key)));
+      saveJSON(LS_PREF_MODE, selectedMode);
+    }
+
+    finishDraftStart(selectedMode, seededDivision, skipDivisionSelect);
+  }
+
+  async function startDailyDraft() {
+    const requestId = ++dailyAuthorityRequestRef.current;
+    setDailyAuthorityStatus("loading");
+    setPhase("dailyLoading");
+
+    const authority = await requestValidatedDailyAuthority();
+    if (requestId !== dailyAuthorityRequestRef.current) return;
+
+    if (!authority.ok) {
+      setDailyAssignment(null);
+      setDailyFixture(null);
+      setDailyMeta(null);
+      setDailyAuthorityStatus("unavailable");
+      setPhase("home");
+      return;
+    }
+
+    const { assignment, fixture } = authority;
+    setDailyAssignment(assignment);
+    setDailyAuthorityStatus("ready");
+
+    const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
+    if (!canStartDaily(stats, assignment.challengeDate)) {
+      setPhase("home");
+      return;
+    }
+
+    resetDraftStartUi();
+
+    // C3 authority cutover: no browser date seeding and no browser fixture
+    // draw. The server assignment supplies both immutable fixture revision
+    // and gameplay seed. The FIRST gameplay RNG consumption is therefore the
+    // skill-order shuffle defined by fight-card-v1.
+    dailyRngRef.current = mulberry32(assignment.seed);
+    setDailyFixture(fixture);
+    setDailyMeta({
+      challengeDate: assignment.challengeDate,
+      fixtureId: assignment.fixtureId,
+      rulesVersion: assignment.rulesVersion,
+    });
+    setAttributeOrder([
+      ...shuffle(SKILL_KEYS, dailyRngRef.current),
+      "HEIGHT",
+      "REACH",
+    ]);
+    setBoard(boardForFightCard(fixture, dailyRngRef.current));
+    setChallengeSeed(null);
+
+    // One attempt per authoritative UTC assignment. Starting consumes it;
+    // abandoning never re-opens the same challenge.
+    saveJSON(LS_DAILY_STATS, {
+      ...stats,
+      attemptedDate: assignment.challengeDate,
+    });
+
+    finishDraftStart("daily", null, true);
   }
 
   // Free play only -- locks the chosen division and begins the draft.
@@ -902,17 +1034,28 @@ export default function CageLab() {
   }
 
   function recordDailyCompletion(score) {
-    const today = todayStr();
+    const challengeDate = dailyMeta?.challengeDate;
+    if (!challengeDate) return;
+
     const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
+    const previousDate = previousIsoDate(challengeDate);
     let streak = stats.currentStreak;
-    if (stats.lastCompletedDate === yesterdayStr()) streak += 1;
-    else if (stats.lastCompletedDate !== today) streak = 1;
+    if (stats.lastCompletedDate === previousDate) streak += 1;
+    else if (stats.lastCompletedDate !== challengeDate) streak = 1;
     const bestStreak = Math.max(stats.bestStreak || 0, streak);
-    saveJSON(LS_DAILY_STATS, { ...stats, bestScore: Math.max(stats.bestScore, score), currentStreak: streak, bestStreak, lastCompletedDate: today, lastScore: score });
+    saveJSON(LS_DAILY_STATS, {
+      ...stats,
+      bestScore: Math.max(stats.bestScore, score),
+      currentStreak: streak,
+      bestStreak,
+      lastCompletedDate: challengeDate,
+      lastScore: score,
+    });
     const log = loadJSON(LS_DAILY_LOG, []);
-    saveJSON(LS_DAILY_LOG, [{ date: today, score }, ...log].slice(0, 60));
-    // Fire-and-forget: local stats above already saved regardless of network/backend status.
-    submitDailyScore(today, score, loadJSON(LS_DISPLAY_NAME, ""));
+    saveJSON(LS_DAILY_LOG, [{ date: challengeDate, score }, ...log].slice(0, 60));
+    // C4 replaces this legacy score transport with assignment-validating RPC
+    // submission. Local completion remains authoritative for local stats.
+    submitDailyScore(challengeDate, score, loadJSON(LS_DISPLAY_NAME, ""));
   }
 
   function handlePick(fighter) {
@@ -1033,6 +1176,7 @@ export default function CageLab() {
       // those two rounds -- both now carry straight into Career Setup
       // instead of being re-picked there (see CareerSetupPanel).
       division: lockedDivision,
+      dailyMeta: mode === "daily" ? dailyMeta : null,
       picks: picksSnapshotArray(picks),
     };
     saveJSON(LS_SAVED_BUILDS, [entry, ...builds].slice(0, 20));
@@ -1053,6 +1197,7 @@ export default function CageLab() {
     // sourceCardFighterId provenance because the shared restoration helper
     // preserves that optional field when reconstructing picks.
     setLockedDivision(restored.division);
+    setDailyMeta(restored.dailyMeta);
     setBuildSaved(true);
     setShowShareBlock(false);
     setChallengeSeed(null);
@@ -1160,6 +1305,7 @@ export default function CageLab() {
     // saved build here (originally drafted Daily, say) shouldn't leave a
     // Classic run afterward mislabeled, and vice versa.
     setMode(opts.originMode || "classic");
+    setDailyMeta(opts.dailyMeta || null);
     setPicks(opts.picks);
     setFighterName(opts.name);
     setCareerState(initCareer(opts.picks, {
@@ -1492,12 +1638,23 @@ export default function CageLab() {
           hasActiveCareer={!!(careerState && !careerState.finished)}
           onHelp={() => setPhase("help")}
           dailyStats={dailyStats}
+          dailyAssignment={dailyAssignment}
+          dailyAuthorityStatus={dailyAuthorityStatus}
           preferredMode={preferredMode}
           displayName={displayName}
           onChangeDisplayName={(v) => { setDisplayName(v); saveJSON(LS_DISPLAY_NAME, v); }}
           profile={computePlayerProfile({ dailyStats, savedBuilds: loadJSON(LS_SAVED_BUILDS, []), careerHistory: loadJSON(LS_CAREER_HISTORY, []) })}
           isFirstVisit={isFirstVisit}
         />
+      )}
+
+      {phase === "dailyLoading" && (
+        <div className="panel">
+          <div className="section-label"><Loader2 size={13} className="spin-icon" /> Syncing Daily</div>
+          <div className="empty-txt">
+            Getting the authoritative UTC challenge assignment…
+          </div>
+        </div>
       )}
 
       {phase === "help" && <HelpScreen onBack={goHome} />}
@@ -1573,6 +1730,7 @@ export default function CageLab() {
           currentName={name}
           currentDivision={lockedDivision}
           currentMode={mode}
+          currentDailyMeta={dailyMeta}
           onLaunch={launchCareer}
           onBack={() => setPhase(goatScore !== null ? "draftDone" : "home")}
         />
@@ -1884,6 +2042,11 @@ export default function CageLab() {
             {mode === "daily" && (
               <div className="daily-result-box">
                 <div className="leaderboard-title mono"><Globe size={12} /> Today's Result</div>
+                {dailyMeta && (
+                  <div className="daily-note" style={{ justifyContent: "center" }}>
+                    UTC {dailyMeta.challengeDate} · {dailyMeta.fixtureId} · {dailyMeta.rulesVersion}
+                  </div>
+                )}
                 {dailyRankInfo && dailyRankInfo.loading && (
                   <div className="leaderboard-status mono"><Loader2 size={13} className="spin-icon" /> Calculating rank&hellip;</div>
                 )}

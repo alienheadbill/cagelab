@@ -64,3 +64,31 @@ test("old saves without division retain the legacy null fallback contract", () =
   assert.equal(restored.mode, "classic");
   assert.equal(restored.goatScore, 0);
 });
+
+
+test("preserves authoritative Daily metadata on saved build restoration", () => {
+  const dailyMeta = {
+    challengeDate: "2026-10-07",
+    fixtureId: "card-2024-001-r1",
+    rulesVersion: "fight-card-v1",
+  };
+
+  const restored = restoreSavedBuildDraftState({
+    mode: "daily",
+    division: "Lightweight",
+    dailyMeta,
+    picks: [],
+  });
+
+  assert.deepEqual(restored.dailyMeta, dailyMeta);
+});
+
+test("old saved builds restore no fabricated Daily metadata", () => {
+  const restored = restoreSavedBuildDraftState({
+    mode: "daily",
+    division: "Lightweight",
+    picks: [],
+  });
+
+  assert.equal(restored.dailyMeta, null);
+});
