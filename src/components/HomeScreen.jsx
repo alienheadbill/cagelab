@@ -1,35 +1,47 @@
 import React, { useState, useEffect } from "react";
 import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles, FlaskConical } from "lucide-react";
-import { todayStr, decodeSeed } from "../lib/rng.js";
+import { decodeSeed } from "../lib/rng.js";
 import { dailyAttemptState } from "../lib/daily.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
 import LeaderboardList from "./LeaderboardList.jsx";
 
-function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, hasActiveCareer, onHelp, dailyStats, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
+function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, hasActiveCareer, onHelp, dailyStats, dailyAssignment, dailyAuthorityStatus, preferredMode, displayName, onChangeDisplayName, profile, isFirstVisit }) {
   const [dailyNotice, setDailyNotice] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
   const [showFullBoard, setShowFullBoard] = useState(false);
   const [board, setBoard] = useState([]);
   const [boardLoading, setBoardLoading] = useState(true);
-  // An abandoned attempt still counts as today's attempt -- otherwise quitting
-  // mid-draft and returning would give unlimited retries at the same board.
-  const attemptState = dailyAttemptState(dailyStats, todayStr());
-  const playedToday = attemptState !== "available";
+  const authoritativeDate = dailyAssignment && dailyAssignment.challengeDate;
+  const authorityReady = dailyAuthorityStatus === "ready" && !!authoritativeDate;
+  const authorityLoading = dailyAuthorityStatus === "loading";
+  const authorityUnavailable = dailyAuthorityStatus === "unavailable";
+  // An abandoned attempt still counts for the authoritative UTC Daily.
+  // Missing authority is never replaced by the browser's local calendar.
+  const attemptState = authorityReady
+    ? dailyAttemptState(dailyStats, authoritativeDate)
+    : "unavailable";
+  const playedToday = attemptState === "attempted" || attemptState === "completed";
   const completedToday = attemptState === "completed";
 
-  // The Daily leaderboard preview is the hero's payoff -- load it up front
-  // instead of hiding it behind a tap, same as scores/streak.
+  // C4 will replace the current score-table transport. Until then, at least
+  // key any read by the authoritative assignment date rather than the
+  // device-local calendar.
   useEffect(() => {
     let cancelled = false;
+    if (!authoritativeDate) {
+      setBoard([]);
+      setBoardLoading(false);
+      return () => { cancelled = true; };
+    }
     setBoardLoading(true);
-    fetchDailyLeaderboard(todayStr(), 20).then((rows) => {
+    fetchDailyLeaderboard(authoritativeDate, 20).then((rows) => {
       if (!cancelled) { setBoard(rows); setBoardLoading(false); }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [authoritativeDate]);
 
   function handleJoin() {
     const seed = decodeSeed(joinCode);
@@ -97,26 +109,36 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
         />
       </div>
 
-      <button className="daily-hero" onClick={() => (playedToday ? setDailyNotice((v) => !v) : onStart("daily"))}>
+      <button className="daily-hero" disabled={authorityLoading} onClick={() => (playedToday ? setDailyNotice((v) => !v) : onStart("daily"))}>
         <div className="daily-hero-top">
           <div className="daily-hero-eyebrow mono"><Calendar size={13} /> TODAY'S DAILY CHALLENGE</div>
           {dailyStats.currentStreak > 0 && <div className="daily-hero-streak mono"><FireIcon size={13} /> {dailyStats.currentStreak}-DAY STREAK</div>}
         </div>
         <div className="daily-hero-main">
-          {completedToday ? (
+          {authorityLoading ? (
+            <>
+              <div className="daily-hero-cta">SYNCING</div>
+              <div className="daily-hero-status">Getting today's authoritative Daily assignment…</div>
+            </>
+          ) : authorityUnavailable ? (
+            <>
+              <div className="daily-hero-cta">RETRY</div>
+              <div className="daily-hero-status">Daily authority is unavailable right now — tap to retry.</div>
+            </>
+          ) : completedToday ? (
             <>
               <div className="daily-hero-score">{dailyStats.lastScore}</div>
-              <div className="daily-hero-status">Played today — a new board unlocks tomorrow</div>
+              <div className="daily-hero-status">Played this Daily — a new board unlocks at the next reset</div>
             </>
           ) : playedToday ? (
             <>
               <div className="daily-hero-cta">USED</div>
-              <div className="daily-hero-status">Today's attempt was started but not finished — a new board unlocks tomorrow</div>
+              <div className="daily-hero-status">This Daily attempt was started but not finished — one attempt per reset</div>
             </>
           ) : (
             <>
               <div className="daily-hero-cta">PLAY NOW</div>
-              <div className="daily-hero-status">One seeded board for today’s Daily Challenge</div>
+              <div className="daily-hero-status">Authoritative UTC board · {authoritativeDate}</div>
             </>
           )}
         </div>
@@ -135,7 +157,7 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
       )}
 
       <div className="leaderboard-box">
-        <div className="leaderboard-title mono"><Globe size={12} /> Live Leaderboard — Today</div>
+        <div className="leaderboard-title mono"><Globe size={12} /> Daily Leaderboard{authoritativeDate ? ` — ${authoritativeDate}` : ""}</div>
         <LeaderboardList entries={showFullBoard ? board : board.slice(0, 3)} loading={boardLoading} emptyText="No scores yet today — be the first!" />
         {board.length > 3 && (
           <button className="text-btn" onClick={() => setShowFullBoard((v) => !v)}>
