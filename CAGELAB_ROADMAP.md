@@ -1025,7 +1025,7 @@ actual Daily draft flow.
 
 Wires Phase A's fixtures into an actual playable Daily draft: card-scoped
 skill offers, a late weight-class roll, and a physical (Height/Reach)
-pool resolver. **Status: implemented, open in PR (not yet merged).**
+pool resolver. **Status: merged into `main` via PR #49 (merge commit `68f2a208`).**
 
 - New module `src/lib/fightCardDraft.js`: `selectDevelopmentFixture`,
   `boardForFightCard`, `resolveLateWeight`, `resolvePhysicalPool`,
@@ -1081,6 +1081,41 @@ pool resolver. **Status: implemented, open in PR (not yet merged).**
 - This is one implementation phase of Fight Card Daily V2, not its
   completion — Section 10's priority order and "Draft & Career
   Evaluation V2" as the following phase are unchanged.
+
+### Fight Card Daily — Phase C: Authoritative Daily Contract
+
+Phase C owns the production identity/authority layer for Fight Card Daily.
+**Architecture decision recorded in `docs/DAILY_PHASE_C_ARCHITECTURE.md`;
+backend/client implementation is not yet complete.**
+
+Locked implementation direction:
+
+- Daily uses a server-authoritative **UTC** challenge date.
+- A Supabase database function returns/creates the day's assignment; the
+  browser may request the assignment but never chooses its fixture, rules
+  version, date, or seed.
+- The persisted assignment pins UTC date, immutable fixture revision ID,
+  rules version, and gameplay seed.
+- Rulesets contain explicit immutable fixture revision IDs; a rule change
+  creates a new rules version rather than silently changing an old one.
+- Production clients fail closed when assignment authority is unavailable
+  or returns an unsupported fixture/rules version — they do not invent a
+  leaderboard-eligible local fallback.
+- Daily attempt state and leaderboard lookup move from device-local
+  `todayStr()` semantics to the authoritative assignment date.
+- Daily score records must be partitionable by date + fixture ID + rules
+  version. Score submission should move behind a server-side validation
+  function instead of remaining an unrestricted client-selected row shape.
+- This provides assignment integrity, **not full anti-cheat**. Client-side
+  scoring and anonymous players mean a stronger competitive-integrity
+  system would require a later authenticated/server-verifiable run design.
+- Before any production database migration, the existing remote Supabase
+  schema and RLS policies must be pulled into version control. The current
+  repo has no database baseline, so Phase C will not guess the shape or
+  security of the live `daily_scores`/`challenge_scores` tables.
+
+Current implementation order: backend baseline → assignment schema/RPC →
+client UTC/assignment cutover → leaderboard metadata/submission cutover.
 
 ### Historical card data — content/legal dependency
 
