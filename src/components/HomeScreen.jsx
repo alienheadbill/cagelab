@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Calendar, Users, ShieldCheck, Link2, Trophy, HelpCircle, Globe, Swords, Flame as FireIcon, Sparkles, FlaskConical } from "lucide-react";
-import { todayStr, decodeSeed } from "../lib/rng.js";\nimport { dailyAttemptState } from "../lib/daily.js";
+import { todayStr, decodeSeed } from "../lib/rng.js";
+import { dailyAttemptState } from "../lib/daily.js";
 import { fetchDailyLeaderboard } from "../lib/supabase.js";
 import { rankToTierCls } from "../lib/career.js";
 import TierIcon from "./TierIcon.jsx";
