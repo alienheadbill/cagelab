@@ -16,7 +16,9 @@ import {
   selectDevelopmentFixture, boardForFightCard, resolveLateWeight,
   resolvePhysicalPool, boardForPhysicalPool,
 } from "./lib/fightCardDraft.js";
-import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";\nimport { restoreSavedBuildDraftState } from "./lib/builds.js";\nimport { canStartDaily, dailyAttemptState } from "./lib/daily.js";
+import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";
+import { restoreSavedBuildDraftState } from "./lib/builds.js";
+import { canStartDaily, dailyAttemptState } from "./lib/daily.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -642,7 +644,8 @@ export default function CageLab() {
   const name = fighterName.trim() || "The Prospect";
   const blind = mode === "blind";
   const isSeeded = mode === "daily" || mode === "challenge";
-  const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);\n  const dailyAttemptToday = dailyAttemptState(dailyStats, todayStr());
+  const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
+  const dailyAttemptToday = dailyAttemptState(dailyStats, todayStr());
   const preferredMode = loadJSON(LS_PREF_MODE, "classic");
 
   function goHome() {
