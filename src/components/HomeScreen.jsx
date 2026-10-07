@@ -26,9 +26,8 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
   const playedToday = attemptState === "attempted" || attemptState === "completed";
   const completedToday = attemptState === "completed";
 
-  // C4 will replace the current score-table transport. Until then, at least
-  // key any read by the authoritative assignment date rather than the
-  // device-local calendar.
+  // The leaderboard is partitioned by exact authoritative assignment
+  // identity: UTC date + immutable fixture revision + rules version.
   useEffect(() => {
     let cancelled = false;
     if (!authoritativeDate) {
@@ -37,11 +36,11 @@ function HomeScreen({ onStart, onJoinChallenge, onCollection, onCareer, onLab, h
       return () => { cancelled = true; };
     }
     setBoardLoading(true);
-    fetchDailyLeaderboard(authoritativeDate, 20).then((rows) => {
+    fetchDailyLeaderboard(dailyAssignment, 20).then((rows) => {
       if (!cancelled) { setBoard(rows); setBoardLoading(false); }
     });
     return () => { cancelled = true; };
-  }, [authoritativeDate]);
+  }, [dailyAssignment, authoritativeDate]);
 
   function handleJoin() {
     const seed = decodeSeed(joinCode);
