@@ -16,7 +16,7 @@ import {
   selectDevelopmentFixture, boardForFightCard, resolveLateWeight,
   resolvePhysicalPool, boardForPhysicalPool,
 } from "./lib/fightCardDraft.js";
-import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";\nimport { restoreSavedBuildDraftState } from "./lib/builds.js";
+import { mulberry32, seedFromDateStr, todayStr, yesterdayStr, encodeSeed, shuffle } from "./lib/rng.js";\nimport { restoreSavedBuildDraftState } from "./lib/builds.js";\nimport { canStartDaily, dailyAttemptState } from "./lib/daily.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -642,7 +642,7 @@ export default function CageLab() {
   const name = fighterName.trim() || "The Prospect";
   const blind = mode === "blind";
   const isSeeded = mode === "daily" || mode === "challenge";
-  const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
+  const dailyStats = loadJSON(LS_DAILY_STATS, defaultDailyStats);\n  const dailyAttemptToday = dailyAttemptState(dailyStats, todayStr());
   const preferredMode = loadJSON(LS_PREF_MODE, "classic");
 
   function goHome() {
@@ -685,6 +685,16 @@ export default function CageLab() {
     let seededDivision = null;
     let skipDivisionSelect = false;
     if (selectedMode === "daily") {
+      // Enforce the one-attempt rule at the command boundary, not only in
+      // HomeScreen presentation. This closes alternate entry paths such as
+      // the result-screen CTA and protects the rule from future UI changes.
+      const today = todayStr();
+      const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
+      if (!canStartDaily(stats, today)) {
+        setPhase("home");
+        return;
+      }
+
       // Fight Card Daily V2 Phase B: skill-first, division determined
       // late -- see fightCardDraft.js. Division is deliberately left
       // unresolved here (seededDivision stays null); it's rolled once,
@@ -705,8 +715,7 @@ export default function CageLab() {
       // quitting mid-draft and returning gave you unlimited retries at the
       // same board. `attemptedDate` marks the attempt; `lastCompletedDate`
       // still only updates on a real finish, so streaks stay honest.
-      const stats = loadJSON(LS_DAILY_STATS, defaultDailyStats);
-      saveJSON(LS_DAILY_STATS, { ...stats, attemptedDate: todayStr() });
+      saveJSON(LS_DAILY_STATS, { ...stats, attemptedDate: today });
       skipDivisionSelect = true;
     } else if (selectedMode === "challenge") {
       // Challenge keeps its pre-Phase-B behavior exactly: seeded division
@@ -896,7 +905,7 @@ export default function CageLab() {
     if (stats.lastCompletedDate === yesterdayStr()) streak += 1;
     else if (stats.lastCompletedDate !== today) streak = 1;
     const bestStreak = Math.max(stats.bestStreak || 0, streak);
-    saveJSON(LS_DAILY_STATS, { bestScore: Math.max(stats.bestScore, score), currentStreak: streak, bestStreak, lastCompletedDate: today, lastScore: score });
+    saveJSON(LS_DAILY_STATS, { ...stats, bestScore: Math.max(stats.bestScore, score), currentStreak: streak, bestStreak, lastCompletedDate: today, lastScore: score });
     const log = loadJSON(LS_DAILY_LOG, []);
     saveJSON(LS_DAILY_LOG, [{ date: today, score }, ...log].slice(0, 60));
     // Fire-and-forget: local stats above already saved regardless of network/backend status.
@@ -1921,7 +1930,11 @@ export default function CageLab() {
               <button className="btn btn-primary" onClick={beginCareer}>
                 <Lock size={16} /> Start Career
               </button>
-              {mode !== "daily" && dailyStats.lastCompletedDate !== todayStr() ? (
+              {mode === "daily" ? (
+                <button className="btn btn-ghost" onClick={goHome}>
+                  <Home size={16} /> Back Home
+                </button>
+              ) : dailyAttemptToday === "available" ? (
                 <button className="btn btn-ghost" onClick={() => startDraft("daily")}>
                   <Calendar size={16} /> Daily Challenge
                 </button>
