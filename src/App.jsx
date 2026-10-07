@@ -342,11 +342,9 @@ export default function CageLab() {
   const [pair, setPair] = useState(() => pickCompatiblePair());
   const [board, setBoard] = useState([]);
   const [lockedDivision, setLockedDivision] = useState(null);
-  // Fight Card Daily V2 Phase B. The fixture this Daily run drew (see
-  // selectDevelopmentFixture) -- null outside Daily, or before a Daily
-  // draft has started. Plain component state like `pair`/`board`: a
-  // reload mid-draft already restarts the draft from Home for every mode
-  // (no mode persists an in-progress draft), so this isn't a new gap.
+  // The immutable Fight Card fixture resolved from the authoritative Phase C
+  // assignment. null outside Daily, or before authority has been validated.
+  // Reloading mid-draft still restarts from Home for every Draft mode.
   const [dailyFixture, setDailyFixture] = useState(null);
   // Phase C authority preview/current assignment. Home uses this to key the
   // one-attempt state to the server's UTC date; every actual Daily start
