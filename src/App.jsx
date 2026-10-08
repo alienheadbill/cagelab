@@ -694,9 +694,9 @@ export default function CageLab() {
     if (phase === "draftDone" && mode === "daily" && dailyMeta?.challengeDate) {
       let cancelled = false;
       setDailyResultLoading(true);
-      // C4 will replace the score transport itself. C3's responsibility is
-      // making sure even this legacy read is keyed by authoritative UTC date.
-      fetchDailyLeaderboard(dailyMeta.challengeDate, 200).then((rows) => {
+      // C4 reads the board by the exact authoritative assignment identity,
+      // not merely by date.
+      fetchDailyLeaderboard(dailyMeta, 200).then((rows) => {
         if (!cancelled) { setDailyResultBoard(rows); setDailyResultLoading(false); }
       });
       return () => { cancelled = true; };
@@ -706,7 +706,7 @@ export default function CageLab() {
       setDailyResultLoading(false);
     }
     return undefined;
-  }, [phase, mode, dailyMeta?.challengeDate]);
+  }, [phase, mode, dailyMeta?.challengeDate, dailyMeta?.fixtureId, dailyMeta?.rulesVersion]);
 
   // Auto-switch to whichever tab a newly-pending decision actually lives on,
   // so it's never missed just because the player was parked on Rankings or
@@ -1053,9 +1053,10 @@ export default function CageLab() {
     });
     const log = loadJSON(LS_DAILY_LOG, []);
     saveJSON(LS_DAILY_LOG, [{ date: challengeDate, score }, ...log].slice(0, 60));
-    // C4 replaces this legacy score transport with assignment-validating RPC
-    // submission. Local completion remains authoritative for local stats.
-    submitDailyScore(challengeDate, score, loadJSON(LS_DISPLAY_NAME, ""));
+    // Shared leaderboard submission references the exact immutable assignment.
+    // This verifies assignment identity server-side, but the score itself is
+    // still client-computed anonymous/community data rather than anti-cheat.
+    submitDailyScore(dailyMeta, score, loadJSON(LS_DISPLAY_NAME, ""));
   }
 
   function handlePick(fighter) {

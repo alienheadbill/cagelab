@@ -1,6 +1,6 @@
 # Fight Card Daily Phase C — Authoritative Daily Contract
 
-Status: C0 architecture, C1 backend baseline, C2 assignment backend, and C3 client cutover are implemented. C4 leaderboard cutover remains.
+Status: **Phase C complete.** C0 architecture, C1 backend baseline, C2 assignment backend, C3 client cutover, and C4 leaderboard cutover are implemented.
 
 Phase A created immutable Fight Card fixtures. Phase B made those fixtures playable. Phase C makes a Daily challenge globally identifiable and server-authoritative enough that two clients are not allowed to invent different definitions of "today."
 
@@ -400,33 +400,40 @@ This document. No production behavior change.
 - modern Supabase publishable keys are sent as `apikey`, not treated as bearer JWTs;
 - the obsolete client fixture selector is removed and the live C2 assignment is pinned as an exact deterministic regression case.
 
-### C4 — leaderboard cutover
+### C4 — leaderboard cutover — implemented in PR #62
 
-- add fixture/rules metadata to score records;
-- move score submission behind validating RPC;
-- filter/read leaderboard by authoritative assignment;
-- decide how legacy rows remain visible.
+- `private.daily_scores` stores score rows against UTC date + immutable fixture revision + rules version;
+- a composite foreign key requires every score row to reference a real persisted assignment identity;
+- `public.submit_daily_score(...)` validates assignment identity, score range, and display-name shape before inserting;
+- `public.get_daily_leaderboard(...)` reads only one exact validated assignment identity and caps result size;
+- anonymous/authenticated clients have no direct score-table privileges;
+- Home and result screens use the assignment-aware RPCs rather than a nonexistent direct REST table;
+- C1 proved there were no legacy remote Daily rows to migrate, so no historical rows were guessed or rewritten;
+- live transactional tests verify valid anonymous submit/read plus rejection of invalid assignment identity and invalid scores.
+
+C4 provides a real shared **community leaderboard**, not full anti-cheat. Scores are still computed by anonymous clients; a malicious caller can fabricate a value in the allowed 0–100 range.
 
 ## 17. Compatibility
 
 Existing local saved builds and careers do not need migration merely because Phase C exists.
 
-Old Daily leaderboard rows that lack fixture/rules metadata are legacy records. Do not retroactively guess their fixture/rules assignment unless historical data proves it.
+C1 found no pre-existing remote Daily leaderboard rows in the connected project, so C4 required no remote-row migration. Existing browser-local Daily stats/logs remain compatible and are not rewritten.
 
 Existing Challenge Codes remain separate and continue using their explicit shared seed.
 
 ## 18. Phase C completion criteria
 
-Phase C is complete only when:
+Phase C completion criteria — **all satisfied**:
 
-- UTC date is authoritative and device-independent;
-- Daily fixture ID comes from server authority;
-- rules version is explicit;
-- gameplay seed is explicit;
-- assignment rows are immutable;
-- stale clients fail closed;
-- leaderboard rows pin fixture/rules identity;
-- backend schema/migrations/policies are reviewable from the repository;
-- CI/database tests cover the new contract.
+- ✅ UTC date is authoritative and device-independent;
+- ✅ Daily fixture ID comes from server authority;
+- ✅ rules version is explicit;
+- ✅ gameplay seed is explicit;
+- ✅ assignment rows are immutable;
+- ✅ stale/unsupported clients fail closed;
+- ✅ leaderboard rows pin date + fixture + rules identity;
+- ✅ score submission/read use validating RPCs instead of direct table writes;
+- ✅ backend schema/migrations/security contract are reviewable from the repository;
+- ✅ CI and live transactional database tests cover the contract.
 
 This still does not complete the broader Draft Strategy roadmap item. Build synergy, physical-profile tradeoffs, archetype relevance, and "highest number wins" remain separate product work.

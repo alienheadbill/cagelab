@@ -1085,9 +1085,10 @@ pool resolver. **Status: merged into `main` via PR #49 (merge commit `68f2a208`)
 ### Fight Card Daily — Phase C: Authoritative Daily Contract
 
 Phase C owns the production identity/authority layer for Fight Card Daily.
-**Architecture is recorded in `docs/DAILY_PHASE_C_ARCHITECTURE.md`. C1
-backend baseline and C2 assignment authority are merged; C3 client cutover
-is implemented in PR #61. C4 leaderboard storage/submission/read remains.**
+**Status: complete after PR #62.** Architecture and the implemented contract
+are recorded in `docs/DAILY_PHASE_C_ARCHITECTURE.md`. C1–C4 now cover the
+live backend baseline, authoritative assignment, client UTC/fixture/seed
+cutover, and the assignment-aware shared Daily leaderboard.
 
 Locked implementation direction:
 
@@ -1104,9 +1105,9 @@ Locked implementation direction:
   leaderboard-eligible local fallback.
 - Daily attempt state and leaderboard lookup move from device-local
   `todayStr()` semantics to the authoritative assignment date.
-- Daily score records must be partitionable by date + fixture ID + rules
-  version. Score submission should move behind a server-side validation
-  function instead of remaining an unrestricted client-selected row shape.
+- Daily score records are partitioned by date + fixture ID + rules version.
+  Score submission/read now go through narrow server-side validation RPCs;
+  clients have no direct score-table privileges.
 - This provides assignment integrity, **not full anti-cheat**. Client-side
   scoring and anonymous players mean a stronger competitive-integrity
   system would require a later authenticated/server-verifiable run design.
@@ -1116,11 +1117,14 @@ Locked implementation direction:
   private authority tables + the parameterless assignment RPC.
 - C3 removes device-local date/fixture/seed authority from the client and
   fails closed on unavailable, stale-rules, or unknown-fixture assignments.
-- C4 still needs to create the actual Daily score storage and validating
-  submission/read RPCs. Until then, the shared leaderboard is not a
-  functional competitive backend.
+- C4 created the real private Daily score store plus validating submit/read
+  RPCs and cut the client over from the old nonexistent direct REST table.
+- The result is a functional shared **community leaderboard**, not anti-cheat:
+  anonymous client-computed scores can still be fabricated within the valid
+  0–100 range. Stronger run integrity would require authenticated or
+  server-verifiable runs and remains a separate future problem.
 
-Implementation status: C1 ✅ → C2 ✅ → C3 PR #61 → C4 ⏳.
+Implementation status: C1 ✅ → C2 ✅ → C3 ✅ (#61) → C4 ✅ (#62).
 
 ### Historical card data — content/legal dependency
 
