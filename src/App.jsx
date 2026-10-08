@@ -1880,6 +1880,22 @@ export default function CageLab() {
                   )}
                 </div>
               )}
+              {mode === "daily"
+                && dailyFixture
+                && !isRolling
+                && round <= SKILL_KEYS.length
+                && dailyUsesOneUseSource(dailyMeta?.rulesVersion) && (
+                <div className="context-row" aria-label="Daily remaining skill order">
+                  {order.slice(round - 1, SKILL_KEYS.length).map((attrKey, index) => (
+                    <div
+                      className={`context-chip ${index === 0 ? "locked" : ""}`}
+                      key={attrKey}
+                    >
+                      {index === 0 ? "NOW" : `R${round + index}`} · {ATTR_BY_KEY[attrKey].abbr}
+                    </div>
+                  ))}
+                </div>
+              )}
               {mode === "daily" && dailyFixture && !isRolling && round > SKILL_KEYS.length && lockedDivision && (
                 <div className="daily-note division-note">
                   <Lock size={12} /> <b>{lockedDivision}</b> — Height and Reach draft from this division and its adjacent weight classes on the card.
