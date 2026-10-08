@@ -627,6 +627,28 @@ because draft strategic depth should be established before finalizing
 how GOAT Score evaluates the builds it produces — specialization
 findings here may change what a good scoring formula should reward.
 
+### Current implementation status — 2026-10-08
+
+- ✅ **Baseline strategy audit merged (#65).** The reproducible audit confirms
+  that current fixed-attribute boards are overwhelmingly raw-highest, Height
+  has no combat effect despite contributing to GOAT Score, and several rare
+  lower-is-better cases come from opaque trait thresholds rather than healthy
+  player-facing strategy.
+- ✅ **One-use source-fighter code support merged dormant (#67).**
+  `fight-card-v2` is an explicitly versioned client rule: during the eight
+  Daily skill rounds, each CardFighter source can contribute at most once.
+  Height/Reach remain outside that restriction. The live Supabase ruleset is
+  still `fight-card-v1`, so production Daily behavior has not changed.
+- 🧪 **Activation/UX review remains open (#66).** The audit prototype produced
+  deliberate lower-number optimal picks in 82.81% of sampled drafts, but the
+  mechanic needs legible planning information. A v2-only remaining-skill-order
+  cue is being tested before any backend ruleset publication.
+- ⏳ **Physical profile / Height contradiction remains unresolved.** Do not
+  paper over it with an automatic short-fighter bonus; treat it as a separate
+  explainable combat/profile design problem after the source-allocation
+  prototype is evaluated.
+
+
 ### The problem
 
 Playtesting exposed that, too often, the rational Draft strategy is
