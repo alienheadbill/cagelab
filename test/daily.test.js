@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   DAILY_RULES_VERSION,
+  DAILY_RULES_VERSION_ONE_USE_SOURCE,
   canStartDaily,
+  dailyUsesOneUseSource,
   dailyAttemptState,
   isCanonicalIsoDate,
   normalizeDailyAssignment,
@@ -65,6 +67,20 @@ test("canonical ISO date validation rejects rollover dates and malformed input",
   assert.equal(isCanonicalIsoDate(null), false);
 });
 
+test("accepts the explicit fight-card-v2 source-allocation rules version", () => {
+  const result = normalizeDailyAssignment({
+    challenge_date: TODAY,
+    fixture_id: "card-2024-001-r1",
+    rules_version: DAILY_RULES_VERSION_ONE_USE_SOURCE,
+    seed: 12345,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.assignment.rulesVersion, DAILY_RULES_VERSION_ONE_USE_SOURCE);
+  assert.equal(dailyUsesOneUseSource(DAILY_RULES_VERSION_ONE_USE_SOURCE), true);
+  assert.equal(dailyUsesOneUseSource(DAILY_RULES_VERSION), false);
+});
+
 test("normalizes a supported authoritative RPC row", () => {
   assert.deepEqual(
     normalizeDailyAssignment({
@@ -102,7 +118,7 @@ test("rejects stale or malformed authoritative assignments", () => {
   assert.equal(normalizeDailyAssignment({
     challenge_date: TODAY,
     fixture_id: "card-2024-001-r1",
-    rules_version: "fight-card-v2",
+    rules_version: "fight-card-v3",
     seed: 1,
   }).reason, "unsupported-rules");
   assert.equal(normalizeDailyAssignment({
