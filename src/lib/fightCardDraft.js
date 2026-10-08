@@ -74,6 +74,27 @@ function boardForFightCard(fixture, rng = Math.random) {
   return chosen.map(adaptCardFighterToBoardItem);
 }
 
+// fight-card-v2 source allocation prototype.
+//
+// Important determinism contract: shuffle the FULL fixture pool first, then
+// filter used sources. That means every skill round consumes the same RNG
+// calls regardless of which fighters the player previously selected.
+// Choices change eligibility, never the seeded random stream.
+function boardForFightCardExcludingSources(
+  fixture,
+  excludedSourceIds,
+  rng = Math.random,
+) {
+  const excluded = excludedSourceIds instanceof Set
+    ? excludedSourceIds
+    : new Set(excludedSourceIds || []);
+  const ordered = shuffle(fixture.cardFighters, rng);
+  const available = ordered.filter((fighter) => !excluded.has(fighter.id));
+  return available
+    .slice(0, Math.min(BOARD_SIZE, available.length))
+    .map(adaptCardFighterToBoardItem);
+}
+
 // ---- Late weight-class roll ----------------------------------------
 // Candidates: the fixture's represented divisions (derived from its own
 // bouts, already validated as supported WEIGHT_CLASSES values at
@@ -121,6 +142,7 @@ function boardForPhysicalPool(pool, rng = Math.random) {
 export {
   adaptCardFighterToBoardItem,
   boardForFightCard,
+  boardForFightCardExcludingSources,
   boardForPhysicalPool,
   eraFromAppearanceId,
   resolveLateWeight,

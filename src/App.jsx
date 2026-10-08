@@ -13,12 +13,15 @@ import { ATTRS, ATTR_BY_KEY, SKILL_KEYS, WEIGHT_CLASSES, erasForClass } from "./
 import { BOARD_SIZE, rosterFor, boardFor, pickCompatiblePair, pickEraWithinClass, generateOpponentNames } from "./data/fighters.js";
 import { getFightCardFixture, getRepresentedDivisions } from "./data/fightCards.js";
 import {
-  boardForFightCard, resolveLateWeight,
+  boardForFightCard, boardForFightCardExcludingSources, resolveLateWeight,
   resolvePhysicalPool, boardForPhysicalPool,
 } from "./lib/fightCardDraft.js";
 import { mulberry32, encodeSeed, shuffle } from "./lib/rng.js";
 import { restoreSavedBuildDraftState } from "./lib/builds.js";
-import { canStartDaily, dailyAttemptState, normalizeDailyAssignment, previousIsoDate } from "./lib/daily.js";
+import {
+  canStartDaily, dailyAttemptState, dailyUsesOneUseSource,
+  normalizeDailyAssignment, previousIsoDate,
+} from "./lib/daily.js";
 import {
   LS_PREF_MODE, LS_DAILY_STATS, LS_SAVED_BUILDS, LS_CAREER_HISTORY, LS_DARK_MODE,
   LS_SOUND_ON, LS_REDUCED_MOTION, LS_DAILY_LOG, LS_DISPLAY_NAME,
@@ -357,6 +360,9 @@ export default function CageLab() {
   // immutable fixture revision + rules version are the historical identity;
   // the seed remains server assignment state.
   const [dailyMeta, setDailyMeta] = useState(null);
+  // fight-card-v2 only: CardFighter sources already consumed by the eight
+  // skill rounds. Height/Reach intentionally do not use this exclusion set.
+  const [dailyUsedSkillSourceIds, setDailyUsedSkillSourceIds] = useState([]);
   // True for the one transition between skill pick #8 and Height -- the
   // late weight-class roll's reveal. Mirrors `isRolling`'s existing
   // "replace the board with an interstitial" pattern, kept as its own flag
@@ -745,6 +751,7 @@ export default function CageLab() {
       setMode("classic");
       setDailyFixture(null);
       setDailyMeta(null);
+      setDailyUsedSkillSourceIds([]);
     }
     setPhase("home");
   }
@@ -805,6 +812,7 @@ export default function CageLab() {
     let skipDivisionSelect = false;
     setDailyFixture(null);
     setDailyMeta(null);
+    setDailyUsedSkillSourceIds([]);
 
     if (selectedMode === "challenge") {
       // Challenge keeps its pre-Phase-C behavior exactly: seeded division
@@ -872,7 +880,12 @@ export default function CageLab() {
       "HEIGHT",
       "REACH",
     ]);
-    setBoard(boardForFightCard(fixture, dailyRngRef.current));
+    setDailyUsedSkillSourceIds([]);
+    setBoard(
+      dailyUsesOneUseSource(assignment.rulesVersion)
+        ? boardForFightCardExcludingSources(fixture, [], dailyRngRef.current)
+        : boardForFightCard(fixture, dailyRngRef.current)
+    );
     setChallengeSeed(null);
 
     // One attempt per authoritative UTC assignment. Starting consumes it;
@@ -898,9 +911,13 @@ export default function CageLab() {
   // from the already-resolved physical pool -- round 9/Height's own draw
   // happens in handleWeightSettled, not here). Round 8 -\> 9 never calls
   // this -- that transition is the weight reveal (startWeightReveal).
-  function setDailyRoundBoard(nextRound, rng) {
+  function setDailyRoundBoard(nextRound, rng, usedSkillSourceIds = dailyUsedSkillSourceIds) {
     if (nextRound <= SKILL_KEYS.length) {
-      setBoard(boardForFightCard(dailyFixture, rng));
+      setBoard(
+        dailyUsesOneUseSource(dailyMeta?.rulesVersion)
+          ? boardForFightCardExcludingSources(dailyFixture, usedSkillSourceIds, rng)
+          : boardForFightCard(dailyFixture, rng)
+      );
     } else {
       setBoard(boardForPhysicalPool(resolvePhysicalPool(dailyFixture, lockedDivision), rng));
     }
@@ -911,7 +928,7 @@ export default function CageLab() {
   // the real next round. Uses plain Math.random for the cosmetic flicker only
   // -- the actual next pair still comes from the seeded rng in Daily/Challenge,
   // so determinism is untouched.
-  function startRoundRoll(nextRound, division) {
+  function startRoundRoll(nextRound, division, dailyUsedOverride) {
     // `division` is passed explicitly from handlePick because setLockedDivision
     // won't have flushed yet when this runs -- reading lockedDivision here
     // would use the previous round's (null) value on the round 1 -> 2 transition.
@@ -923,7 +940,7 @@ export default function CageLab() {
     if (mode === "daily" && dailyFixture) {
       const rng = dailyRngRef.current;
       if (reducedMotion) {
-        setDailyRoundBoard(nextRound, rng);
+        setDailyRoundBoard(nextRound, rng, dailyUsedOverride);
         setRound(nextRound);
         return;
       }
@@ -940,7 +957,7 @@ export default function CageLab() {
           i += 1;
           rollTimeoutRef.current = setTimeout(tick, delays[i]);
         } else {
-          setDailyRoundBoard(nextRound, rng);
+          setDailyRoundBoard(nextRound, rng, dailyUsedOverride);
           setRound(nextRound);
           setIsRolling(false);
           setRollPreview(null);
@@ -1072,10 +1089,20 @@ export default function CageLab() {
     setPickedFighterId(fighter.id);
     const nextPicks = { ...picks, [currentAttrKey]: value };
     const isFinalRound = round >= ATTRS.length;
+    const isOneUseDailySkill = mode === "daily"
+      && dailyFixture
+      && round <= SKILL_KEYS.length
+      && dailyUsesOneUseSource(dailyMeta?.rulesVersion);
+    const nextDailyUsedSkillSourceIds = isOneUseDailySkill && fighter.sourceCardFighterId
+      ? [...dailyUsedSkillSourceIds, fighter.sourceCardFighterId]
+      : dailyUsedSkillSourceIds;
 
     pickTimeoutRef.current = setTimeout(() => {
       setPicks(nextPicks);
       setPickedFighterId(null);
+      if (isOneUseDailySkill) {
+        setDailyUsedSkillSourceIds(nextDailyUsedSkillSourceIds);
+      }
       // Single source of truth for "the pick that just committed" -- see
       // the lastPick declaration above. Set in the exact same tick as
       // setPicks, so TapeCard's slot and caption, and the round-panel
@@ -1115,7 +1142,11 @@ export default function CageLab() {
         // not a normal round transition. See startWeightReveal.
         startWeightReveal();
       } else {
-        startRoundRoll(round + 1, lockedDivision);
+        startRoundRoll(
+          round + 1,
+          lockedDivision,
+          isOneUseDailySkill ? nextDailyUsedSkillSourceIds : undefined,
+        );
       }
     }, reducedMotion ? 0 : 300);
   }
@@ -1834,7 +1865,19 @@ export default function CageLab() {
               )}
               {mode === "daily" && dailyFixture && !isRolling && round <= SKILL_KEYS.length && (
                 <div className="daily-note">
-                  <Swords size={12} /> Fight Card Daily — 8 skills drafted from everyone on this card, any division. Weight is determined after round 8.
+                  <Swords size={12} />{" "}
+                  {dailyUsesOneUseSource(dailyMeta?.rulesVersion) ? (
+                    <>
+                      Fight Card Daily V2 — each source fighter can supply <b>one skill</b>.{" "}
+                      {dailyUsedSkillSourceIds.length}/{SKILL_KEYS.length} used ·{" "}
+                      {dailyFixture.cardFighters.length - dailyUsedSkillSourceIds.length} still available.
+                      Weight is determined after round 8; Height/Reach can reuse a source.
+                    </>
+                  ) : (
+                    <>
+                      Fight Card Daily — 8 skills drafted from everyone on this card, any division. Weight is determined after round 8.
+                    </>
+                  )}
                 </div>
               )}
               {mode === "daily" && dailyFixture && !isRolling && round > SKILL_KEYS.length && lockedDivision && (

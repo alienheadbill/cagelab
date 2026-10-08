@@ -1,4 +1,9 @@
 const DAILY_RULES_VERSION = "fight-card-v1";
+const DAILY_RULES_VERSION_ONE_USE_SOURCE = "fight-card-v2";
+const SUPPORTED_DAILY_RULES_VERSIONS = new Set([
+  DAILY_RULES_VERSION,
+  DAILY_RULES_VERSION_ONE_USE_SOURCE,
+]);
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // One-attempt-per-authoritative-Daily policy.
@@ -27,7 +32,8 @@ function isCanonicalIsoDate(value) {
 
 // Converts the snake_case RPC row into the client contract and rejects stale
 // or malformed authority rather than allowing the caller to invent a
-// fallback. The one supported rules version is intentionally explicit.
+// fallback. Supported rules versions are explicit because changing Daily
+// board semantics must never silently mutate an already-published version.
 function normalizeDailyAssignment(row) {
   if (!row || typeof row !== "object") {
     return { ok: false, reason: "missing-assignment" };
@@ -44,7 +50,7 @@ function normalizeDailyAssignment(row) {
   if (typeof fixtureId !== "string" || fixtureId.trim() === "") {
     return { ok: false, reason: "invalid-fixture" };
   }
-  if (rulesVersion !== DAILY_RULES_VERSION) {
+  if (!SUPPORTED_DAILY_RULES_VERSIONS.has(rulesVersion)) {
     return { ok: false, reason: "unsupported-rules", rulesVersion };
   }
   if (!Number.isInteger(seed) || seed < 0 || seed > 2147483646) {
@@ -72,8 +78,14 @@ function previousIsoDate(date) {
   return previous.toISOString().slice(0, 10);
 }
 
+function dailyUsesOneUseSource(rulesVersion) {
+  return rulesVersion === DAILY_RULES_VERSION_ONE_USE_SOURCE;
+}
+
 export {
   DAILY_RULES_VERSION,
+  DAILY_RULES_VERSION_ONE_USE_SOURCE,
+  dailyUsesOneUseSource,
   canStartDaily,
   dailyAttemptState,
   isCanonicalIsoDate,
