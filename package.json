@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint",
     "test": "node --test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:draft-strategy": "node scripts/draft-strategy-audit.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.34.0",
