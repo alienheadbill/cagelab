@@ -300,6 +300,18 @@ test("fight-card-v2 source exclusions do not apply to physical boards", () => {
   );
   assert.ok(skillBoard.every((fighter) => fighter.sourceCardFighterId !== usedSkillSource));
 
-  const physicalBoard = boardForPhysicalPool(physicalPool, mulberry32(77));
-  assert.ok(physicalBoard.some((fighter) => fighter.sourceCardFighterId === usedSkillSource));
+  // The used skill source remains fully eligible for physical rounds. A
+  // five-slot seeded physical board may or may not happen to show that
+  // specific fighter, so verify the real contract instead: physical board
+  // generation still shuffles the COMPLETE physical pool, exactly as if
+  // the skill-source exclusion did not exist.
+  assert.ok(physicalPool.some((fighter) => fighter.id === usedSkillSource));
+
+  const expectedIds = shuffle(physicalPool, mulberry32(77))
+    .slice(0, Math.min(BOARD_SIZE, physicalPool.length))
+    .map((fighter) => fighter.id);
+  const actualIds = boardForPhysicalPool(physicalPool, mulberry32(77))
+    .map((fighter) => fighter.sourceCardFighterId);
+
+  assert.deepEqual(actualIds, expectedIds);
 });
