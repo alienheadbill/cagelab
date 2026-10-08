@@ -11,6 +11,7 @@ import { BOARD_SIZE } from "../src/data/fighters.js";
 import {
   adaptCardFighterToBoardItem,
   boardForFightCard,
+  boardForFightCardExcludingSources,
   boardForPhysicalPool,
   eraFromAppearanceId,
   resolveLateWeight,
@@ -218,4 +219,87 @@ test("live C2 assignment pins the fight-card-v1 RNG sequence", () => {
       "cf-2024-001-06",
     ],
   });
+});
+
+
+test("fight-card-v2 one-use boards exclude used source fighters", () => {
+  const fixture = getFightCardFixture("card-2024-001-r1");
+  const used = new Set([fixture.cardFighters[0].id, fixture.cardFighters[1].id]);
+
+  const board = boardForFightCardExcludingSources(fixture, used, mulberry32(123));
+  assert.ok(board.length > 0);
+  assert.ok(board.every((fighter) => !used.has(fighter.sourceCardFighterId)));
+});
+
+test("fight-card-v2 exclusions do not change seeded RNG consumption", () => {
+  const fixture = getFightCardFixture("card-2024-001-r1");
+
+  const rngA = mulberry32(991);
+  boardForFightCardExcludingSources(fixture, [], rngA);
+  const nextA = rngA();
+
+  const rngB = mulberry32(991);
+  boardForFightCardExcludingSources(
+    fixture,
+    fixture.cardFighters.slice(0, 4).map((fighter) => fighter.id),
+    rngB
+  );
+  const nextB = rngB();
+
+  assert.equal(nextA, nextB);
+});
+
+test("fight-card-v2 eight-fighter fixtures remain playable through all 8 skill rounds", () => {
+  for (const fixtureId of ["card-2024-001-r1", "card-2024-003-r1"]) {
+    const fixture = getFightCardFixture(fixtureId);
+    const used = new Set();
+    const rng = mulberry32(20261008);
+    const boardSizes = [];
+
+    for (let round = 0; round < SKILL_KEYS.length; round += 1) {
+      const board = boardForFightCardExcludingSources(fixture, used, rng);
+      boardSizes.push(board.length);
+      assert.ok(board.length >= 1);
+      const pick = board[0];
+      assert.equal(used.has(pick.sourceCardFighterId), false);
+      used.add(pick.sourceCardFighterId);
+    }
+
+    assert.equal(used.size, SKILL_KEYS.length);
+    assert.deepEqual(boardSizes, [5, 5, 5, 5, 4, 3, 2, 1]);
+  }
+});
+
+test("fight-card-v2 ten-fighter fixture preserves unique skill contributors", () => {
+  const fixture = getFightCardFixture("card-2024-002-r1");
+  const used = new Set();
+  const rng = mulberry32(8080);
+  const chosen = [];
+
+  for (let round = 0; round < SKILL_KEYS.length; round += 1) {
+    const board = boardForFightCardExcludingSources(fixture, used, rng);
+    assert.ok(board.length >= 1);
+    const pick = board[0];
+    chosen.push(pick.sourceCardFighterId);
+    used.add(pick.sourceCardFighterId);
+  }
+
+  assert.equal(new Set(chosen).size, SKILL_KEYS.length);
+  assert.equal(used.size, 8);
+});
+
+test("fight-card-v2 source exclusions do not apply to physical boards", () => {
+  const fixture = getFightCardFixture("card-2024-001-r1");
+  const physicalPool = resolvePhysicalPool(fixture, "Lightweight");
+  const usedSkillSource = physicalPool[0].id;
+
+  const skillBoard = boardForFightCardExcludingSources(
+    fixture,
+    [usedSkillSource],
+    mulberry32(77)
+  );
+  assert.ok(skillBoard.every((fighter) => fighter.sourceCardFighterId !== usedSkillSource));
+
+  const physicalBoard = boardForPhysicalPool(physicalPool, mulberry32(77));
+  assert.ok(physicalBoard.some((fighter) => fighter.sourceCardFighterId === usedSkillSource));
 });
