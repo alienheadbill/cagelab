@@ -4,7 +4,7 @@ import { SKILL_KEYS, WEIGHT_CLASSES, erasForClass, CLASS_PHYSICALS } from "../sr
 import { MASTER_FIGHTERS, boardFor } from "../src/data/fighters.js";
 import { listFightCardFixtures } from "../src/data/fightCards.js";
 import { boardForFightCard } from "../src/lib/fightCardDraft.js";
-import { mulberry32 } from "../src/lib/rng.js";
+import { mulberry32, shuffle } from "../src/lib/rng.js";
 import { computeFightPreview, deriveTraits } from "../src/lib/career.js";
 import {
   computeBuildValueBreakdown,
@@ -333,6 +333,213 @@ function runDraftStrategyAudit(options = {}) {
   const nonMonotonicAttrs = SKILL_KEYS
     .filter((key) => monotonicity[key].decreases > 0);
 
+  // ---------------------------------------------------------------------
+  // Structural prototype: each source fighter can contribute at most one
+  // of the 8 skill picks. This changes no combat/scoring rule; it tests
+  // whether source allocation alone can create a transparent reason to
+  // pass on the highest CURRENT number in order to save that fighter for a
+  // later attribute.
+  //
+  // Each round gets one full seeded ordering of the card. The visible board
+  // is the first five UNUSED fighters in that precomputed ordering. Because
+  // the full round order is generated before any choice, future RNG/boards
+  // do not change based on the player's decision.
+  function buildOneUseDraft(fixture, seed) {
+    const rng = mulberry32(seed);
+    const skillOrder = shuffle(SKILL_KEYS, rng);
+    const roundOrders = skillOrder.map(() => shuffle(fixture.cardFighters, rng));
+    const fighterIndex = new Map(fixture.cardFighters.map((fighter, index) => [fighter.id, index]));
+
+    function available(roundIndex, usedMask) {
+      return roundOrders[roundIndex]
+        .filter((fighter) => (usedMask & (1 << fighterIndex.get(fighter.id))) === 0)
+        .slice(0, 5);
+    }
+
+    function myopic() {
+      let usedMask = 0;
+      let total = 0;
+      const path = [];
+
+      for (let roundIndex = 0; roundIndex < skillOrder.length; roundIndex += 1) {
+        const attrKey = skillOrder[roundIndex];
+        const board = available(roundIndex, usedMask);
+        const chosen = [...board].sort((a, b) => (
+          b.attributes[attrKey] - a.attributes[attrKey]
+          || a.id.localeCompare(b.id)
+        ))[0];
+
+        total += chosen.attributes[attrKey];
+        usedMask |= 1 << fighterIndex.get(chosen.id);
+        path.push({ attrKey, fighter: chosen, board });
+      }
+
+      return { total, path };
+    }
+
+    const memo = new Map();
+    function optimal(roundIndex, usedMask) {
+      if (roundIndex >= skillOrder.length) return { total: 0, path: [] };
+      const key = `${roundIndex}|${usedMask}`;
+      if (memo.has(key)) return memo.get(key);
+
+      const attrKey = skillOrder[roundIndex];
+      const board = available(roundIndex, usedMask);
+      let best = null;
+
+      for (const fighter of board) {
+        const bit = 1 << fighterIndex.get(fighter.id);
+        const rest = optimal(roundIndex + 1, usedMask | bit);
+        const total = fighter.attributes[attrKey] + rest.total;
+        const candidate = {
+          total,
+          path: [{ attrKey, fighter, board }, ...rest.path],
+        };
+
+        if (
+          !best
+          || candidate.total > best.total
+          || (
+            candidate.total === best.total
+            && fighter.attributes[attrKey] > best.path[0].fighter.attributes[attrKey]
+          )
+        ) {
+          best = candidate;
+        }
+      }
+
+      memo.set(key, best);
+      return best;
+    }
+
+    return { skillOrder, myopic: myopic(), optimal: optimal(0, 0) };
+  }
+
+  const oneUsePrototype = {
+    seedsPerFixture: 128,
+    drafts: 0,
+    draftsWherePlanningBeatsMyopic: 0,
+    draftsWithDeliberateLowerChoice: 0,
+    deliberateLowerChoices: 0,
+    totalOptimalRounds: 0,
+    totalPointGain: 0,
+    maxPointGain: 0,
+    byFixture: {},
+    examples: [],
+  };
+
+  fixtures.forEach((fixture, fixtureIndex) => {
+    const fixtureStats = {
+      fighterCount: fixture.cardFighters.length,
+      drafts: 0,
+      planningWins: 0,
+      draftsWithLowerChoice: 0,
+      lowerChoices: 0,
+      pointGain: 0,
+      maxPointGain: 0,
+    };
+
+    for (let sample = 0; sample < oneUsePrototype.seedsPerFixture; sample += 1) {
+      const seed = 2000000 + fixtureIndex * 100000 + sample;
+      const draft = buildOneUseDraft(fixture, seed);
+      const gain = draft.optimal.total - draft.myopic.total;
+      let usedMask = 0;
+      const fighterIndex = new Map(fixture.cardFighters.map((fighter, index) => [fighter.id, index]));
+      let lowerChoicesThisDraft = 0;
+
+      draft.optimal.path.forEach((step, roundIndex) => {
+        const visible = step.board.filter(
+          (fighter) => (usedMask & (1 << fighterIndex.get(fighter.id))) === 0,
+        );
+        const maxVisible = Math.max(...visible.map((fighter) => fighter.attributes[step.attrKey]));
+        const chosenValue = step.fighter.attributes[step.attrKey];
+
+        if (chosenValue < maxVisible) {
+          lowerChoicesThisDraft += 1;
+          if (oneUsePrototype.examples.length < 8) {
+            const higherOptions = visible
+              .filter((fighter) => fighter.attributes[step.attrKey] > chosenValue)
+              .sort((a, b) => b.attributes[step.attrKey] - a.attributes[step.attrKey]);
+
+            oneUsePrototype.examples.push({
+              fixtureId: fixture.id,
+              seed,
+              round: roundIndex + 1,
+              attrKey: step.attrKey,
+              chosen: {
+                fighter: step.fighter.displayName,
+                value: chosenValue,
+              },
+              passedOn: higherOptions.slice(0, 3).map((fighter) => ({
+                fighter: fighter.displayName,
+                value: fighter.attributes[step.attrKey],
+              })),
+              optimalFinalSkillTotal: draft.optimal.total,
+              myopicFinalSkillTotal: draft.myopic.total,
+              finalGain: gain,
+              skillOrder: draft.skillOrder,
+            });
+          }
+        }
+
+        usedMask |= 1 << fighterIndex.get(step.fighter.id);
+      });
+
+      oneUsePrototype.drafts += 1;
+      oneUsePrototype.totalOptimalRounds += draft.optimal.path.length;
+      oneUsePrototype.totalPointGain += gain;
+      oneUsePrototype.maxPointGain = Math.max(oneUsePrototype.maxPointGain, gain);
+
+      fixtureStats.drafts += 1;
+      fixtureStats.pointGain += gain;
+      fixtureStats.maxPointGain = Math.max(fixtureStats.maxPointGain, gain);
+
+      if (gain > 0) {
+        oneUsePrototype.draftsWherePlanningBeatsMyopic += 1;
+        fixtureStats.planningWins += 1;
+      }
+      if (lowerChoicesThisDraft > 0) {
+        oneUsePrototype.draftsWithDeliberateLowerChoice += 1;
+        fixtureStats.draftsWithLowerChoice += 1;
+      }
+
+      oneUsePrototype.deliberateLowerChoices += lowerChoicesThisDraft;
+      fixtureStats.lowerChoices += lowerChoicesThisDraft;
+    }
+
+    oneUsePrototype.byFixture[fixture.id] = {
+      fighterCount: fixtureStats.fighterCount,
+      drafts: fixtureStats.drafts,
+      planningBeatsMyopicRate: round(fixtureStats.planningWins / fixtureStats.drafts, 4),
+      draftsWithDeliberateLowerChoiceRate: round(fixtureStats.draftsWithLowerChoice / fixtureStats.drafts, 4),
+      deliberateLowerChoicesPerDraft: round(fixtureStats.lowerChoices / fixtureStats.drafts, 3),
+      averageFinalSkillPointGainVsMyopic: round(fixtureStats.pointGain / fixtureStats.drafts, 3),
+      maxFinalSkillPointGainVsMyopic: fixtureStats.maxPointGain,
+    };
+  });
+
+  oneUsePrototype.planningBeatsMyopicRate = round(
+    oneUsePrototype.draftsWherePlanningBeatsMyopic / oneUsePrototype.drafts,
+    4,
+  );
+  oneUsePrototype.draftsWithDeliberateLowerChoiceRate = round(
+    oneUsePrototype.draftsWithDeliberateLowerChoice / oneUsePrototype.drafts,
+    4,
+  );
+  oneUsePrototype.deliberateLowerChoiceRate = round(
+    oneUsePrototype.deliberateLowerChoices / oneUsePrototype.totalOptimalRounds,
+    4,
+  );
+  oneUsePrototype.deliberateLowerChoicesPerDraft = round(
+    oneUsePrototype.deliberateLowerChoices / oneUsePrototype.drafts,
+    3,
+  );
+  oneUsePrototype.averageFinalSkillPointGainVsMyopic = round(
+    oneUsePrototype.totalPointGain / oneUsePrototype.drafts,
+    3,
+  );
+  oneUsePrototype.note = "Audit-only structural prototype. Objective is total final skill-rating points, not a proposed scoring formula. A deliberate lower choice means the globally optimal allocation passes on a higher currently-visible value to preserve that source fighter for a later skill.";
+
   return {
     methodology: {
       contextCount: contexts.length,
@@ -373,6 +580,7 @@ function runDraftStrategyAudit(options = {}) {
         note: "Reach enters win probability as (reachScore - 75) / 700. It is monotonic and currently measured against a neutral 75 baseline rather than opponent reach.",
       },
     },
+    oneUseSourcePrototype: oneUsePrototype,
     buildValue: {
       rosterCorrelationWithSkillAverage: round(pearson(
         rosterBuildValues.map((row) => row.skillAverage),
