@@ -503,6 +503,19 @@
         .pick-mini-bar-track { flex: 1; height: 3px; border-radius: 2px; background: rgba(var(--line-rgb),0.15); overflow: hidden; }
         .pick-mini-bar-fill { height: 100%; background: var(--slate); border-radius: 2px; }
 
+        /* fight-card-v2 planning: replaces generic related-stat bars with a
+           compact source-opportunity readout. Three imminent skills plus the
+           strongest farther-out value are enough to plan without making a
+           132px pick card into a full scouting sheet. */
+        .pick-card-future { margin-top: 6px; padding-top: 5px; border-top: 1px dashed rgba(var(--line-rgb),0.16); }
+        .pick-card-future-label { font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700; letter-spacing: 0.08em; color: var(--brass); margin-bottom: 4px; }
+        .pick-card-future-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+        .pick-future-chip { display: inline-flex; align-items: baseline; gap: 2px; padding: 2px 4px; border-radius: 4px; background: rgba(var(--line-rgb),0.10); font-size: 8.5px; color: var(--ink); white-space: nowrap; }
+        .pick-future-chip b { font-size: 7.5px; letter-spacing: 0.02em; color: var(--slate); }
+        .pick-future-chip.later { background: rgba(var(--brass-rgb),0.10); }
+        .pick-future-chip.later b { color: var(--brass); }
+        .pick-card-future-last { font-family: 'IBM Plex Mono', monospace; font-size: 8.5px; color: var(--slate); }
+
         @keyframes rollFlicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         .attr-badge.rolling, .context-chip.rolling { animation: rollFlicker 0.14s linear infinite; }
         .rolling-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 22px 0; color: var(--brass); }
