@@ -5,7 +5,18 @@ import { formatHeight, formatReach } from "../lib/utils.js";
 import TierIcon from "./TierIcon.jsx";
 
 // ---------- Restyled fighter pick card (colored header band, tier icon, related-stat mini bars) ----------
-function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selected, disabled, onPick, normalizeDivision }) {
+function FighterPickCard({
+  fighter,
+  currentAttrKey,
+  index,
+  blind,
+  value,
+  selected,
+  disabled,
+  onPick,
+  normalizeDivision,
+  futureSkillKeys = null,
+}) {
   const attr = ATTR_BY_KEY[currentAttrKey];
   const tier = tierOf(value.scoreValue);
   // Header color is driven by the actual rating tier -- bronze/silver/gold/legendary --
@@ -18,6 +29,19 @@ function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selecte
   // Never in Blind: the real value is still there under the hood, and this
   // would visually announce it the instant the number itself is hidden.
   const eliteSelect = selected && !blind && value.scoreValue >= 96;
+
+  // fight-card-v2 planning aid. The player only needs enough information
+  // to reason about the opportunity cost of consuming this source now.
+  // Show the next three skill values plus the strongest farther-out value;
+  // this keeps five-card boards compact while making "save them for later"
+  // a visible decision rather than hidden roster knowledge.
+  const hasFutureSkillPlan = Array.isArray(futureSkillKeys);
+  const immediateFutureKeys = hasFutureSkillPlan ? futureSkillKeys.slice(0, 3) : [];
+  const fartherFutureKeys = hasFutureSkillPlan ? futureSkillKeys.slice(3) : [];
+  const bestFartherFutureKey = fartherFutureKeys.reduce((bestKey, key) => {
+    if (!bestKey) return key;
+    return fighter[key] > fighter[bestKey] ? key : bestKey;
+  }, null);
 
   // Defaults to the fighter's own division -- matches valueFor's own
   // default (App.jsx), so Classic/Blind/Challenge get the exact same
@@ -53,20 +77,43 @@ function FighterPickCard({ fighter, currentAttrKey, index, blind, value, selecte
             : `${formatHeight(fighter.ht)} / ${formatReach(fighter.rc)} · ${fighter.wc} · ${fighter.era}`}
         </div>
         {!blind && value.relativeNote && <div className="pick-card-note">{value.relativeNote}</div>}
-        {!blind && related.length > 0 && (
-          <div className="pick-card-bars">
-            {related.map((rk) => {
-              const rv = relatedValue(rk);
-              const pct = Math.max(4, Math.round(((rv - 50) / 49) * 100));
-              return (
-                <div className="pick-mini-bar-row" key={rk}>
-                  <span>{ATTR_BY_KEY[rk].abbr}</span>
-                  <div className="pick-mini-bar-track"><div className="pick-mini-bar-fill" style={{ width: `${pct}%` }} /></div>
-                  <span className="mono">{rv}</span>
-                </div>
-              );
-            })}
+        {!blind && hasFutureSkillPlan ? (
+          <div className="pick-card-future">
+            <div className="pick-card-future-label">SAVE VALUE</div>
+            {futureSkillKeys.length > 0 ? (
+              <div className="pick-card-future-grid">
+                {immediateFutureKeys.map((key) => (
+                  <span className="pick-future-chip" key={key}>
+                    <b>{ATTR_BY_KEY[key].abbr}</b> <span className="mono">{fighter[key]}</span>
+                  </span>
+                ))}
+                {bestFartherFutureKey && (
+                  <span className="pick-future-chip later" key={bestFartherFutureKey}>
+                    <b>LATER {ATTR_BY_KEY[bestFartherFutureKey].abbr}</b>{" "}
+                    <span className="mono">{fighter[bestFartherFutureKey]}</span>
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="pick-card-future-last">LAST SKILL · no source to save</div>
+            )}
           </div>
+        ) : (
+          !blind && related.length > 0 && (
+            <div className="pick-card-bars">
+              {related.map((rk) => {
+                const rv = relatedValue(rk);
+                const pct = Math.max(4, Math.round(((rv - 50) / 49) * 100));
+                return (
+                  <div className="pick-mini-bar-row" key={rk}>
+                    <span>{ATTR_BY_KEY[rk].abbr}</span>
+                    <div className="pick-mini-bar-track"><div className="pick-mini-bar-fill" style={{ width: `${pct}%` }} /></div>
+                    <span className="mono">{rv}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
     </div>
