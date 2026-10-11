@@ -639,10 +639,11 @@ findings here may change what a good scoring formula should reward.
   Daily skill rounds, each CardFighter source can contribute at most once.
   Height/Reach remain outside that restriction. The live Supabase ruleset is
   still `fight-card-v1`, so production Daily behavior has not changed.
-- 🧪 **Activation/UX review remains open (#66).** The audit prototype produced
-  deliberate lower-number optimal picks in 82.81% of sampled drafts, but the
-  mechanic needs legible planning information. A v2-only remaining-skill-order
-  cue is being tested before any backend ruleset publication.
+- ✅ **Activation scheduled (#66).** The audit prototype produced deliberate
+  lower-number optimal picks in 82.81% of sampled drafts. The v2-only
+  remaining-skill-order cue is merged, and the live backend now has
+  `fight-card-v2` scheduled to become authoritative on **2026-10-12 UTC**.
+  Historical `fight-card-v1` assignments remain immutable.
 - ⏳ **Physical profile / Height contradiction remains unresolved.** Do not
   paper over it with an automatic short-fighter bonus; treat it as a separate
   explainable combat/profile design problem after the source-allocation
