@@ -1961,6 +1961,13 @@ export default function CageLab() {
                       blind={blind}
                       value={valueFor(f, currentAttrKey, lockedDivision)}
                       normalizeDivision={lockedDivision}
+                      futureSkillKeys={
+                        mode === "daily"
+                          && round <= SKILL_KEYS.length
+                          && dailyUsesOneUseSource(dailyMeta?.rulesVersion)
+                          ? order.slice(round, SKILL_KEYS.length)
+                          : null
+                      }
                       selected={pickedFighterId === f.id}
                       disabled={pickedFighterId != null}
                       onPick={() => handlePick(f)}
