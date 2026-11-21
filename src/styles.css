@@ -998,6 +998,40 @@
         .stat-compare-row b:last-child { text-align: right; }
         .stat-compare-row span { text-align: center; color: var(--slate); font-size: 10.5px; }
 
+        /* ---- Live Fight Viewer (Move-by-Move V1) -- round-by-round replay
+           of an already-decided fight. Extends the existing panel/token/
+           round-pip/fight-moment vocabulary above rather than inventing a
+           new visual language; the only new primitives are the momentum
+           track/fill and the name header. ---- */
+        .live-fight-viewer { text-align: center; }
+        .live-fight-names { display: flex; align-items: center; justify-content: center; gap: 8px;
+          font-size: 15px; font-weight: 700; margin: 2px 0 12px; }
+        .live-fight-name.you { color: var(--brass); }
+        .live-fight-name.opp { color: var(--blood); }
+        .live-fight-vs { color: var(--slate); font-size: 10px; text-transform: uppercase; }
+        .momentum-meter { margin-bottom: 12px; }
+        .momentum-track { position: relative; height: 14px; border-radius: 7px;
+          background: rgba(var(--line-rgb),0.12); overflow: hidden; }
+        .momentum-center-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px;
+          background: rgba(var(--line-rgb),0.4); z-index: 1; }
+        .momentum-fill { position: absolute; top: 0; bottom: 0; transition: left 0.45s ease, width 0.45s ease, background-color 0.3s ease; }
+        .momentum-fill.you { background: var(--brass); }
+        .momentum-fill.opp { background: var(--blood); }
+        .momentum-fill.intensity-medium { box-shadow: 0 0 6px 0 currentColor inset; }
+        .momentum-fill.intensity-high { box-shadow: 0 0 10px 1px currentColor inset; }
+        .momentum-fill.flip-flash { animation: momentumFlipPulse 0.6s ease; }
+        @keyframes momentumFlipPulse {
+          0%, 100% { filter: brightness(1); }
+          35% { filter: brightness(1.6); }
+        }
+        .live-round-tracker { justify-content: center; }
+        .round-pip.pending { opacity: 0.35; }
+        .round-pip.current { box-shadow: 0 0 0 1.5px var(--ink) inset; }
+        .live-fatigue-damage { margin-bottom: 10px; }
+        .live-fight-caption { min-height: 56px; text-align: left; margin-bottom: 10px; }
+        .live-fight-skip { margin: 0 auto; }
+        .app-root.reduced-motion .momentum-fill.flip-flash { animation: none; }
+
         /* ---- Event-card states: good / bad / rival read as three genuinely
            distinct colors (gold / crimson / ember), not just different labels
            on the same tint ---- */

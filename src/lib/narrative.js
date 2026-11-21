@@ -55,6 +55,18 @@ function recentAvg(arr, n) {
   return slice.length ? slice.reduce((s, v) => s + v, 0) / slice.length : 0;
 }
 
+// Pure sign-flip check, extracted out of scoreReasons so the live fight
+// viewer's momentum meter (src/lib/fightPlayback.js) can reuse the exact
+// same "did momentum actually flip" rule this file already uses for its own
+// "momentum" narrative reason -- the meter's flip markers and this file's
+// prose must never disagree about which rounds counted as a real swing.
+// Takes only already-computed round data; invents nothing.
+function momentumFlipped(outputGap, priorOutputGapHistory, isFirst) {
+  const priorAvg = priorOutputGapHistory.length ? recentAvg(priorOutputGapHistory, 2) : 0;
+  return !isFirst && Math.sign(outputGap) !== 0 && Math.sign(priorAvg) !== 0
+    && Math.sign(outputGap) !== Math.sign(priorAvg) && Math.abs(outputGap) > 3;
+}
+
 // Scores every real, sign-matched explanation for how this round went, and
 // returns the strongest one plus a short list of runners-up (used by the
 // finish-round build-up, which wants the top explanation without the
@@ -65,9 +77,7 @@ function scoreReasons(round, prevState, isFirst) {
   const tdDiff = round.playerTD - round.oppTD;
   const dmgGap = round.oppDamage - round.playerDamage; // cumulative; + favors player
 
-  const priorAvg = prevState.outputGapHistory.length ? recentAvg(prevState.outputGapHistory, 2) : 0;
-  const momentumFlipped = !isFirst && Math.sign(round.outputGap) !== 0 && Math.sign(priorAvg) !== 0
-    && Math.sign(round.outputGap) !== Math.sign(priorAvg) && Math.abs(round.outputGap) > 3;
+  const momentumFlippedThisRound = momentumFlipped(round.outputGap, prevState.outputGapHistory, isFirst);
 
   const playerPeakSig = Math.max(0, ...prevState.playerSigHistory);
   const oppPeakSig = Math.max(0, ...prevState.oppSigHistory);
@@ -90,7 +100,7 @@ function scoreReasons(round, prevState, isFirst) {
   if (tdDiff !== 0 && (tdDiff > 0) === won) reasons.push({ kind: "takedown", score: 20 + Math.abs(tdDiff) * 5 });
   if (round.groundHeavy && Math.abs(dmgGap) >= 6 && (dmgGap > 0) === won) reasons.push({ kind: "grapplingControl", score: 10 + Math.abs(dmgGap) });
   if (lateSurge && (round.outputGap > 0) === won) reasons.push({ kind: "surge", score: 15 + Math.abs(round.outputGap) });
-  if (momentumFlipped && (round.outputGap > 0) === won) reasons.push({ kind: "momentum", score: 8 + Math.abs(round.outputGap) });
+  if (momentumFlippedThisRound && (round.outputGap > 0) === won) reasons.push({ kind: "momentum", score: 8 + Math.abs(round.outputGap) });
   if ((playerFadingStrong && !won) || (oppFadingStrong && won)) reasons.push({ kind: "fatigueStrong", score: 12 });
   else if ((playerFadingMild && !won) || (oppFadingMild && won)) reasons.push({ kind: "fatigueMild", score: 7 });
   if (Math.abs(sigDiff) >= 8 && (sigDiff > 0) === won) reasons.push({ kind: "striking", score: Math.abs(sigDiff) });
@@ -317,4 +327,4 @@ function buildFightStory(rounds, method) {
   return roundNarratives;
 }
 
-export { buildFightStory, identifyMoments, howItHappened };
+export { buildFightStory, identifyMoments, howItHappened, momentumFlipped };

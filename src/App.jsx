@@ -62,6 +62,7 @@ import AttributeBarList from "./components/AttributeBarList.jsx";
 import TapeCard from "./components/TapeCard.jsx";
 import FighterPickCard from "./components/FighterPickCard.jsx";
 import FightResultCard from "./components/FightResultCard.jsx";
+import LiveFightViewer from "./components/LiveFightViewer.jsx";
 import DivisionRollPanel from "./components/DivisionRollPanel.jsx";
 import CareerSetupPanel from "./components/CareerSetupPanel.jsx";
 import CampPlanningPanel from "./components/CampPlanningPanel.jsx";
@@ -486,6 +487,17 @@ export default function CageLab() {
   // final one, the most important transition in the whole draft, used to
   // hard-cut straight into the reveal with no anticipation beat at all.
   const [revealPending, setRevealPending] = useState(false);
+  // Move-by-Move Live Fight Viewer V1: true once the current spotlighted
+  // fight's live playback has finished/been skipped, so the existing
+  // FightResultCard step can show. Starts true (no fight spotlighted yet)
+  // and resets to false every time a NEW fight gets spotlighted -- not
+  // persisted; a reload mid-playback just replays from the start, same
+  // as any other in-progress animation in this app.
+  const [liveViewDone, setLiveViewDone] = useState(true);
+  useEffect(() => {
+    setLiveViewDone(!spotlightFightId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotlightFightId]);
   const rollTimeoutRef = useRef(null);
   const pickTimeoutRef = useRef(null);
   const revealTimeoutRef = useRef(null);
@@ -2342,6 +2354,28 @@ export default function CageLab() {
             // Time step below (if this fight earned one) or dismisses the
             // spotlight outright, same as before Mic Time existed.
             if (!micTimeStep) {
+              // Move-by-Move Live Fight Viewer V1: a new Step 0 ahead of the
+              // existing static reveal, purely additive -- resolveFight
+              // already fully decided this fight (win/method/rounds/
+              // narrative/moments) before it ever reached the timeline, so
+              // the viewer only replays already-final data with pacing.
+              // Never mounted under Reduced Motion (goes straight to the
+              // unchanged step below). FightResultCard + Continue are
+              // completely untouched either way.
+              if (!reducedMotion && !liveViewDone) {
+                return (
+                  <LiveFightViewer
+                    rounds={spotlightEntry.rounds}
+                    roundNarratives={spotlightEntry.roundNarratives}
+                    moments={spotlightEntry.moments}
+                    win={spotlightEntry.win}
+                    playerName={name}
+                    oppName={spotlightEntry.opp}
+                    reducedMotion={reducedMotion}
+                    onDone={() => setLiveViewDone(true)}
+                  />
+                );
+              }
               return (
                 <>
                   <FightResultCard e={spotlightEntry} playerName={name} />
