@@ -1579,6 +1579,12 @@ Preserve the stable underlying fight engine unless a dedicated simulation-engine
 
 Do not mix this presentation feature casually into universe work.
 
+### Status
+
+🔜 V1 (round-by-round live viewer + momentum meter) — PR open, not yet merged.
+
+V1 is presentation-only: a new `LiveFightViewer` component (`src/components/LiveFightViewer.jsx`) plays once, ahead of the existing static `FightResultCard`, sequencing through the already-decided `rounds[]`/`roundNarratives`/`moments` data `resolveFight` already produces (see `src/lib/fightPlayback.js`). No change to `resolveFight`, `simulateRounds`, `computeWinProbability`, `computeFinishOdds`, or any scoring/ranking/title system. `FightResultCard` itself is unchanged and still appears immediately after. Full skip-to-end only; no playback-speed control yet. See issue #71 for the full scope and non-goals.
+
 ---
 
 # 5. Known Balance / Systems Backlog
@@ -1857,7 +1863,7 @@ As of this roadmap revision:
 9. ⏳ **Title Lineage + live-title-state correctness**
 10. ⏳ **Universe News + Historical Presentation**
 11. ⏳ **Rankings History / deeper universe storytelling**
-12. ⏳ **Move-by-Move Spectator Fight Simulation**
+12. 🔜 **Move-by-Move Spectator Fight Simulation — V1 PR open**
 13. 🧪 **Dedicated balance passes only where playtesting/data justify them**
 14. 🧪 **Roblox adaptation exploration later**
 
